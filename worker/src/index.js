@@ -4,10 +4,10 @@
 //   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/rubric
 //   admin : POST /v1/admin/ingest, POST /v1/admin/requeue
 import COVERED from "./covered.json";
-import { RUBRIC_VERSION, CORE, COMPANIES } from "./rubric.generated.js";
+import { RUBRIC_VERSION, CORE, COMPANIES, PEERS } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
 import { enrich } from "./excerpt.js";
-import { json, roleFor, nowIso, normalizeGrade, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { json, roleFor, nowIso, normalizeGrade, parseItemRef, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -63,7 +63,7 @@ async function claim(env, body) {
 async function submitGrades(env, body) {
   if (!body || !Array.isArray(body.grades)) return json({ error: "body.grades must be an array" }, 400);
   if (body.grades.length > MAX_CLAIM * 2) return json({ error: "too many grades in one request" }, 400);
-  const ids = [...new Set(body.grades.map((g) => Number(g?.item_id)).filter(Number.isInteger))];
+  const ids = [...new Set(body.grades.map((g) => parseItemRef(g?.item_id)?.id).filter(Number.isInteger))];
   const items = new Map();
   if (ids.length) {
     const ph = ids.map(() => "?").join(",");
@@ -75,19 +75,24 @@ async function submitGrades(env, body) {
   const model = String(body.model || "").slice(0, 60) || null;
   const accepted = [], rejected = [];
   for (const raw of body.grades) {
-    const item = items.get(Number(raw?.item_id));
-    const res = normalizeGrade(raw, item);
+    const ref = parseItemRef(raw?.item_id);
+    const item = ref ? items.get(ref.id) : undefined;
+    const res = normalizeGrade(raw, item, ref?.alsoTicker || null, COVERED.tickers);
     if (!res.ok) { rejected.push({ item_id: raw?.item_id ?? null, error: res.error }); continue; }
     const g = res.grade;
     const ins = await env.DB.prepare(
-      `INSERT INTO grades (item_id, run_id, rubric_version, model, score, band, rung, event_type, status_label, magnitude_usd, magnitude_pct,
-         thesis_drivers, why, note_hook, confidence, read_source, flags, graded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(item.id, runId, rubricVersion, model, g.score, g.band, g.rung, g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct,
-      g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source, g.flags, now).run();
-    await env.DB.prepare("UPDATE items SET state='graded', grade_id=?, claim_id=NULL, claimed_until=NULL WHERE id=?")
-      .bind(ins.meta.last_row_id, item.id).run();
-    accepted.push({ item_id: item.id, grade_id: ins.meta.last_row_id, score: g.score, band: g.band });
+      `INSERT INTO grades (item_id, ticker, run_id, rubric_version, model, score, band, rung, event_type, status_label, magnitude_usd, magnitude_pct,
+         thesis_drivers, why, note_hook, confidence, read_source, flags, dup_of, graded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(item.id, g.ticker, runId, rubricVersion, model, g.score, g.band, g.rung, g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct,
+      g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source, g.flags, g.dup_of, now).run();
+    // Only the item's own-ticker grade becomes its primary grade; "#TICKER"
+    // grades are stored alongside and surface under that ticker's filter.
+    if (g.primary) {
+      await env.DB.prepare("UPDATE items SET state='graded', grade_id=?, claim_id=NULL, claimed_until=NULL WHERE id=?")
+        .bind(ins.meta.last_row_id, item.id).run();
+    }
+    accepted.push({ item_id: raw.item_id, grade_id: ins.meta.last_row_id, ticker: g.ticker, score: g.score, band: g.band });
   }
   if (runId) {
     await env.DB.prepare("UPDATE runs SET last_seen_at=?, graded=graded+?, rejected=rejected+? WHERE id=?")
@@ -103,7 +108,11 @@ async function feed(env, url) {
   const before = Number(q.get("before_id"));
   if (Number.isInteger(before) && before > 0) { where.push("i.id < ?"); binds.push(before); }
   const ticker = (q.get("ticker") || "").toUpperCase();
-  if (ticker) { where.push("i.ticker = ?"); binds.push(ticker); }
+  if (ticker) {
+    where.push("(i.ticker = ? OR EXISTS (SELECT 1 FROM grades gx WHERE gx.item_id = i.id AND gx.ticker = ?))");
+    binds.push(ticker, ticker);
+  }
+  if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
   const minScore = Number(q.get("min_score"));
   if (Number.isFinite(minScore) && q.get("min_score") !== null) { where.push("g.score >= ?"); binds.push(minScore); }
   const state = q.get("state");
@@ -112,7 +121,9 @@ async function feed(env, url) {
   const unlabeled = q.get("unlabeled") === "1";
   if (unlabeled) where.push("NOT EXISTS (SELECT 1 FROM feedback f WHERE f.item_id = i.id)");
   const sql = `SELECT ${ITEM_COLS}, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.score, g.band, g.rung, g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct,
-      g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source, g.flags, g.graded_at, g.rubric_version, g.model,
+      g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source, g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of,
+      (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
+        WHERE gx.item_id = i.id AND gx.ticker != i.ticker AND gx.id IN (SELECT MAX(id) FROM grades WHERE item_id = i.id GROUP BY ticker)) AS also,
       (SELECT label FROM feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label,
       (SELECT note FROM feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label_note
     FROM items i LEFT JOIN grades g ON g.id = i.grade_id
@@ -165,11 +176,14 @@ async function stats(env) {
 function rubric(url) {
   const ticker = url.pathname.split("/")[3]?.toUpperCase();
   if (!CORE) return json({ error: "rubric not built" }, 503);
+  if (ticker === "PEERS") {
+    return PEERS ? json({ rubric_version: RUBRIC_VERSION, peers: PEERS }) : json({ error: "no peer notes" }, 404);
+  }
   if (ticker) {
     const sheet = COMPANIES[ticker];
     return sheet ? json({ rubric_version: RUBRIC_VERSION, ticker, sheet }) : json({ error: `no sheet for ${ticker}` }, 404);
   }
-  return json({ rubric_version: RUBRIC_VERSION, core: CORE, tickers: Object.keys(COMPANIES).sort() });
+  return json({ rubric_version: RUBRIC_VERSION, core: CORE, tickers: Object.keys(COMPANIES).sort(), has_peers: Boolean(PEERS) });
 }
 
 export default {

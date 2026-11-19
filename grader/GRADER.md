@@ -25,20 +25,26 @@ Environment: `ZENITH_API` and `ZENITH_GRADER_TOKEN` are set. Use the CLI
    - `node grader/zenith.mjs claim 30` and read the items.
    - For each ticker in the batch, read `.zenith/rubric/<TICKER>.md` (the company
      sheet overrides core.md where it is more specific).
+   - When an item names another company (a customer, partner, competitor or
+     acquirer), look it up in `.zenith/rubric/peers.md` (search it with
+     `grep -i -A5 "<name>"`; do not read the whole file): the short note says which
+     covered names it reads through to and in which direction. A peer's own news
+     counts for a covered company only through an explicit link, as core.md defines.
    - Grade every item. Use the excerpt when present. If there is no excerpt and the
      title alone cannot place the item on the ladder (e.g. a bare "8-K filed"),
      use WebSearch once to find the matching release or filing summary; if you
      still cannot tell, grade conservatively and set confidence ≤ 0.5.
-   - Write `.zenith/grades.json`: a JSON array with one object per item, exactly the
-     core.md output contract:
-     `{item_id, ticker, score, band, rung, event_type, status, magnitude_usd,
-       magnitude_pct_of_base, thesis_drivers_hit, why, note_hook, confidence,
-       read_source, flags}`.
-     `score` is an integer 0-100; band follows the score (Lead 90-100, Digest 70-89,
-     Borderline 40-69, Reject <40). `why` is ≤ 25 factual words. `note_hook` is
-     ≤ 20 words: what the analyst would write in a note, or null. If an item is
-     really about a different company, keep the item's ticker, add flag
-     `off_entity` and score it for the covered company.
+   - Write `.zenith/grades.json`: a JSON array, one object per item, following
+     **core.md section 10 (Output contract) exactly** — it is authoritative for
+     every field, the `reason:` flag (exactly one per grade), duplicates
+     (`score: null`, `band: "duplicate"`, `dup_of:<item_id>`) and covered-to-covered
+     grades (`item_id: "<id>#<TICKER>"` with `also:<TICKER>`). The API derives the
+     band from the score and rejects anything that breaks the contract.
+   - `read_source`: the claim gives you the opening text of the release or filing
+     when it could be fetched (`EXCERPT (ok)`). Set `read_source: true` only when
+     the facts you graded on are in that excerpt (or a page you opened). When the
+     excerpt is missing, follow core.md's rules for unread sources and its
+     confidence caps.
    - `node grader/zenith.mjs submit .zenith/grades.json`. Fix and resubmit any
      rejected grades.
    - Stop when a claim returns 0 items.

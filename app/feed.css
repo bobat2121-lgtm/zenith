@@ -37,6 +37,8 @@ a { color: var(--z-red-text) !important; }
 .z-badge.borderline { color: #C9CDD1; }
 .z-badge.reject { color: #5E6469; }
 .z-badge.pending { border-style: dashed; }
+.z-badge.duplicate { color: #5E6469; border-style: dotted; }
+.z-badge.also { color: var(--z-text); }
 .z-badge.src { font-weight: 600; }
 .z-label { color: var(--z-red-text); font-weight: 700; font-size: .78rem; }
 

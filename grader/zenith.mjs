@@ -47,7 +47,11 @@ if (cmd === "stats") {
     const s = await call("GET", `/v1/rubric/${t}`);
     writeFileSync(join(OUT, "rubric", `${t}.md`), s.sheet);
   }
-  console.log(`rubric ${core.rubric_version}: core.md + ${wanted.length} sheet(s) in .zenith/rubric/ (${BANDS})`);
+  if (core.has_peers) {
+    const p = await call("GET", "/v1/rubric/peers");
+    writeFileSync(join(OUT, "rubric", "peers.md"), p.peers);
+  }
+  console.log(`rubric ${core.rubric_version}: core.md + ${wanted.length} sheet(s)${core.has_peers ? " + peers.md" : ""} in .zenith/rubric/ (${BANDS})`);
 } else if (cmd === "labels") {
   const days = Number(args[0]) || 30;
   const since = new Date(Date.now() - days * 86400000).toISOString();

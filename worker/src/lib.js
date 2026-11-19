@@ -52,26 +52,55 @@ const num = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null 
 const strArray = (v, n = 12, len = 80) =>
   Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).slice(0, n).map((x) => clip(x, len)) : [];
 
-// Validates one grade object from the routine against the item it claims to
-// grade. Returns { ok: true, grade } or { ok: false, error }.
-export function normalizeGrade(raw, item) {
+// Parses an output-contract item_id: "123" (the item itself) or "123#UMAC"
+// (a covered-to-covered grade of item 123 for another covered ticker).
+export function parseItemRef(ref) {
+  const m = /^\s*(\d+)\s*(?:#\s*([A-Za-z.]+))?\s*$/.exec(String(ref ?? ""));
+  return m ? { id: Number(m[1]), alsoTicker: m[2] ? m[2].toUpperCase() : null } : null;
+}
+
+// Reasons under which the grade's ticker may differ from the item's ticker.
+const MISMATCH_OK = ["reason:off_entity", "reason:out_of_scope", "reason:source_quality", "reason:stale"];
+
+// Validates one grade (core rubric v3 output contract) against the item it
+// grades. Returns { ok: true, grade } or { ok: false, error }.
+//   alsoTicker: set for "123#TICKER" covered-to-covered grades.
+//   covered:    the covered ticker list.
+export function normalizeGrade(raw, item, alsoTicker = null, covered = null) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "grade must be an object" };
   if (!item) return { ok: false, error: "unknown item_id" };
-  const score = Number(raw.score);
-  if (!Number.isInteger(score) || score < 0 || score > 100) return { ok: false, error: "score must be an integer 0-100" };
-  const flags = strArray(raw.flags);
-  const ticker = String(raw.ticker || "").toUpperCase();
-  if (ticker && ticker !== item.ticker && !flags.includes("off_entity")) {
-    return { ok: false, error: `ticker ${ticker} does not match item ticker ${item.ticker} (flag off_entity if the item is about another company)` };
+  const flags = strArray(raw.flags, 16);
+  const rawBand = raw.band == null ? "" : String(raw.band).toLowerCase();
+  const isDuplicate = (raw.score === null || raw.score === undefined) && (rawBand === "duplicate" || flags.includes("reason:duplicate"));
+  let score = null;
+  if (!isDuplicate) {
+    // Number(null) is 0 — a missing score must never become a silent 0 grade.
+    if (raw.score === null || raw.score === undefined || raw.score === "") return { ok: false, error: "score must be an integer 0-100 (or null with band duplicate)" };
+    score = Number(raw.score);
+    if (!Number.isInteger(score) || score < 0 || score > 100) return { ok: false, error: "score must be an integer 0-100 (or null with band duplicate)" };
+  }
+  let ticker = item.ticker;
+  const given = raw.ticker == null ? "" : String(raw.ticker).toUpperCase();
+  if (alsoTicker) {
+    if (covered && !covered.includes(alsoTicker)) return { ok: false, error: `${alsoTicker} is not a covered ticker` };
+    if (given && given !== alsoTicker) return { ok: false, error: `ticker ${given} does not match item_id suffix #${alsoTicker}` };
+    ticker = alsoTicker;
+  } else if (given && given !== item.ticker && !flags.some((f) => MISMATCH_OK.includes(f))) {
+    return { ok: false, error: `ticker ${given} does not match item ticker ${item.ticker}; use item_id "${item.id}#${given}" for a covered-to-covered grade, or a reason:off_entity / reason:out_of_scope flag` };
   }
   const why = clip(raw.why, 400);
   if (!why) return { ok: false, error: "why is required" };
-  const band = bandFor(score);
-  if (raw.band && String(raw.band).toLowerCase() !== band) flags.push(`band_corrected_from_${String(raw.band).toLowerCase()}`);
+  const band = isDuplicate ? "duplicate" : bandFor(score);
+  if (rawBand && rawBand !== band) flags.push(`band_corrected_from_${rawBand}`);
+  if (!flags.some((f) => f.startsWith("reason:"))) flags.push("contract:no_reason");
+  const dupFlag = flags.find((f) => f.startsWith("dup_of:"));
   const confidence = num(raw.confidence);
   return {
     ok: true,
     grade: {
+      ticker,
+      primary: !alsoTicker,
+      dup_of: clip(raw.dup_of ?? (dupFlag ? dupFlag.slice(7) : null), 40),
       score,
       band,
       rung: clip(raw.rung, 60),

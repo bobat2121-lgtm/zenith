@@ -126,10 +126,16 @@ params["limit"] = st.session_state["limit"]
 def render_card(it: dict) -> None:
     band = it.get("band") or "pending"
     score = it.get("score")
-    badge = f'<span class="z-badge {band}">{score} · {band}</span>' if score is not None else '<span class="z-badge pending">grading…</span>'
+    if band == "duplicate":
+        badge = '<span class="z-badge duplicate">duplicate</span>'
+    elif score is not None:
+        badge = f'<span class="z-badge {band}">{score} · {band}</span>'
+    else:
+        badge = '<span class="z-badge pending">grading…</span>'
+    also = "".join(f'<span class="z-badge also">also {html.escape(a)}</span>' for a in (it.get("also") or "").split(",") if a)
     label = f'<span class="z-label">· you: {html.escape(it["label"])}</span>' if it.get("label") else ""
     head = (f'<b>{html.escape(it["ticker"])}</b> <span class="z-badge src">{source_badge(it["source_key"])}</span> '
-            f'· {ago(it.get("first_seen"))} {badge} {label}')
+            f'· {ago(it.get("first_seen"))} {badge} {also} {label}')
     title = f'<a href="{html.escape(it["url"], quote=True)}" target="_blank">{html.escape(it["title"])}</a>'
     why = f'<div class="z-why">{html.escape(it["why"])}</div>' if it.get("why") else ""
     hook = f'<div class="z-hook">Note hook: {html.escape(it["note_hook"])}</div>' if it.get("note_hook") else ""
@@ -142,7 +148,7 @@ def render_card(it: dict) -> None:
     if it.get("snippet"):
         with st.expander("Excerpt", expanded=False):
             st.caption(it["snippet"])
-    if score is not None:
+    if it.get("band"):
         cols = st.columns([1, 1, 1, 1, 2])
         for col, (value, text) in zip(cols, LABELS):
             if col.button(text, key=f"lbl-{it['item_id']}-{value}", type="primary" if it.get("label") == value else "secondary"):
