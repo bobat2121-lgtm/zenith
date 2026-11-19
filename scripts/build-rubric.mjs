@@ -23,6 +23,29 @@ if (existsSync(companiesDir)) {
   }
 }
 const missing = covered.tickers.filter((t) => !companies[t]);
+// core.md section 12: required sheet front matter. Sheets put it in a leading
+// --- block or a ```yaml fence near the top; materiality may be a USD base
+// (operating names) or a holdings/NAV base (treasury and fund names).
+const REQUIRED = [
+  ["base", /^(base_usd|base):/m],
+  ["materiality lines", /^\s*(\w*tiny\w*|lines_usd):/m],   // e.g. tiny_usd, or unit-based lines (AUR trucks)
+  ["thesis_drivers", /^thesis_drivers:/m],
+  ["open_items", /^open_items:/m],
+];
+function frontMatter(md) {
+  const text = md.replace(/\r\n/g, "\n");
+  const dashed = /^(?:```ya?ml\n)?---\n([\s\S]*?)\n---/.exec(text);
+  if (dashed) return dashed[1];
+  const fenced = /```ya?ml\n([\s\S]*?)\n```/.exec(text.slice(0, 20000));
+  return fenced ? fenced[1] : null;
+}
+const incomplete = [];
+for (const [t, md] of Object.entries(companies)) {
+  const fm = frontMatter(md);
+  const lacking = fm ? REQUIRED.filter(([, re]) => !re.test(fm)).map(([name]) => name) : ["front matter"];
+  if (lacking.length) incomplete.push(`${t} (${lacking.join(", ")})`);
+}
+if (incomplete.length) console.log(`WARNING sheets missing front matter fields: ${incomplete.join("; ")}`);
 const extra = Object.keys(companies).filter((t) => !covered.tickers.includes(t));
 const hash = createHash("sha256").update(core);
 for (const [t, md] of Object.entries(companies)) hash.update(`\n#${t}\n`).update(md);
@@ -39,4 +62,4 @@ writeFileSync(join(root, "worker", "src", "rubric.generated.js"), out);
 console.log(`rubric ${version}: core ${core.length} chars, ${Object.keys(companies).length} company sheets, peers ${peers.length} chars`);
 if (missing.length) console.log(`WARNING missing sheets: ${missing.join(", ")}`);
 if (extra.length) console.log(`WARNING sheets for non-covered tickers: ${extra.join(", ")}`);
-if (process.argv.includes("--strict") && (!core || missing.length)) process.exit(1);
+if (process.argv.includes("--strict") && (!core || missing.length || incomplete.length)) process.exit(1);

@@ -10,6 +10,7 @@ import html
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 import streamlit as st
@@ -76,6 +77,10 @@ def ago(iso: str | None) -> str:
     return t.strftime("%b %d")
 
 
+def safe_url(url: str | None) -> bool:
+    return bool(url) and urlparse(url).scheme in ("http", "https")
+
+
 def source_badge(key: str) -> str:
     if key.startswith("edgar_") or key.endswith("_sec_northland"):
         return "SEC"
@@ -136,7 +141,9 @@ def render_card(it: dict) -> None:
     label = f'<span class="z-label">· you: {html.escape(it["label"])}</span>' if it.get("label") else ""
     head = (f'<b>{html.escape(it["ticker"])}</b> <span class="z-badge src">{source_badge(it["source_key"])}</span> '
             f'· {ago(it.get("first_seen"))} {badge} {also} {label}')
-    title = f'<a href="{html.escape(it["url"], quote=True)}" target="_blank">{html.escape(it["title"])}</a>'
+    clean_title = html.escape(" ".join(str(it["title"]).split()))
+    title = (f'<a href="{html.escape(it["url"], quote=True)}" target="_blank" rel="noopener noreferrer">{clean_title}</a>'
+             if safe_url(it.get("url")) else clean_title)
     why = f'<div class="z-why">{html.escape(it["why"])}</div>' if it.get("why") else ""
     hook = f'<div class="z-hook">Note hook: {html.escape(it["note_hook"])}</div>' if it.get("note_hook") else ""
     avatar_cls = "z-avatar lead" if band == "lead" else "z-avatar"
@@ -147,7 +154,7 @@ def render_card(it: dict) -> None:
     )
     if it.get("snippet"):
         with st.expander("Excerpt", expanded=False):
-            st.caption(it["snippet"])
+            st.text(it["snippet"])  # third-party text: never rendered as Markdown
     if it.get("band"):
         cols = st.columns([1, 1, 1, 1, 2])
         for col, (value, text) in zip(cols, LABELS):
@@ -172,7 +179,8 @@ def feed() -> None:
     if tickers:
         for t in tickers:
             items += get_json("/v1/feed", tuple(sorted({**params, "ticker": t}.items())))["items"]
-        items.sort(key=lambda x: x["item_id"], reverse=True)
+        # One item can carry grades for several selected companies: show it once.
+        items = sorted({i["item_id"]: i for i in items}.values(), key=lambda x: x["item_id"], reverse=True)
     else:
         items = get_json("/v1/feed", tuple(sorted(params.items())))["items"]
     if not items:

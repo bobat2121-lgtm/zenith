@@ -1,3 +1,49 @@
+---
+ticker: MBAI
+name: MBody AI Ltd.
+as_of: 2026-11-18
+asset_class: operating
+filer: foreign private issuer (20-F / 6-K; no 8-K or 10-Q); Israeli company, formerly Check-Cap Ltd. (renamed 2026-08-27); CIK 0001610590; FY ends Dec 31
+base_usd: 2334921             # B: last fiscal year, the core 4.2.1 order (no guidance, no reported 2026 quarter). FY2025 audited revenue of MBody AI Corp., the accounting acquirer in the 2026-08-26 reverse recapitalization
+base_basis: "FY2025 revenue of MBody AI Corp. $2,334,921 (audited, BCRG Group); 6-K/A Ex.99.1, 2026-06-24. Re-base when the H1-2026 interim is filed (due 2026-12-31)"
+base_date: 2026-06-24         # filing date of the audited statements; period ended 2025-12-31
+tiny_usd: 23349               # 1% of B (B < $100M)
+lead_usd: 233492              # 10% of B
+small_base: true              # B < $25M; core 4.2.1 names MBAI (named paying customer, contract or deployment >= 70 without a value)
+shares_outstanding: 15345971  # AGM notice and proxy (6-K 2026-11-18 Ex.99.1/99.2), reference date 2026-11-13; 15,293,584 at 2026-09-21 (F-3). d lines: 5% = 0.77M, 10% = 1.53M, 20% = 3.07M
+cash_usd: 9401000             # 2026-07-31 as adjusted (F-3 capitalization table: pro forma for the 2026-08-26 merger close and the 2026-08-27 $10M offering; pre-merger actual $6K). No post-merger balance sheet filed yet
+market_cap_usd: null          # compute as shares_outstanding x the last close on the event date; never assume a price
+fx_as_of: n/a                 # reports in USD; NIS appears only as par value (NIS 48 per share), so no rate field
+terms: ["MBody AI", "MBody AI Ltd.", "MBody AI Corp.", "MBody AI Orchestrator", "MBody SI Ltd.", "Rline AI", "Rline AI Inc.", "Check-Cap Ltd."]
+aliases: ["$MBAI", "MBody", "MBody SI", "Check-Cap", "CHEK"]
+traps:
+  - {term: "MBAI", case: sensitive, rule: "ticker or cashtag only"}
+  - {term: "MBody", case: insensitive, rule: "whole word only; 'embody', 'embodied' and 'Embodied AI' contain the string"}
+  - {term: "Mbodi", case: insensitive, rule: "Mbodi AI is a separate robotics startup; off_entity"}
+  - {term: "Rline", case: insensitive, rule: "never alone; only 'Rline AI'"}
+  - {term: "Check-Cap", case: insensitive, rule: "historical issuer name (renamed 2026-08-27); legacy C-Scan capsule items are on-entity but Reject (<40)"}
+  - {term: "CHEK", case: sensitive, rule: "historical ticker, replaced by MBAI at the open on 2025-12-02; ticker or cashtag only"}
+  - {term: "Orchestrator|AI workforce platform", case: insensitive, rule: "only next to MBody"}
+  - {term: "MGM", case: sensitive, rule: "only with robots, cleaning or housekeeping at an MGM Resorts property; reject Amazon MGM Studios and MGM China"}
+  - {term: "Caesars", case: insensitive, rule: "only with robots, cleaning or housekeeping at a Caesars property; reject Little Caesars and Caesars Sportsbook"}
+  - {term: "Mohegan Sun", case: insensitive, rule: "only Mohegan Sun in Uncasville, CT; reject Mohegan Sun Pocono"}
+  - {term: "Caribe Royale", case: insensitive, rule: "needs MBody or robot context"}
+  - {term: "Apollo", case: insensitive, rule: "only Apollo Technology Capital Corporation (formerly Nobul AI Corp.), the ~7.5% related-party investee; reject Apollo Global and Apollo Hospitals"}
+  - {term: "Humanoid Global", case: insensitive, rule: "relay that reissues MBody news; dup_of the original unless it adds a fact"}
+  - {term: "Richtech|Brain Corp|Pudu", case: insensitive, rule: "not MBAI entities; match only when MBody or an MGM, Caesars, Mohegan Sun or Caribe Royale property is named in the same item"}
+thesis_drivers: [named_customers, financing_dilution, lockup_overhang, interim_financials, multi_brand, governance]
+open_items:
+  - {id: h1_interim, what: "H1-2026 interim balance sheet and income statement of the combined company (Nasdaq 5250(c)(2)): first post-merger revenue, recurring mix and cash burn", expires_at: 2026-12-31, note: "a miss draws a Nasdaq deficiency notice, scored on its own floor"}
+  - {id: agm_share_increase, what: "AGM 2026-12-22 result on no-par re-designation and authorized shares 18M to 175M (Proposals 1-2), with the 2026 equity plan and MBody SI rename authority", expires_at: 2027-01-15, note: "results 6-K expected within days of 2026-12-22; expiry set by sheet author, needs_owner"}
+  - {id: f3_takedown, what: "First primary takedown off the $250M F-3 (File 333-299083), or any other equity raise, after the AGM", expires_at: 2027-06-30, note: "no company date; the 'likely raise' is a sheet estimate; expiry set by sheet author, needs_owner"}
+  - {id: lockup_feb27, what: "Lock-up on 11,231,921 merger shares: expiry, or an early release or waiver by Northland", expires_at: 2027-02-22}
+  - {id: fy26_20f, what: "FY2026 20-F with the first combined audited statements and the going-concern conclusion", expires_at: 2027-04-30}
+  - {id: multi_brand_live, what: "First customer deployment of hardware-agnostic (multi-brand) control, 'in final testing' per 6-K 2026-09-22", expires_at: 2027-03-31, note: "company said 'near term'; expiry set by sheet author, needs_owner"}
+  - {id: customer_expansion, what: "Further Mohegan Sun (Uncasville) or Caribe Royale expansion, or a signed multi-year Mohegan Sun term (expansion 'anticipated' 2026-09-09)", expires_at: 2027-06-30, note: "no date; set by sheet author, needs_owner"}
+groups: [earnings_calendar]   # the body's group key earnings_dates is not a core key (core 8); use earnings_calendar
+owner_marks: []               # no line in this sheet carries an owner:<date> mark; the Mohegan Sun 'top feedworthy' quote is unmarked (core 11 anchor 86 covers it)
+---
+
 # MBAI — MBody AI Ltd.
 _Researched 2026-11-18. Nasdaq: MBAI. The ticker changed from CHEK on 2025-12-01, while the issuer was still Check-Cap Ltd. CIK 0001610590. Israeli company filing as a foreign private issuer (20-F and 6-K). Fiscal year ends Dec 31._
 - **No results date has been announced.** Third-party sites list 2026-11-13 or 11-17, but nothing was filed on either date, so both are unconfirmed.

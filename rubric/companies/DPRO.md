@@ -1,3 +1,50 @@
+---
+ticker: DPRO
+name: Draganfly Inc.
+as_of: 2026-11-18
+asset_class: operating
+filer: foreign private issuer, MJDS (40-F / 6-K / SUPPL); Canadian filings on SEDAR+; CIK 0001786286; FY ends Dec 31; listed Nasdaq DPRO, CSE DPRO, FSE 3U8
+base_usd: 5720000             # B: latest quarter x4 (Q3 2026 C$2,048,425 x4 = C$8,193,700) at cad_usd below; core 4.2.1 order (no guidance is given)
+base_cad: 8193700             # C$ value of B; re-convert at the event-date rate when a score sits on a band edge
+base_basis: "Q3 2026 revenue x4 (C$8.19M) at Bank of Canada USD/CAD 1.4326 (2026-11-18); Q3 release and interim 6-K 2026-11-10"
+base_date: 2026-11-10
+# no alt_base: LTM C$8,937,214 (Q4'25 C$1,912,199 + 9M'26 C$7,025,015) ~ US$6.24M and FY2025 C$7,731,163 ~ US$5.40M both sit within ~10% of B; lead would move only between ~US$0.54M and ~US$0.62M
+tiny_usd: 57200               # 1% of B (B < $100M), ~C$81.9K
+lead_usd: 572000              # 10% of B, ~C$819K
+small_base: true              # B < $25M in USD: core 4.2.1 small-base rule applies (named paying customer, contract or deployment >= 70 without a value)
+shares_outstanding: 39142756  # 2026-09-30, Q3 interim statements (6-K 2026-11-10, Ex.99.1); the MD&A dated 2026-11-10 gives no later count. Also 5,753,983 warrants, 1,686,176 RSUs, 21,944 options. d 5% = 1.96M; 10% = 3.91M; 20% = 7.83M shares
+cash_usd: 89770000            # C$128,605,465 at 2026-09-30 x cad_usd; working capital C$144,232,724; capital is judged on d, never on cash (core 4.2.2)
+market_cap_usd: null          # compute as shares_outstanding x the last Nasdaq (US$) close on the event date; never assume a price
+fx_as_of: 2026-11-18
+reporting_currency: CAD       # results in C$ (MD&A: amounts in Canadian dollars unless otherwise noted); financings and Skip Dynamix terms are in US$
+cad_usd: 0.6980               # 1 / Bank of Canada daily USD/CAD 1.4326, 2026-11-18
+terms: ["Draganfly Inc.", "Draganfly Innovations Inc.", "Draganfly Innovations USA", "Draganfly Defense USA", "Dronelogics", "Dronelogics Systems", "Skip Dynamix", "Flex FPV", "Draganfly Flex", "Commander 3XL", "Draganfly Commander", "Draganfly Heavy Lift", "Draganfly Apex", "Astiia"]
+aliases: ["$DPRO", "Draganfly", "3U8"]
+removed: ["drone delivery canada", "savve"]   # news-monitor coverage.js DPRO terms; neither is a Draganfly entity
+traps:
+  - {term: "DPRO", case: sensitive, rule: "ticker or cashtag only (Nasdaq and CSE)"}
+  - {term: "3U8", case: sensitive, rule: "Frankfurt ticker only"}
+  - {term: "Dragonfly", case: insensitive, rule: "not Draganfly; reject Dragonfly Energy, NASA's Dragonfly mission and other Dragonfly drones"}
+  - {term: "Orca", case: insensitive, rule: "only alongside Draganfly or Skip Dynamix; reject Boeing's Orca XLUUV"}
+  - {term: "Flex|Commander|Heavy Lift|Apex|Blitz", case: insensitive, rule: "only alongside 'Draganfly' or the full model name (Flex FPV, Commander 3XL)"}
+  - {term: "Astiia", case: insensitive, rule: "Draganfly's Low-Cost Tactical ISR UAS system; a CanadaBuys or DND item naming Astiia counts without 'Draganfly'"}
+  - {term: "Mountain Horse Solutions|Global Ordnance|F4 Defense International|Prime Strategic Holdings|Razon Group|DoD Solution|ACSL", case: insensitive, rule: "partners, not DPRO entities; match only when Draganfly is named in the same item"}
+  - {term: "Volatus|Unusual Machines|Red Cat", case: insensitive, rule: "peers and investor, not DPRO entities; count only when Draganfly is named (a UMAC-DPRO deal is covered-to-covered)"}
+thesis_drivers: [ddi_callups, inflection_timing, dow_adoption, cash_burn, gross_margin]
+open_items:
+  - {id: ye_opportunities, what: "Announcements on at least two more opportunities the CEO said to expect before year-end (Q3 call)", expires_at: 2026-12-31}
+  - {id: ddi_callup, what: "First Low-Cost Tactical ISR UAS (DDI) call-up or option exercise beyond the 100 firm systems", expires_at: 2027-12-31, note: "sheet calendar says 'rolling, 2026-12 to 2027'; end-2027 set by sheet author, needs_owner"}
+  - {id: canada_rfps, what: "First outcome, either way, of the 19 Canadian military RFPs Draganfly says it is in", expires_at: 2027-12-31, note: "set by sheet author, needs_owner"}
+  - {id: heavy_lift_commercial, what: "First commercial Heavy Lift sale enabled by the FAA Section 44807 exemption (2026-09-01)", expires_at: 2027-12-31, note: "set by sheet author, needs_owner"}
+  - {id: dow_repeat, what: "Repeat order from a DoW Heavy Lift or Commander 3XL customer (first sales announced 2026-10-27)", expires_at: 2027-12-31, note: "set by sheet author, needs_owner"}
+  - {id: philippines_definitive, what: "Definitive Philippine JV agreements with Prime Strategic Holdings (Razon Group) signed, or the framework ended", expires_at: 2027-06-30, note: "no date disclosed; sheet-author default, needs_owner"}
+  - {id: skip_earnout, what: "Skip Dynamix earn-out milestones (up to US$2.5M, cash or up to 80% in shares at US$6.46): met or missed", expires_at: 2027-06-11, note: "milestone dates not disclosed; first anniversary of the 2026-06-11 close (founders' payment-share condition) used, needs_owner"}
+  - {id: inflection_2027, what: "Revenue inflection guided to 'Q2, particularly Q3 2027' (Q3 call): reaffirmed, delivered or slipped again", expires_at: 2027-11-15, note: "covers the Q3 2027 print (2026 cadence: Q3 on 2026-11-10); a slip is a lead-level negative"}
+  - {id: ddp_next_phase, what: "Next Drone Dominance phase result for a Mountain Horse or Global Ordnance entry carrying the Draganfly Flex, either way", expires_at: 2027-12-31, note: "2027, dates TBD; set by sheet author, needs_owner"}
+groups: [earnings_calendar]   # the body's 'earnings_dates' key is not a core key (core §8); no custom dpro_<slug> key is declared
+owner_marks: []               # no line in this sheet carries an owner:<date> mark
+---
+
 # DPRO — Draganfly Inc.
 _Researched 2026-11-18. Listed on Nasdaq (DPRO), CSE (DPRO) and FSE (3U8). SEC CIK 0001786286. Canadian foreign private issuer: files 6-K, 40-F and SUPPL (MJDS prospectus supplements) with the SEC, and its Canadian filings go to SEDAR+. Fiscal year ends Dec 31. Q4/FY2026 results are expected in late March 2027; the FY2025 results and 40-F were both released 2026-03-24 ([EDGAR](https://www.sec.gov/Archives/edgar/data/1786286/000149315226012377/ex99-2.htm)). The 2026 prints came on 2026-05-11 (Q1), 2026-08-10 (Q2 call) and 2026-11-10 (Q3), so Q1 2027 is expected around 2027-05-10._
 

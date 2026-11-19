@@ -1,3 +1,42 @@
+---
+ticker: MRLN
+name: Merlin, Inc.
+as_of: 2026-11-18
+asset_class: operating
+filer: domestic (10-K / 10-Q / 8-K); CIK 0002028707; FY ends Dec 31; ex-SPAC (Inflection Point Acquisition Corp. IV, earlier Bleichroeder Acquisition Corp. I), de-SPAC closed 2026-03-16
+base_usd: 13800000            # B: latest quarter x4 (Q3 2026 $3.461M x4 = $13.844M), the core 4.2.1 order; no FY guidance exists
+base_basis: "Q3 2026 revenue x4; Q3 release (8-K 2.02 Ex.99.1) and 10-Q, both 2026-11-12"
+base_date: 2026-11-12
+tiny_usd: 138000              # 1% of B (B < $100M)
+lead_usd: 1380000             # 10% of B
+small_base: true              # B < $25M, so the core 4.2.1 small-base rule applies
+shares_outstanding: 102418930 # 10-Q cover, 2026-11-10 (101,693,656 at 2026-09-30); d 5% = 5.12M, 10% = 10.24M, 20% = 20.48M. Excludes 18,655,078 Series A preferred, convertible at $5.00 since the 2026-10-15 reset (10-Q)
+cash_usd: 161626000           # 2026-09-30: cash and equivalents $161.444M + short-term investments $0.182M (10-Q balance sheet); excludes $2.6M restricted cash; no debt
+market_cap_usd: null          # compute as shares_outstanding x the last close on the event date; never assume a price
+terms: ["Merlin Labs", "Merlin Labs, Inc.", "Merlin, Inc.", "Merlin Labs NZ Limited", "Merlin Labs Securities Corporation", "Merlin Pilot", "Merlin Condor", "SkyCourier UX", "Inflection Point Acquisition Corp. IV", "Bleichroeder Acquisition Corp. I", "Apollo Flight Research", "Automated Crew and Workload", "C-130J autonomy", "KC-135 Center Console Refresh", "Autonomous Casualty Evacuation Industry Technology Challenge"]
+aliases: ["$MRLN", "Merlin"]
+traps:
+  - {term: "MRLN", case: sensitive, rule: "ticker or cashtag only"}
+  - {term: "Merlin", case: insensitive, rule: "bare name only next to Merlin Labs, MRLN, Merlin Pilot, C-130J/USSOCOM/AFSOC autonomy or Kerikeri; reject SpaceX Merlin engines (Falcon 9 launches carrying PL/SATL satellites), the Rolls-Royce Merlin engine, the AW101 Merlin helicopter, the Fairchild/Swearingen Merlin aircraft, Merlin Entertainments, Merlin Properties and the Cornell Merlin bird-ID app"}
+  - {term: "merlin launch", case: insensitive, rule: "Satellogic's Merlin roadmap (SATL coverage.js term); off_entity for MRLN"}
+  - {term: "Merlin Chain|$MERL", case: insensitive, rule: "Bitcoin layer-2 token; off_entity; collides with the BTC-treasury names"}
+  - {term: "Condor", case: insensitive, rule: "never alone; only 'Merlin Condor' or next to Merlin Pilot; reject Condor Airlines"}
+  - {term: "SkyCourier", case: insensitive, rule: "only 'SkyCourier UX' with Merlin; plain SkyCourier is Textron's crewed aircraft"}
+  - {term: "Inflection Point|Bleichroeder", case: insensitive, rule: "only Inflection Point Acquisition Corp. IV or Bleichroeder Acquisition Corp. I; other Inflection Point SPACs are off_entity"}
+  - {term: "Reliable Robotics|Shield AI|Anduril|AeroVironment|Xwing|Skyryse|Sikorsky MATRIX|Textron|GE Aerospace|Northrop Grumman|Sierra Nevada|Lockheed Martin|Israel Aerospace Industries", case: insensitive, rule: "not MRLN entities; match only when Merlin or one of its sheet programs is named in the same item"}
+thesis_drivers: [cash_runway, c130j, new_programs, capital_overhang, civil_cert]
+open_items:
+  - {id: nasdaq_bid, what: "Nasdaq Rule 5450(a)(1) bid-price deficiency notice (8-K 3.01) after 30 consecutive business days below $1", expires_at: 2027-01-31, note: "earliest about 2026-12-30 if every close from 2026-11-16 is below $1; any close at or above $1 resets the count, so move expires_at when it does"}
+  - {id: africom_casevac_demo, what: "AFRICOM CASEVAC Grand Caravan demo flight in Morocco flown, or the King Air phase awarded", expires_at: 2027-03-31, note: "'in the coming months' (AIN 2026-11-16); no official date; set by front-matter author, needs_owner"}
+  - {id: opex_2027, what: "Detail of the 2027 opex cut ('meaningfully below' 2026): amount, headcount or layoffs, or an 8-K 2.05", expires_at: 2027-03-31, note: "expected with Q4/FY2026 results in March 2027; no date announced"}
+  - {id: ussocom_next_contract, what: "Next USSOCOM C-130J contract or task order after task order 3, either way", expires_at: 2027-06-30, note: "negotiation around April 2027; task order 3 runs to about May 2027 (AIN); set by front-matter author, needs_owner"}
+  - {id: c130j_test, what: "First C-130J ground or flight test of Merlin Pilot (IDIQ Stage 3 or 4), or a stated slip of the 'within the next year' guide", expires_at: 2027-11-12, note: "10-Q filed 2026-11-12; depends on integration testing and aircraft availability"}
+  - {id: large_aircraft_cert, what: "Named regulator, aircraft or timeline for the large-aircraft civil certification strategy (none named 2026-09-09)", expires_at: 2027-03-31, note: "open timing in the sheet; set by front-matter author, needs_owner"}
+  - {id: kc135_ccr, what: "KC-135 Center Console Refresh award decision, GE-Merlin team or a rival", expires_at: 2028-12-31, note: "open timing; GE exclusive teaming agreement's 36-month term ends in 2028 (prospectus); needs_owner"}
+groups: [earnings_calendar]   # core key; the body's `group_key=earnings_dates` is not a core key
+owner_marks: []               # no line in this sheet carries an owner:<date> mark
+---
+
 # MRLN — Merlin, Inc.
 _Researched 2026-11-18. Nasdaq Global Market: MRLN. Closed at $0.87 on 2026-11-18, market cap about $88M (https://stockanalysis.com/stocks/mrln/). CIK 0002028707. Fiscal year ends Dec 31. Q4/FY2026 results are expected in March 2027, but no date has been announced. This will be Merlin's first Q4 report as an operating public company; the 10-K filed 2026-03-12 was the SPAC shell's._
 

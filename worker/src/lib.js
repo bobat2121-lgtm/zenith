@@ -61,6 +61,9 @@ export function parseItemRef(ref) {
 
 // Reasons under which the grade's ticker may differ from the item's ticker.
 const MISMATCH_OK = ["reason:off_entity", "reason:out_of_scope", "reason:source_quality", "reason:stale"];
+// core.md section 10: exactly one reason flag from this list.
+export const REASONS = ["material", "primary_source", "new_information", "calendar_card", "below_materiality", "stale",
+  "late_repost", "already_covered", "duplicate", "insufficient_evidence", "source_quality", "off_entity", "out_of_scope", "promotional"];
 
 // Validates one grade (core rubric v3 output contract) against the item it
 // grades. Returns { ok: true, grade } or { ok: false, error }.
@@ -69,9 +72,18 @@ const MISMATCH_OK = ["reason:off_entity", "reason:out_of_scope", "reason:source_
 export function normalizeGrade(raw, item, alsoTicker = null, covered = null) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "grade must be an object" };
   if (!item) return { ok: false, error: "unknown item_id" };
+  // "<id>#<the item's own ticker>" is the item's primary grade.
+  if (alsoTicker && alsoTicker === item.ticker) alsoTicker = null;
   const flags = strArray(raw.flags, 16);
+  const reasons = flags.filter((f) => f.startsWith("reason:"));
+  if (reasons.length !== 1) return { ok: false, error: `exactly one reason: flag is required (got ${reasons.length}); allowed: ${REASONS.join(", ")}` };
+  if (!REASONS.includes(reasons[0].slice(7))) return { ok: false, error: `unknown ${reasons[0]}; allowed: ${REASONS.join(", ")}` };
   const rawBand = raw.band == null ? "" : String(raw.band).toLowerCase();
-  const isDuplicate = (raw.score === null || raw.score === undefined) && (rawBand === "duplicate" || flags.includes("reason:duplicate"));
+  const saysDuplicate = rawBand === "duplicate" || reasons[0] === "reason:duplicate";
+  const isDuplicate = saysDuplicate && (raw.score === null || raw.score === undefined);
+  if (saysDuplicate && !isDuplicate) return { ok: false, error: "a duplicate must have score null" };
+  if (isDuplicate && !(raw.dup_of || flags.some((f) => f.startsWith("dup_of:")))) return { ok: false, error: "a duplicate needs dup_of:<item_id>" };
+  if (raw.read_source != null && typeof raw.read_source !== "boolean") return { ok: false, error: "read_source must be true or false" };
   let score = null;
   if (!isDuplicate) {
     // Number(null) is 0 — a missing score must never become a silent 0 grade.
@@ -92,9 +104,10 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null) {
   if (!why) return { ok: false, error: "why is required" };
   const band = isDuplicate ? "duplicate" : bandFor(score);
   if (rawBand && rawBand !== band) flags.push(`band_corrected_from_${rawBand}`);
-  if (!flags.some((f) => f.startsWith("reason:"))) flags.push("contract:no_reason");
   const dupFlag = flags.find((f) => f.startsWith("dup_of:"));
-  const confidence = num(raw.confidence);
+  let confidence = num(raw.confidence);
+  // core.md section 10: confidence <= 0.5 when the source was not read.
+  if (!raw.read_source && confidence != null && confidence > 0.5) { confidence = 0.5; flags.push("confidence_capped"); }
   return {
     ok: true,
     grade: {
@@ -112,10 +125,23 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null) {
       why,
       note_hook: clip(raw.note_hook, 240),
       confidence: confidence == null ? null : Math.max(0, Math.min(1, confidence)),
+      reason: reasons[0].slice(7),
       read_source: raw.read_source ? 1 : 0,
       flags: JSON.stringify([...new Set(flags)]),
     },
   };
+}
+
+// Splits a list into chunks (D1 allows at most 100 bound parameters).
+export function chunk(list, size = 90) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+// Only http(s) URLs are fetched or linked.
+export function isHttpUrl(u) {
+  try { return /^https?:$/.test(new URL(u).protocol); } catch { return false; }
 }
 
 // An item whose publication date is far older than when news-monitor first

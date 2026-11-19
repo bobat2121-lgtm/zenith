@@ -1,3 +1,48 @@
+---
+ticker: GRRR
+name: Gorilla Technology Group Inc.
+as_of: 2026-11-18
+asset_class: operating
+filer: foreign private issuer (20-F / 6-K, never 8-K); Cayman Islands, HQ London; CIK 0001903145; FY ends Dec 31
+base_usd: 200000000           # B: FY2026 guidance floor, "at least US$200M" (core 4.2.1: an "at least" guide uses its floor); Q2 2026 $50.1M x4 = $200.5M agrees
+base_basis: "FY2026 revenue guidance 'at least US$200M', raised 2026-08-24 from $160-200M (H1 2026 6-K ex.99)"
+base_date: 2026-08-24         # re-base after the Q3 print (release before the 2026-11-19 call); no alt base: Q x4 and the guidance floor coincide
+tiny_usd: 1000000             # 0.5% of B (B > $100M)
+lead_usd: 20000000            # 10% of B
+small_base: false             # B >= $25M
+shares_outstanding: 27578506  # 424B7 filed 2026-10-15, as of 2026-09-22; plus 1,000,000 pre-delivery shares issued at the 2026-10-29/30 note closing = ~28.58M pro forma
+cash_usd: 179400000           # 2026-06-30 ($179,361,146, H1 6-K ex.99); before the $125M Series B (closed 2026-07-17) and the ~$24.2M net October draw; borrowings ~$73.2M, derivative liability $48.2M
+market_cap_usd: null          # compute as shares_outstanding x the last close on the event date; never assume a price
+# no fx fields: reports in USD under IFRS; Egypt exposure is EGP and Taiwan awards may be TWD, so convert those at the event-date rate
+terms: ["Gorilla Technology Group", "Gorilla Technology", "Gorilla Technology Inc.", "Gorilla Tech Capital", "Shackleton Finance", "NeutraDC Nxera Batam", "Yotta 1", "Yotta 2", "Korat"]
+aliases: ["$GRRR", "GRRRW", "Gorilla"]
+traps:
+  - {term: "GRRR", case: sensitive, rule: "ticker, cashtag or GRRRW warrants only; reject 'grrr' as an interjection"}
+  - {term: "Gorilla", case: insensitive, rule: "needs Gorilla Technology/GRRR context or a Yotta, Batam, Egypt, Taiwan CIB or AI-infrastructure link; reject Gorilla Glass, Gorilla Glue, Gorilla Tag, Gorilla Mind and the animal"}
+  - {term: "Yotta", case: insensitive, rule: "counterparty, not a GRRR entity: match only when Gorilla is named; 'Yotta 1'/'Yotta 2' only with Yotta Data Services; reject YottaDB, the yotta- prefix, and Yotta's own IPO or fundraise unless it names Gorilla"}
+  - {term: "Korat", case: insensitive, rule: "only with the 200MW AI campus or Gorilla named"}
+  - {term: "NeutraDC|Nxera|Batam", case: insensitive, rule: "only the NeutraDC Nxera Batam project with Gorilla; reject other Batam data centres and Nxera Pharma"}
+  - {term: "Egypt|GoE", case: insensitive, rule: "only the Government of Egypt air-gapped network with Gorilla named"}
+  - {term: "CIB", case: sensitive, rule: "only Taiwan's Criminal Investigation Bureau with Gorilla named; reject Commercial International Bank (Egypt)"}
+  - {term: "largest criminal investigation bureau of its kind in the Asia-Pacific region", case: insensitive, rule: "unnamed Taiwan CIB descriptor in Gorilla releases; match only with Gorilla"}
+  - {term: "Shackleton", case: insensitive, rule: "only Shackleton Finance (now Gorilla Tech Capital); reject the explorer"}
+  - {term: "Freyr", case: insensitive, rule: "only Freyr Technology AI Pte. Ltd. (20-F key client); reject FREYR Battery / T1 Energy"}
+  - {term: "Supermicro|NVIDIA|DGX Cloud", case: insensitive, rule: "not GRRR entities; reject unless Gorilla is named or the item ties to the Yotta India or Batam deployments; Supermicro's ~$2B Yotta arrangement is not GRRR revenue, never add the two"}
+  - {term: "CoreWeave|Nebius|Bitdeer|Benchmark|StoneX|Fitch", case: insensitive, rule: "not GRRR entities; match only when Gorilla is named in the same item"}
+thesis_drivers: [gpu_delivery, dilution_financing, guidance_margin, contracts_project_debt, legacy_cash]   # the sheet's 'What the stock trades on' items 1-5, in order
+open_items:
+  - {id: q3_print, what: "Q3 2026 results (release before the 2026-11-19 4:30 p.m. ET call): Q3 against the ~$48-50M planning range, and the FY2026 'at least $200M' floor held, raised or cut", expires_at: 2026-11-20, note: "re-base B on the print; as_of is stale after it (core 12.4)"}
+  - {id: us_dc_definitive, what: "U.S. data-centre LOI (2026-10-09; ~6MW live, 36MW potential) signed as definitive agreements, closed, or lapsed", expires_at: 2026-12-31, note: "LOI targets completion by end-November 2026; one-month grace set by sheet author, needs_owner"}
+  - {id: yotta2_tranches, what: "Yotta 2 B300 tranches (~5,000 GPUs each, October to year-end; originally due 2026-09-30) delivered and accepted, or slipped", expires_at: 2026-12-31}
+  - {id: batam_tranche2, what: "NeutraDC Nxera Batam phase-1 tranche 2 (due December 2026) delivered, or slipped", expires_at: 2026-12-31}
+  - {id: special_meeting, what: "Special-meeting proxy 6-K to raise authorized shares from 73.5M to 200M (must be called within 75 days of the 2026-10-30 closing), and the vote result", expires_at: 2027-01-13, note: "the deadline is for calling the meeting; move expires_at to the meeting date once the proxy sets it"}
+  - {id: notes_registration, what: "Resale registration of the October notes' conversion shares: filing (due ~2026-11-29) and effectiveness (60 days, 90 with SEC review); the notes accelerate if the shares are not registered within 90 days", expires_at: 2027-01-28, note: "~90 days after the 2026-10-29/30 closing; alternative-price conversions (capped at $6M a month) start ~2026-12-29 or on effectiveness"}
+  - {id: fy27_target, what: "FY2026 revenue against the 'at least $200M' floor, and the 2027 $450-500M target reaffirmed, changed or withdrawn (FY2026 results / 20-F)", expires_at: 2027-04-30, note: "20-F due four months after FY end; last one filed 2026-04-15"}
+  - {id: batam_debt, what: "Batam project debt closing or first drawdown (debt offers cover ~70% of project cost; none closed)", expires_at: 2027-06-30, note: "no official date; tied to the remaining Batam deployment in H1 2027; set by sheet author, needs_owner"}
+groups: [earnings_calendar, grrr_oct_notes, grrr_gpu_tranches]   # grrr_* keys use the proposed core custom pattern <ticker>_<slug>; sheet-author proposal, needs_owner
+owner_marks: []               # no line in this sheet carries an owner:<date> mark
+---
+
 # GRRR — Gorilla Technology Group Inc.
 _Researched 2026-11-18. Nasdaq: GRRR (warrants GRRRW). CIK 0001903145. Cayman Islands foreign private issuer: it files 20-F and 6-K, never 8-K, and its headquarters are in London. Fiscal year ends Dec 31. **Next earnings: Q3 2026 results come out by press release before the call on Thu 2026-11-19 at 4:30 p.m. ET** (notice dated 2026-11-16, [IR](https://investors.gorilla-technology.com/gorilla-technology-to-host-third-quarter-financial-results-conference-call-on-november-19-at-430-p-m-et/)). The FY2025 20-F reported 26,188,972 shares at 2025-12-31 ([20-F, 2026-04-15](https://www.sec.gov/Archives/edgar/data/1903145/000143774926012385/grrr20241231_20f.htm)). Third-party sites put the current count at about 27.6M and the market cap at about $190M; neither is verified._
 

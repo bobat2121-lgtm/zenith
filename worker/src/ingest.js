@@ -2,7 +2,7 @@
 // by convention: this module only SELECTs from it) into zenith-db by rowid
 // cursor. The cursor advances over every scanned row, matched or not.
 import COVERED from "./covered.json";
-import { nowIso, skipReason } from "./lib.js";
+import { nowIso, skipReason, isHttpUrl } from "./lib.js";
 
 const BATCH = 400;
 const MAX_BATCHES = 6;
@@ -44,7 +44,8 @@ export async function ingest(env) {
     ).bind(cursor, win.hi, ...COVERED_KEYS).all()).results || [];
     const now = nowIso();
     const stmts = rows.map((r) => {
-      const reason = skipReason(r);
+      // Only http(s) links are ever fetched or shown in the feed.
+      const reason = isHttpUrl(r.url) ? skipReason(r) : "bad_url";
       if (reason) skipped++;
       return db.prepare(
         `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason)

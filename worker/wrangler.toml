@@ -22,3 +22,6 @@ database_name = "news-monitor-db"
 database_id = "d9217220-a23b-4715-b4ab-c7ddd057415c"
 
 # Secrets (wrangler secret put): ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN
+# Optional secret CONTACT_EMAIL: SEC's fair-access policy requires a contact
+# email in the User-Agent. Until it is set, sec.gov items get no excerpt (they
+# are retried with backoff, so setting it later fills them in).

@@ -124,7 +124,7 @@ Official records (filings, votes, award notices, regulator orders) outrank compa
 - **No value:** a binding order with a named counterparty defaults to 70-78 unless it is clearly minor (a few units, spares, repair). A missing figure is never a discount. Compute `magnitude_usd` only when quantity and unit price both appear in a primary source (flag `estimate`); otherwise null. Never invent a unit price.
 - **Anonymous counterparties:** an unnamed prime or a small operator is never a discount. Grade a binding subcontract or operator signing by this table or the small-base rule (SRFM OperatorOS, SPAI subcontracts).
 - **Small-base rule (B < $25M in USD: SPAI, MBAI, AGLT, DPRO, XTRAF):** a new, repeat or expanded named paying customer, contract or deployment scores ≥70 without a value. Old graders put MBody at 42-50 and Safe Pro at 52-55; the owner wanted them at the top.
-- **Large-cap grouping (B > $1B, e.g. AXON, SYM):** named public-agency awards below tiny score 60-68 with `group:<ticker>_awards`; the merged card shows at 70+ (owner: "Multiple Axon wins can be grouped into one headline").
+- **Large-cap grouping (B > $1B, e.g. AXON, SYM):** named public-agency awards below tiny score 60-68 with `group:<ticker>_awards`; the merged card shows at 70+ (owner: "Multiple Axon wins can be grouped into one headline"). *Feed note: merged group cards are not built yet; members show individually at their own scores. Keep emitting `group:` keys — the feed will merge on them.*
 - Other orders below tiny: 55-65 for a first customer, a new country or a first production-scale buy.
 
 #### 4.2.2 Capital: dilution, not cash
@@ -333,7 +333,7 @@ One JSON object per item, nothing else:
  "confidence":0.85,"read_source":true,"flags":["reason:material","floor:selection"]}
 ```
 
-- **item_id:** the input id. A covered-to-covered event gets one object per ticker, suffixed `#TICKER`, with `also:<TICKER>`.
+- **item_id:** the input id. The item's own grade always uses the bare id. A covered-to-covered event also gets one object for each *other* covered ticker, with id `<item_id>#<TICKER>` and the flag `also:<TICKER>`.
 - **ticker:** one covered ticker. For off-entity, contaminated or out-of-scope items, the source key's ticker or null.
 - **score:** integer 0-100; null only for duplicates. **band:** `lead|digest|borderline|reject|duplicate`, matching the score.
 - **rung:** a section 3 id.
@@ -343,7 +343,7 @@ One JSON object per item, nothing else:
 - **why:** ≤25 words: the literal stage, figures with period labels, and the test used ("Intent to award, $1.4M total (~$280K/yr), 2.8% of $50.6M base"). Every number must be traceable to the source. No implications.
 - **note_hook:** ≤20 words, the factual line the analyst would write ("ONDS: >$165M new orders since last update, company-reported"). No invented numbers.
 - **confidence:** joint certainty of entity, stage and figures. ≤0.5 if `read_source` is false; ≤0.6 if the entity or date is uncertain or figures are estimated.
-- **read_source:** true only if you opened the URL or document. Required for EDGAR items above 39, cryptic titles, and items scoring 70+ whose captured text lacks figures.
+- **read_source:** true only if you read the source text: the URL or document you opened, or the Worker-captured excerpt of it (`EXCERPT (ok)`) when the facts you graded on are in that excerpt. Required for EDGAR items above 39, cryptic titles, and items scoring 70+ whose captured text lacks figures. The API caps confidence at 0.5 when it is false.
 - **thesis_drivers_hit / resolves:** only ids present in the sheet's front matter. If the block is missing, emit `[]` and no `resolves:`, and flag `sheet_incomplete`.
 - **flags:** exactly one `reason:` from `material`, `primary_source`, `new_information`, `calendar_card`, `below_materiality`, `stale`, `late_repost`, `already_covered`, `duplicate`, `insufficient_evidence`, `source_quality`, `off_entity`, `out_of_scope`, `promotional`. Plus any of: `group:<key>`, `dup_of:<id>`, `also:<TICKER>`, `floor:<id>`, `resolves:<id>`, `ceiling_only`, `estimate`, `company_reported`, `no_figures`, `pct_is_dilution`, `pct_is_holdings`, `pct_is_units`, `alt_base`, `archive_burst`, `source_repair`, `late_first_sighting`, `sheet_stale`, `sheet_incomplete`, `no_sheet`, `needs_owner`.
 
