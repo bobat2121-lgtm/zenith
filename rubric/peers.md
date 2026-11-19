@@ -10,7 +10,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 ## Public companies (68)
 
 ### AeroVironment (AVAV)
-- **Reads through to:** RCAT − (Main small-UAS rival; owns ESAero, a Black Widow contract manufacturer); ONDS − (BlueHalo C-UAS and Group 2-3 UAS vs Sentrycs, Iron Drone, DZYNE); PUSA − (Freedom Eagle-1 and BlueHalo kinetic C-UAS compete with Powerus Guardian interceptors)
+- **Reads through to:** RCAT − (Main small-UAS rival; owns ESAero, a Black Widow contract manufacturer); ONDS − (BlueHalo C-UAS and Group 2-3 UAS vs Sentrycs, Iron Drone, DZYNE); PDYN − (Switchblade loitering munitions compete with Palladyne SwarmStrike for strike-drone awards); MRLN − (Named competitor in Merlin's prospectus for military autonomous-aircraft programs); PUSA − (Freedom Eagle-1 and BlueHalo kinetic C-UAS compete with Powerus Guardian interceptors)
 - **Matters:** Army SRR/LRR (P550) awards, Switchblade and Red Dragon orders, C-UAS interceptor wins, FANG-on-P550 CLIK integration, ESAero supply to Red Cat, guidance and backlog.
 - **Usually noise:** Small foreign Puma/Raven orders, conference appearances, BlueHalo space-comms items, routine IDIQ modifications.
 
@@ -26,12 +26,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Avionics and pilot-training contracts, Jaunt eVTOL updates, trade shows, earnings-call recaps.
 
 ### Applied Digital (APLD)
-- **Reads through to:** GRRR + (AI data-center leasing and financing benchmark for Gorilla's GPU buildout)
+- **Reads through to:** none direct — context only
 - **Matters:** New hyperscaler or CoreWeave leases, project-financing terms and cost, energization delays, GPU-cloud spin or sale: read as AI-infrastructure demand and capital-access signals.
 - **Usually noise:** Groundbreakings, local tax and community items, executive appointments, small ATM updates, conference talks.
 
 ### Archer Aviation (ACHR)
-- **Reads through to:** SRFM ± (eVTOL certification and FAA eIPP pace benchmark Surf Air's electric plans)
+- **Reads through to:** none direct — context only
 - **Matters:** Midnight FAA type-certification steps, first commercial passenger flights (Abu Dhabi, US eIPP), powered-lift rules, airline deals in Surf Air markets (Hawaii, California).
 - **Usually noise:** Anduril defense demos, powertrain supply deals, flight-test videos, LA Olympics marketing, capital-raise recaps.
 
@@ -62,7 +62,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Demo and ferry flights, charging-station installs, defense MOUs, small orders or options from other operators.
 
 ### Bitmine Immersion Technologies (NYSE American: BMNR)
-- **Reads through to:** MSTR ± (Largest ETH treasury; mNAV and capital-raise shifts move digital-asset-treasury sentiment); ASST ± (Treasury-company peer; ATM, buyback and preferred moves set sector financing tone)
+- **Reads through to:** MSTR ± (Largest ETH treasury; mNAV and capital-raise shifts move digital-asset-treasury sentiment)
 - **Matters:** Large changes in ETH purchase pace, ATM or preferred issuance, buybacks when trading below NAV, asset sales, index-eligibility decisions on treasury companies, and staking revenue.
 - **Usually noise:** Routine weekly holdings updates, chairman's messages, conference talks, small minority investments, media appearances.
 
@@ -72,7 +72,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Seven-figure renewals, AI analytics demos, conference talks, partner MOUs, launch-schedule logistics.
 
 ### CoreWeave (Nasdaq: CRWV)
-- **Reads through to:** GRRR + (Neocloud benchmark for GPU-as-a-Service pricing, financing access and utilization)
+- **Reads through to:** none direct — context only
 - **Matters:** Backlog and contracted-power growth, multibillion take-or-pay contracts, GPU-backed debt terms and costs, data-center delivery delays, customer concentration shifts and any APAC expansion.
 - **Usually noise:** New GPU platform bring-ups, software features, customer logos, benchmark results, conference keynotes.
 
@@ -82,7 +82,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Electric truck and bus launches, European and Asian sales, restructuring, IAA showcases, dividends, buybacks.
 
 ### Digital Realty (NYSE: DLR)
-- **Reads through to:** GRRR + (Colocation benchmark; AI leasing and APAC pricing signal GPU-site demand)
+- **Reads through to:** none direct — context only
 - **Matters:** Record AI or hyperscale leasing, APAC capacity and pricing, power-constrained supply, data-center fund raises and JV financing, and large GPU-tenant deals.
 - **Usually noise:** Preferred and common dividends, bond offerings, sustainability reports, small site openings, interconnection product updates.
 
@@ -97,35 +97,35 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Trade-show demos, reseller appointments, blog explainers, small sub-$5M orders, training events.
 
 ### Duos Technologies (Nasdaq: DUOT)
-- **Reads through to:** GRRR + (Edge data-center and GPUaaS comparable; contracted MW and hosting deals)
+- **Reads through to:** none direct — context only
 - **Matters:** Contracted MW growth, hosting and GPUaaS contracts like Axe Compute and Hydra Host, hyperscaler colocation deals, financing raises, and energization or delivery delays.
 - **Usually noise:** Single rural edge-pod deployments, industry awards, executive hires, conference appearances.
 - **Status:** Sold rail-inspection unit 2026; now edge data centers and AI hosting
 
 ### EagleNXT (NYSE American: UAVS)
-- **Reads through to:** RCAT − (Competes for Army small-UAS ISR orders with eBee VISION and Blue UAS); DPRO − (Sub-scale drone peer selling to Army, public safety and mapping)
+- **Reads through to:** RCAT − (Competes for Army small-UAS ISR orders with eBee VISION and Blue UAS)
 - **Matters:** Army eBee VISION/TAC orders, Blue UAS Marketplace listings, ThirdEye counter-drone JV production in Texas, CENTCOM experimentation results, and dilutive equity raises.
 - **Usually noise:** Agriculture sensor and software sales, distributor orders, trade shows, rebrand updates, shareholder letters.
 - **Status:** AgEagle Aerial Systems rebranded EagleNXT Sep 2025; ticker still UAVS
 
 ### EHang (EH)
-- **Reads through to:** SRFM ± (eVTOL certification/ops benchmark for SRFM's electric-aircraft strategy; no direct tie)
+- **Reads through to:** none direct — context only
 - **Matters:** CAAC approval for ticketed EH216-S passenger flights, Thailand CAAT approval, VT35 type certificate, quarterly deliveries/revenue: benchmarks for pilotless eVTOL commercialization.
 - **Usually noise:** Demo flights, tourism-site partnerships, low-altitude-economy MOUs, conference appearances, awards.
 
 ### Einride (ENRD)
-- **Reads through to:** KDK ± (Autonomous-freight comparable; cab-less driverless trucks compete for shipper autonomy budgets); AUR ± (Driverless freight rival; paid-route scale benchmarks Aurora's driver-as-a-service model)
+- **Reads through to:** KDK − (Cab-less driverless freight trucks compete with Kodiak for shipper autonomy budgets)
 - **Matters:** Paid driverless (cab-less) lanes and customer expansions (e.g., GE Appliances, Maersk), U.S. permits, revenue/backlog in 6-Ks, post-SPAC capital raises and warrant activity.
 - **Usually noise:** Human-driven electric truck fleet additions, sustainability reports, European awards, event appearances.
 - **Status:** Listed on Nasdaq Jun 10 2026 via Legato Merger Corp III SPAC
 
 ### Equinix (EQIX)
-- **Reads through to:** GRRR ± (AI-colocation benchmark; Equinix-Together AI ties touch Gorilla's partner ecosystem)
+- **Reads through to:** none direct — context only
 - **Matters:** APAC xScale/AI data-center capacity, AI-density colocation pricing, NVIDIA/Together AI partnerships, large financings: benchmarks for Gorilla's GPU-as-a-Service build-out.
 - **Usually noise:** Routine IBX openings, green bonds, dividend declarations, interconnection product updates, awards.
 
 ### Eve Air Mobility (EVEX)
-- **Reads through to:** SRFM ± (eVTOL substitution/certification benchmark for regional air mobility; no direct SRFM contract)
+- **Reads through to:** none direct — context only
 - **Matters:** Conforming-prototype flights, ANAC type-certification steps (2027 target), LOIs converting to firm orders, Embraer/BNDES funding, Vector air-traffic software customers.
 - **Usually noise:** LOI tallies without deposits, airshow MOUs, urban-air-mobility concept studies, executive appointments.
 
@@ -146,12 +146,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Trade-show launches, regional distributor deals, awards, routine HKEX filings, small customer case studies.
 
 ### IREN (IREN)
-- **Reads through to:** GRRR ± (Neocloud GPU-capacity benchmark; contract/MW economics comparable to Gorilla's GPUaaS projects)
+- **Reads through to:** none direct — context only
 - **Matters:** Hyperscaler AI-cloud contracts (Microsoft $9.7B GB300), contracted MW and GPU deployments at Childress/Sweetwater, financing terms: benchmarks for GRRR GPUaaS pricing and valuation.
 - **Usually noise:** Monthly bitcoin-mining updates, hashrate stats, ESG reports, conference presentations, analyst price targets.
 
 ### Joby (JOBY)
-- **Reads through to:** SRFM ± (eVTOL benchmark; acquired Blade passenger unit competes with Surf On Demand); MRLN − (Xwing-derived autonomy and L3Harris defense VTOL compete for military autonomous flight)
+- **Reads through to:** MRLN − (Xwing-derived autonomy and L3Harris defense VTOL compete for military autonomous flight)
 - **Matters:** FAA TIA flight testing and type certificate, Dubai commercial launch (Uber booking), Blade route integration, defense autonomy awards, Toyota funding and production ramp.
 - **Usually noise:** Flight-demo videos, vertiport MOUs, international LOIs, airshow appearances, executive commentary.
 
@@ -166,7 +166,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Trade-show demos, patent announcements, consumer AR/VR partnerships, investor conference presentations.
 
 ### Kratos (KTOS)
-- **Reads through to:** ONDS ± (DZYNE rivals Kratos in Drone Dominance; attritable-aircraft budgets benchmark DZYNE)
+- **Reads through to:** none direct — context only
 - **Matters:** Valkyrie USMC program-of-record/production, CCA engine (GE) awards, Drone Dominance Gauntlet orders, large target-drone or hypersonic contracts, Elroy Chaparral production.
 - **Usually noise:** Small satellite-ground or training contracts, microwave-products orders, conference presentations, routine debt filings.
 
@@ -176,7 +176,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Generic IoT/networking launches, blog posts, award wins, enterprise router and console-server updates.
 
 ### Larsen & Toubro (NSE: LT)
-- **Reads through to:** GRRR ± (Vyoma Chennai AI factory for Together AI, a Gorilla counterparty)
+- **Reads through to:** none direct — context only
 - **Matters:** Vyoma.AI / LTN Compute GPU-cluster orders, MW energized at Chennai campus, India sovereign-cloud or hyperscaler deals, Together AI or Yotta-related capacity, data-center financing.
 - **Usually noise:** Civil, hydrocarbon and power EPC orders; Indian defense orders; results lacking Vyoma detail; CSR items.
 
@@ -186,7 +186,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** EV deliveries, Gravity/Air trims, pricing, PIF capital raises, executive changes, recalls.
 
 ### Matternet (MTTN, OTCQB)
-- **Reads through to:** DPRO ± (Drone-delivery peer; FAA BVLOS rules and delivery demand affect Draganfly too); SERV − (Restaurant drone delivery (M3, Dave's Hot Chicken) competes for Serve's last-mile orders)
+- **Reads through to:** none direct — context only
 - **Matters:** FAA BVLOS/Part 108 approvals, M3 commercial rollout (2027), new restaurant or health-system customers, SoftBank Robotics America and NHS London scale-up, Part 135 operator deals, financing.
 - **Usually noise:** Single hospital route launches, flight-count milestones, OTC stock promotion, awards, conference appearances.
 - **Status:** Went public via reverse merger (2026-05); OTCQB trading as MTTN since 2026-09-21
@@ -197,12 +197,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Japanese duplicate filings, hotel business, shareholder-meeting logistics, Bitcoin Japan media and events, routine rights exercises.
 
 ### Mobileye (MBLY)
-- **Reads through to:** AUR ± (L4 stack benchmark; Mobileye Drive driverless pace sets AV valuation sentiment); KDK ± (Virtual-driver bellwether; driverless milestones move AV-supplier sentiment); AGLT − (Owns Mentee Robotics; MenteeBot humanoid targets warehouse logistics vs Digit)
+- **Reads through to:** AGLT − (Owns Mentee Robotics; MenteeBot humanoid targets warehouse logistics vs Digit)
 - **Matters:** Mobileye Drive driverless launches (VW ID. Buzz/MOIA with Uber, Lyft Dallas), safety-driver removal, Mentee humanoid customer pilots, large OEM design wins, Intel stake sales.
 - **Usually noise:** EyeQ shipment updates, ADAS model launches, auto-show demos, conference keynotes, China ADAS pricing.
 
 ### Mobilicom (MOB)
-- **Reads through to:** UMAC ± (Peer NDAA subsystem supplier; both ride U.S. Tier-1 drone OEM ramps)
+- **Reads through to:** none direct — context only
 - **Matters:** Named orders from U.S. Tier-1 drone or loitering-munition makers (SkyHopper PRO, ICE cybersecurity), program-of-record volume, Blue UAS listings, any named covered-company customer.
 - **Usually noise:** Small design wins with unnamed foreign OEMs, trade-show appearances, investor-conference notices, financing housekeeping.
 
@@ -217,7 +217,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Offshore ROV service jobs, archaeology surveys, manipulator prototypes, Nasdaq compliance letters, debt exchanges, trade shows.
 
 ### Nebius Group (NBIS)
-- **Reads through to:** GRRR ± (Neocloud benchmark: GPU pricing, contract terms (Microsoft, Meta), capacity financing); SERV − (Avride parent: sidewalk delivery robots compete with Serve on Uber Eats)
+- **Reads through to:** SERV − (Avride parent: sidewalk delivery robots compete with Serve on Uber Eats)
 - **Matters:** Multi-billion GPU-capacity contracts, new data-center sites/MW, capex and debt/convert raises (GRRR benchmark); Avride delivery-robot fleet, city launches, Uber/Grubhub expansions (SERV).
 - **Usually noise:** Toloka/TripleTen updates, AI Studio model listings, developer events, ClickHouse stake marks, analyst notes.
 
@@ -227,12 +227,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Ocado Retail (M&S JV) trading updates, UK grocery sales, cash-burn guidance, management awards.
 
 ### PACCAR (PCAR)
-- **Reads through to:** AUR + (Aurora Driver OEM partner: autonomous-ready Peterbilt 579, Kenworth T680 factory integration); KDK ± (Aurora-PACCAR exclusivity or line-fit changes alter Kodiak's OEM access)
+- **Reads through to:** AUR + (Aurora Driver OEM partner: autonomous-ready Peterbilt 579, Kenworth T680 factory integration)
 - **Matters:** Factory line-fit of Aurora Driver on Peterbilt 579/Kenworth T680, driverless truck delivery volumes, redundant-chassis milestones, any new autonomy partner or exclusivity change.
 - **Usually noise:** Earnings and dividend 8-Ks, Class 8 order data, DAF Europe, parts business, executive appointments.
 
 ### Palantir Technologies (PLTR)
-- **Reads through to:** SRFM + (SurfOS built on Foundry/AIP; exclusive co-sell partner paid in SRFM shares); SATL + (Barter imagery-data customer and U.S.-government channel; term ends ~Nov 2026); RCAT + (Palantir VNav GPS-denied navigation tested on Teal Black Widow); ONDS + (Builds SkyWeaver edge AI on World View Stratollite; rolling out at DZYNE)
+- **Reads through to:** SRFM + (SurfOS built on Foundry/AIP; exclusive co-sell partner paid in SRFM shares); RCAT + (Palantir VNav GPS-denied navigation tested on Teal Black Widow); ONDS + (Builds SkyWeaver edge AI on World View Stratollite; rolling out at DZYNE); SATL + (Imagery-credit customer at $4.0M/yr paid via software license; expires Nov 2026)
 - **Matters:** Deals naming Surf Air, Satellogic, Red Cat/Teal or Ondas units (World View, DZYNE); Army enterprise/Maven/TITAN awards integrating partner drones or imagery; Satellogic data-deal renewal.
 - **Usually noise:** Earnings beats, AIPCon/bootcamp events, unrelated commercial AIP customers, insider sales, index moves, analyst price targets.
 
@@ -242,13 +242,13 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Pix4D photogrammetry software updates, senseFly mapping, legacy consumer-drone items, AMF share-capital filings, trade shows.
 
 ### Pony.ai (PONY; also HKEX-listed)
-- **Reads through to:** AUR ± (Gen-4 driverless robotrucks in China; L4 commercialization and valuation comparable); KDK ± (Driverless port/logistics robotrucks (China Merchants Port) mirror Kodiak industrial deployments)
+- **Reads through to:** none direct — context only
 - **Matters:** Robotruck driverless commercialization and revenue, fleet scale (toward 3,500+ robotaxis), unit-economics breakeven, Uber Europe launch (Zagreb), U.S. regulatory or listing actions against Chinese AV firms.
 - **Usually noise:** China city robotaxi-zone permits, vehicle-generation unveilings, auto-show demos, Middle East MoUs, HK share technicals.
 - **Status:** Added Hong Kong listing alongside Nasdaq in Nov 2025
 
 ### QumulusAI (QMLS)
-- **Reads through to:** GRRR ± (Small distributed neocloud; GPU-as-a-service contracts benchmark Gorilla's GPUaaS model)
+- **Reads through to:** none direct — context only
 - **Matters:** First or repeat paid GPU deployments (even undisclosed value), MW/site additions, GPU purchase or financing deals, customer concentration, utilization; GRRR rubric weights these at any size.
 - **Usually noise:** Direct-listing lockup chatter, conference appearances, leadership hires, generic AI-infrastructure thought leadership.
 - **Status:** Nasdaq direct listing as QMLS on 2026-07-16; no new capital raised
@@ -264,29 +264,29 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Trade-show demos, Dex showcases, NVIDIA tie-in mentions, ADAM bartender promotions, shareholder letters without numbers.
 
 ### Rocket Lab (RKLB)
-- **Reads through to:** PL − (Builds sovereign/Space Force constellations competing for government Earth-observation budgets); SATL ± (Satellite builds compete with Satellogic dedicated sovereign-satellite sales; also a launch option)
+- **Reads through to:** none direct — context only
 - **Matters:** Sovereign or SDA/Space Force constellation awards, Neutron first launch and pricing, launch slots for EO operators (ICEYE, BlackSky, Synspective), Geost EO/IR payload wins, space-sector financing sentiment.
 - **Usually noise:** Routine Electron launch announcements, mission names, component deliveries, conference appearances, launch-window updates.
 
 ### Sharon AI (SHAZ)
-- **Reads through to:** GRRR ± (GPU-cloud comp; contract financing and utilization set bar for Gorilla GPUaaS)
+- **Reads through to:** none direct — context only
 - **Matters:** Multi-year GPU cloud contracts (US$1.32B AI-lab deal, ESDS), New Zealand/Texas AI Factory energization, debt/equity financing, MW contracted vs online, revenue start dates, ASX cross-listing.
 - **Usually noise:** GPU arrival announcements without contracts, partnership MOUs, conference panels, sustainability or ESG notes.
 - **Status:** Nasdaq IPO Feb 2026 as SHAZ (ex-OTC); ASX cross-listing planned
 
 ### Silvia (SVIA)
-- **Reads through to:** MSTR ± (BTC treasury below NAV; buybacks and BTC sales signal sector mNAV stress); ASST ± (Smaller BTC-treasury peer; sub-NAV buybacks and BTC sales frame Strive valuation)
+- **Reads through to:** none direct — context only
 - **Matters:** BTC holdings changes and sales, share buybacks versus NAV, $100M note put (June 2027) and collateral, financing or M&A, AI platform revenue, index inclusion.
 - **Usually noise:** Pompliano media appearances, AI product feature launches, executive severance details, director bios, podcast promotions.
 - **Status:** Renamed from ProCap Financial (BRR); trading as SVIA since Sep 22 2026
 
 ### Spire Global (SPIR)
-- **Reads through to:** PL ± (Rival for NASA CSDA and defense commercial-data budgets; awards validate buying)
+- **Reads through to:** none direct — context only
 - **Matters:** Government data awards (NOAA radio occultation task orders, EUMETSAT, MDA SHIELD, Space Force), space-services satellite builds, liquidity and covenant news, contract terminations like WildfireSat.
 - **Usually noise:** Weather-forecast product updates, launch manifests, conference talks, ESG and minor data-partnership releases.
 
 ### Swarmer (SWMR)
-- **Reads through to:** RCAT ± (Swarm autonomy rival to Apium; could license software to Teal or FANG); PDYN − (Swarm-control software competes with Palladyne SwarmStrike drone autonomy)
+- **Reads through to:** PDYN − (Swarm-control software competes with Palladyne SwarmStrike drone autonomy); RCAT − (Swarm-control software competes with Red Cat's Apium swarm-autonomy unit); PUSA + (Ukrainian swarming-software firm; signed MOU with Powerus on 2026-06-03)
 - **Matters:** Licensing deals with drone OEMs (Meta Bureau SkyKnight, Oak Grove Chimera), U.S. DoD or NATO awards, Ukraine combat use, revenue scale, follow-on offerings.
 - **Usually noise:** MOUs, research collaborations (FIU coastal tests), demo flights, stock-volatility coverage, general Ukraine war news.
 - **Status:** Nasdaq IPO Mar 17 2026
@@ -297,39 +297,39 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Commercial thermal-camera launches, firefighting/industrial imaging releases, trade-show demos, minor distributor or OEM camera news.
 
 ### Teradyne Robotics / Universal Robots (TER)
-- **Reads through to:** PDYN ± (Cobot demand gauge for Palladyne IQ factory-robot software; UR could partner or compete)
+- **Reads through to:** none direct — context only
 - **Matters:** Robotics segment revenue and breakeven, restructuring/layoffs, UR AI Accelerator and NVIDIA integrations, MiR AMR wins, any UR software partnership with Palladyne or orchestrators.
 - **Usually noise:** Semiconductor test news, UR customer case studies, trade-show launches, distributor appointments, non-robotics Teradyne IR items.
 
 ### Tesla (TSLA)
-- **Reads through to:** AGLT − (Optimus humanoid rival; production targets and incidents shape Digit demand); AUR − (Autonomous Tesla Semi could compete with Aurora Driver freight); KDK − (Unsupervised Semi trucking would compete with Kodiak Driver deployments); BOT ± (Optimus progress reprices humanoid peers Figure and Apptronik held by RoboStrategy)
+- **Reads through to:** AGLT − (Optimus humanoid rival; production targets and incidents shape Digit demand); AUR − (Autonomous Tesla Semi could compete with Aurora Driver freight); KDK − (Unsupervised Semi trucking would compete with Kodiak Driver deployments)
 - **Matters:** Optimus production counts, external sales or factory deployments, safety incidents; autonomous Semi pilots and driverless freight; FSD unsupervised regulatory approvals or NHTSA probes affecting AV sentiment.
 - **Usually noise:** Vehicle deliveries, EV pricing, energy storage, Cybertruck, robotaxi city launches, undated Musk posts, stock commentary.
 
 ### Twenty One Capital (XXI)
-- **Reads through to:** MSTR ± (Second-largest corporate BTC holder; competes for treasury capital, mNAV sentiment); ASST ± (Bitcoin-treasury peer; premium/discount and financing moves read across to Strive)
+- **Reads through to:** MSTR ± (Tether-backed BTC treasury; competes with Strategy for treasury capital and mNAV premium); ASST ± (Rival for BTC holdings rank and treasury capital; financing moves read across to Strive)
 - **Matters:** BTC holdings changes, equity or convertible raises, buybacks, Tether ownership or support, mNAV moves, bitcoin lending or credit products, CEO transition aftermath.
 - **Usually noise:** Mallers/Strike media, bitcoin education content, conference keynotes, Tether ecosystem news not involving XXI.
 - **Status:** NYSE-listed Dec 2025 via Cantor SPAC; CEO Mallers replaced by Zagury Jul 2026
 
 ### Uber (UBER)
-- **Reads through to:** AUR + (Uber Freight is Aurora driverless launch customer; Uber invested $400M (2021)); SERV ± (Uber Eats was Serve's founding channel, ending early 2027; rival robot deals hurt); BOT + (RoboStrategy holds Coco, an Uber Eats sidewalk-delivery partner)
+- **Reads through to:** AUR + (Uber Freight is Aurora driverless launch customer; Uber invested $400M (2021)); SERV ± (Uber Eats was Serve's founding channel, ending early 2027; rival robot deals hurt)
 - **Matters:** Uber Freight autonomous lanes/capacity with Aurora, Uber Eats sidewalk-robot deals (Starship, Avride, Coco, Serve), AV fleet counts on app, autonomy investments or stake sales.
 - **Usually noise:** Rideshare pricing, non-autonomy earnings items, driver-pay disputes, robotaxi city launches with no covered partner.
 
 ### UBTech Robotics (9880.HK)
-- **Reads through to:** AGLT − (Listed humanoid rival; Walker S2 factory orders and deliveries benchmark Digit); BOT ± (Listed humanoid comp for RoboStrategy's private Figure and Apptronik marks)
+- **Reads through to:** AGLT − (Listed humanoid rival; Walker S2 factory orders and deliveries benchmark Digit)
 - **Matters:** Walker S2 order values and delivered units, automaker/Airbus/logistics deployments, production capacity vs 5,000-unit 2026 target, Western market entry, HK placements.
 - **Usually noise:** Education robots, Cruzr service-robot promos, exhibition dances, government visits, HKEX routine returns.
 
 ### Unitree Robotics (688836.SH)
-- **Reads through to:** AGLT ± (Humanoid rival; G1/R1 low pricing pressures Digit, STAR valuation lifts comps); BOT ± (Valuation comp for Figure/Apptronik NAV marks; also rival to those holdings)
+- **Reads through to:** AGLT − (Low-cost G1/R1 humanoids rival Digit and pressure humanoid pricing)
 - **Matters:** Quarterly humanoid shipments and ASPs, new humanoid launches with price points, market-cap swings, lock-up expiries, US restrictions on Chinese robots, large logistics/factory humanoid orders.
 - **Usually noise:** Viral demo videos, robot boxing/marathon stunts, trade-show appearances, quadruped/consumer product refreshes, distributor and education-kit PRs.
 - **Status:** IPO'd on Shanghai STAR Market Aug 19 2026; ~US$50B market cap at debut close.
 
 ### Volvo Group (VOLV-B Stockholm; VLVLY)
-- **Reads through to:** AUR ± (V.A.S. runs Aurora Driver on VNL Autonomous; also integrates rival Waabi)
+- **Reads through to:** AUR ± (V.A.S. runs Aurora Driver on VNL Autonomous; also integrates rival Waabi); KDK − (Volvo VNL Autonomous runs rival Waabi Driver; Waabi/Volvo compete in Texas)
 - **Matters:** VNL Autonomous production volumes, V.A.S. driverless lanes using Aurora Driver (DSV, Uber Freight), 300+ trucks by 2027 target, Waabi lane expansion or exclusivity shifts.
 - **Usually noise:** Truck orders and deliveries, electric trucks, construction equipment, buses, Mack/Volvo labor news, emissions rules, quarterly earnings without autonomy detail.
 
@@ -350,7 +350,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Small single-agency adoptions, training-unit launches, trade-show showcases, IBN-syndicated promotional releases, minor international distributor orders.
 
 ### XTEND AI Robotics (XTND)
-- **Reads through to:** UMAC + (UMAC customer; $27.5M UMAC stake, so orders and share price matter); RCAT − (Drone Dominance rival; XTEND won Gauntlet II CQB order, Teal missed)
+- **Reads through to:** UMAC + (UMAC customer; $27.5M UMAC stake, so orders and share price matter); RCAT − (Drone Dominance rival; XTEND won Gauntlet II CQB order, Teal missed); DPRO − (Gauntlet II leader; 6,000-STRIKER DDP order is share Draganfly did not win)
 - **Matters:** Drone Dominance orders (6,000 STRIKER, $40.5M, Oct 2026), Gauntlet III results, SOCOM lethal-drone phases, US production scale, supplier disclosures naming UMAC.
 - **Usually noise:** Trade-show demos, small foreign trials, executive interviews, unquantified MOUs, stock-promotion recaps.
 - **Status:** Listed on NYSE as XTND 2026-09-04 via JFB Construction merger
@@ -361,7 +361,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** TriFan 600 design/partnering updates, board appointments, shareholder letters and town halls, trade-show and dealer-event PR.
 
 ### ZenaTech (ZENA)
-- **Reads through to:** DPRO − (Canadian drone peer; DaaS survey roll-up and NDAA drones overlap Draganfly); RCAT − (Pursuing Blue UAS listing and Army expendable-drone programs Red Cat targets)
+- **Reads through to:** none direct — context only
 - **Matters:** Actual DoD/Army orders, Blue UAS listing of IQ Quad/ZenaDrone 1000, interceptor test results, organic DaaS growth, final quarterly results versus preliminary estimates.
 - **Usually noise:** Paid promotional articles, policy-memo reaction releases, serial small DaaS survey-firm acquisitions, demos and congressional-engagement PRs.
 
@@ -374,13 +374,13 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Status:** SPAC with Iron Horse II (IRHO); close now expected Q1 2027 as AIBR
 
 ### FORT Robotics (private; pending Nasdaq: FROB)
-- **Reads through to:** AGLT + (Agility is a FORT customer; safety controllers support Digit safety certification)
+- **Reads through to:** AGLT + (Safety MOU with Agility; FORT controllers support Digit safety certification)
 - **Matters:** SPAC vote/close and redemptions, safety-certified controller design wins with humanoid/AMR makers (Agility), Mapless AI teleoperation deals, revenue growth disclosures.
 - **Usually noise:** Thought-leadership blogs, webinars, trade-show demos, safety-standards commentary, minor firmware updates.
 - **Status:** Newbury Street II SPAC pending; S-4 filed Nov 2026, close targeted Q4 2026
 
 ### May Mobility (private; pending Nasdaq: MAY)
-- **Reads through to:** KDK ± (SPAC-listed AV pure-play; MAY terms and redemptions set AV valuation comp); AUR ± (AV pure-play listing tests investor appetite for driverless commercialization)
+- **Reads through to:** none direct — context only
 - **Matters:** SPAC vote, redemptions and close; rider-only launches with Uber (Arlington) and Lyft (Atlanta); new city launches; Toyota Sienna fleet scale; funding.
 - **Usually noise:** Microtransit pilot extensions, ridership milestones, community events, awards, hiring and executive interviews.
 - **Status:** SPAC with ACP Holdings Acquisition Corp announced 2026-09-16; to list on Nasdaq as MAY
@@ -411,7 +411,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Status:** Acquired by AEVEX (AVEX) Sep 8 2026; now its Maritime Systems division
 
 ### Boston Dynamics (Hyundai Motor Group subsidiary)
-- **Reads through to:** AGLT ± (Atlas rivals Digit for factory/logistics tasks; any IPO would set humanoid valuation comp)
+- **Reads through to:** AGLT − (Electric Atlas humanoid rivals Digit for automotive factory and logistics tasks)
 - **Matters:** Atlas production volumes and external customers beyond Hyundai/DeepMind (planned 2027), Stretch truck-unloading wins, Hyundai's 25,000-unit deployment plan, IPO timing, pricing.
 - **Usually noise:** Viral dance/demo videos, Spot inspection case studies, research papers, media reposts, event appearances.
 
@@ -421,12 +421,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Solutions-center openings, customer case studies, trade-show demos, executive appointments, sustainability stories.
 
 ### International Motors, formerly Navistar (Traton subsidiary)
-- **Reads through to:** AUR ± (Gen-2 Aurora driverless fleet runs on Roush-upfit LT trucks; also co-develops rival PlusAI)
+- **Reads through to:** AUR ± (Gen-2 Aurora driverless fleet runs on Roush-upfit LT trucks; also co-develops rival PlusAI); KDK + (International LT added as Kodiak OEM platform; unsupervised trucks from H2 2027)
 - **Matters:** LT truck supply/production for Aurora's gen-2 fleet, any factory-built Aurora program, PlusAI SuperDrive L4 launch timing, Traton autonomy strategy shifts.
 - **Usually noise:** Dealer openings, conventional diesel/EV truck and bus launches, school-bus orders, engine news and executive appointments.
 
 ### Intrinsic (Google unit; Alphabet GOOGL)
-- **Reads through to:** PDYN − (Flowstate/Intrinsic Core compete with Palladyne IQ hardware-agnostic robot software); MBAI − (Free multi-OEM robot orchestration platform pressures MBody's software economics)
+- **Reads through to:** PDYN − (Flowstate/Intrinsic Core compete with Palladyne IQ hardware-agnostic robot software)
 - **Matters:** Intrinsic Core open-source (Apache 2.0) adoption, FANUC and other robot-OEM integrations, factory production deployments, Gemini/NVIDIA model integration, commercial pricing changes.
 - **Usually noise:** Developer blog posts, hackathons, ROSCon talks, research papers, hiring news.
 - **Status:** Moved from Alphabet Other Bets into Google, Feb 2026
@@ -442,7 +442,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Education/knowledge-center posts, awards, recruiting, community events and conference panels.
 
 ### Waymo (Alphabet subsidiary)
-- **Reads through to:** AUR + (Driverless scale leader; its safety record and regulation set AV sentiment); KDK + (Driverless safety record and federal AV rules shape autonomy sentiment)
+- **Reads through to:** none direct — context only
 - **Matters:** Federal AV framework or NHTSA actions, serious crashes or recalls, new driverless cities and paid-ride milestones, any return to trucking (shelved Via 2023), large funding.
 - **Usually noise:** Service-area tweaks, rider and app features, research blog posts, marketing partnerships, city-by-city waitlist openings.
 
@@ -459,7 +459,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 ## Private companies (49)
 
 ### Anduril (private)
-- **Reads through to:** PDYN + (SwarmOS/Palladyne Pilot integrated with Lattice at Project Convergence); RCAT − (Ghost-X/Bolt sUAS compete with Teal for Army reconnaissance and strike buys); ONDS − (Anvil/Roadrunner/Lattice C-UAS benchmark versus Iron Drone and Sentrycs)
+- **Reads through to:** RCAT ± (Leads Apium's Swarm Forge Crucible 4 team; Ghost-X rivals Teal in Army sUAS); ONDS − (Anvil/Roadrunner/Lattice C-UAS benchmark versus Iron Drone and Sentrycs); SPAI + (Ghost-X is the drone on Safe Pro's $2.5M Army CSO; Lattice partner); PDYN ± (Lattice integration partner for SwarmOS/Pilot; also a 10-Q-named drone-autonomy competitor); MRLN − (Prospectus-named competitor; Lattice/Fury autonomy rivals Merlin for military aircraft-autonomy funding); PUSA − (Anvil and Roadrunner interceptors compete with Powerus Guardian for C-UAS buys)
 - **Matters:** IPO/S-1 filing or valuation marks, Army/USMC program awards (C-UAS, sUAS, CCA Fury), Arsenal-1 production, Lattice partnerships naming covered firms, acquisitions of drone or autonomy startups.
 - **Usually noise:** Founder podcasts, demo videos, recruiting, minor foreign MOUs, space-sensor items without covered-name overlap.
 
@@ -469,7 +469,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Passenger-car ADAS/software-defined-vehicle deals, simulation tool releases, conference talks, hiring.
 
 ### Apptronik (private)
-- **Reads through to:** AGLT ± (Apollo humanoid rivals Digit (GXO pilots); funding rounds set valuation comps); BOT + (RoboStrategy portfolio holding; rounds and marks move BOT NAV)
+- **Reads through to:** BOT + (RoboStrategy portfolio holding; rounds and marks move BOT NAV); AGLT − (Apollo humanoid rivals Digit; piloted at GXO, an Agility RaaS account)
 - **Matters:** Commercial deployments or paid orders (Mercedes, GXO, Jabil), Apollo 2 production ramp, funding at or above ~$5B, IPO steps, Google DeepMind milestones.
 - **Usually noise:** Robot Park/demo videos, awards, executive hires, conference appearances, generic humanoid thought-leadership posts.
 
@@ -484,7 +484,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Single small-town deployments, webinars, rescue anecdotes, conference booths, DFR policy thought-leadership posts.
 
 ### CEIA OpenGate (private, Italy)
-- **Reads through to:** EVLV − (OpenGate wins K-12 and venue screening bids Evolv Express targets); XTRAF − (Rival to SmartGateway in schools and venues; OpenGate pick is lost deal); SSTI − (SafePointe rival; SafePointe revenue sets Transom deal's earnout payment)
+- **Reads through to:** EVLV − (OpenGate wins K-12 and venue screening bids Evolv Express targets); XTRAF − (Rival to SmartGateway for school, hospital and venue weapons-screening tenders); SSTI − (SafePointe rival; lost SafePointe sites cut FY2027 revenue setting the CVR)
 - **Matters:** District, university and venue contract wins (e.g., Duval $2M, Fairfax expansion, Georgia Tech), head-to-head displacements of Evolv/Xtract, OPENGATE 2.0 adoption, certification news.
 - **Usually noise:** Reposted local media, distributor marketing, blog content, trade-show appearances.
 
@@ -494,12 +494,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Single-restaurant additions, blog posts, community events, OpenAI navigation PR rehashes, hiring.
 
 ### Dexterity-SC Japan (Dexterity/Sumitomo JV, private)
-- **Reads through to:** SYM ± (AI palletizing/truck-loading peer; Japan-only deployments read loosely to Symbotic); PDYN − (Mech AI manipulation comparable to Palladyne IQ industrial software)
+- **Reads through to:** none direct — context only
 - **Matters:** Multi-site or fleet orders from Japanese logistics majors (Sagawa, etc.), progress versus 1,500-robot target, Dexterity Inc. funding or Mech scale-up.
 - **Usually noise:** Japanese trade-show exhibits, single proof-of-concept validations, relayed generic Dexterity marketing, seminar announcements.
 
 ### Epirus (private)
-- **Reads through to:** KDK + (Leonidas AGV pairs Epirus HPM with GDLS vehicle running Kodiak Driver); ONDS − (HPM counter-swarm competes with Iron Drone, Sentrycs for C-UAS budgets)
+- **Reads through to:** KDK + (Leonidas AGV pairs Epirus HPM with GDLS vehicle running Kodiak Driver); ONDS − (HPM counter-swarm competes with Iron Drone, Sentrycs for C-UAS budgets); PUSA − (Leonidas high-power-microwave C-UAS competes with Guardian interceptors for counter-drone budgets)
 - **Matters:** Leonidas AGV/Kodiak funding or Army orders, IFPC-HPM Gen II deliveries and follow-on procurement, USMC/Navy or allied (Singapore DSTA) C-UAS awards, funding ≥$100M.
 - **Usually noise:** Live-fire demo videos, conference panels, executive hires, generic directed-energy op-eds.
 
@@ -514,23 +514,23 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Demo videos, Helix model blog posts, CEO social-media teasers and humanoid hype listicles.
 
 ### Firmus Technologies (private)
-- **Reads through to:** GRRR ± (Rival Nvidia AI-factory campus in Batam, where Gorilla has its NeutraDC project)
+- **Reads through to:** none direct — context only
 - **Matters:** Batam campus financing, construction and go-live (Q1 2027 target), binding offtake contracts, Project Southgate MW energized, Nvidia GPU allocations, IPO revival or private raise terms.
 - **Usually noise:** Sustainability/cooling blog posts, event appearances, executive hires and 'up to' MOU headline values without binding terms.
 - **Status:** Withdrew planned ASX IPO in Oct 2026 after weak demand
 
 ### Flock Safety (private)
-- **Reads through to:** AXON − (Competes in ALPR, real-time crime centers (FlockOS) and Aerodome DFR drones); REKR − (Dominant ALPR rival; its city cancellations or state rules shift plate-reader share); SSTI − (Raven gunshot detection and ALPR compete with ShotSpotter for city contracts)
+- **Reads through to:** AXON − (Competes in ALPR, real-time crime centers (FlockOS) and Aerodome DFR drones); REKR − (Dominant ALPR rival; its city cancellations or state rules shift plate-reader share); SSTI − (Raven gunshot detection competes with ShotSpotter; city switches cut CVR-linked revenue)
 - **Matters:** City or state contract wins/cancellations and vendor switches, ALPR data-sharing laws or bans, Raven and DFR drone expansion, funding/valuation or IPO filing, acquisitions.
 - **Usually noise:** Single-agency case studies, crimes-solved stories, blog posts, product webinars and activist op-eds without policy action.
 
 ### Forterra (private)
-- **Reads through to:** KDK − (Competing autonomy kit on Oshkosh ROGUE-Fires; won $92M Block 2 production); SPAI + (Prime on SPAI's $1.3M RoadSight subcontract for autonomous ground vehicles)
+- **Reads through to:** KDK − (Competing autonomy kit on Oshkosh ROGUE-Fires; won $92M Block 2 production)
 - **Matters:** ROGUE-Fires production orders and autonomy-kit split with Kodiak, Army EABC/Sandhills/ILTM ground-robot awards, subcontracts naming Safe Pro RoadSight, funding rounds of $100M+.
 - **Usually noise:** Exercise demos, conference appearances, hiring posts, and the unrelated Forterra pipe/concrete maker or Seattle land trust.
 
 ### Gatik (private)
-- **Reads through to:** KDK ± (Middle-mile driverless peer; private valuation and fleet scale set Kodiak comps); AUR ± (Box-truck driverless peer; fleet/contract milestones benchmark Aurora's driverless scale-up)
+- **Reads through to:** KDK − (Driverless middle-mile trucking rival; competes with Kodiak for shipper autonomous freight)
 - **Matters:** Driverless truck counts and new shipper contracts (PepsiCo/Frito-Lay, Walmart, Kroger), Isuzu factory-built L4 trucks (2027), new states, funding/valuation, SPAC or IPO moves.
 - **Usually noise:** Safety-framework white papers, award wins, conference talks, and archive blog reposts of older announcements.
 
@@ -545,7 +545,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Medium reposts, exercise/demo recaps, hiring and facility posts, and partnership MOUs without funding.
 
 ### ICEYE (private)
-- **Reads through to:** PL ± (SAR rival; won parallel Swedish award with Planet Jan 2026; signals sovereign demand); SATL − (Sells sovereign satellites and data to the same allied defense buyers)
+- **Reads through to:** PL − (SAR rival for sovereign capacity awards at Planet key accounts like Sweden); SATL − (Sells sovereign satellites and data to the same allied defense buyers)
 - **Matters:** Sovereign constellation sales (Rheinmetall JV for Germany, Poland, Netherlands, Sweden), U.S. NGA/Army/NRO awards, production and launch cadence, funding/valuation, any IPO filing.
 - **Usually noise:** Disaster-imagery releases (floods, wildfires), insurance analytics posts, single-satellite launch notes and conference talks.
 
@@ -555,12 +555,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Trade-show (LogiMAT/MODEX) previews, European pharmacy or fashion projects, software app add-ons and award announcements.
 
 ### Lambda (private)
-- **Reads through to:** GRRR ± (GPU-cloud peer; its pricing, financing and IPO valuation set Gorilla comps)
+- **Reads through to:** none direct — context only
 - **Matters:** IPO filing/timing and valuation, pre-IPO equity or GPU-backed debt raises, hyperscaler/AI-lab offtake contracts (e.g., Microsoft), GPU rental pricing and utilization disclosures.
 - **Usually noise:** Product/instance launches, developer tutorials, model-hosting posts, event sponsorships and customer case studies.
 
 ### Locus Robotics (private)
-- **Reads through to:** SYM − (AMR picking alternative at 3PLs like DHL, where Symbotic is pushing)
+- **Reads through to:** SYM − (AMR each-picking alternative competing with Symbotic for retail and 3PL DC automation)
 - **Matters:** Locus Array adoption and named retailer/3PL rollouts (DHL, GEODIS), robot fleet milestones, funding/valuation, IPO or sale process, Nexera grasping integration.
 - **Usually noise:** Picks-milestone PR, webinars, analyst-report mentions, award wins and 'In the News' media roundups.
 
@@ -581,17 +581,17 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Trade-show demos, Japan factory installs, webinars, case-study blogs, awards.
 
 ### Mythos AI (private)
-- **Reads through to:** RCAT ± (Navy USV autonomy software; partner or rival for Blue Ops boat programs)
+- **Reads through to:** none direct — context only
 - **Matters:** Navy MUSV/USV autonomy awards, shipbuilder teaming (Birdon America MOU, SAFE Boats, Ocean Power WAM-V), defense-prime integrations, funding, commercial vessel deployments.
 - **Usually noise:** Autonomous-mile milestones, Archie demo voyages, conference talks, awards, hiring.
 
 ### Neros Technologies (private)
-- **Reads through to:** RCAT − (Archer FPV rivals FANG for Army PBAS and Drone Dominance orders); DPRO − (Competes with Flex FPV for Army and SOCOM FPV buys); PUSA − (Interceptor-drone push competes with Powerus Guardian interceptors)
+- **Reads through to:** RCAT − (Archer FPV rivals FANG for Army PBAS and Drone Dominance orders); DPRO − (Competes with Flex FPV for Army and SOCOM FPV buys); PUSA − (Topped a Gauntlet II leaderboard; FPV and interceptors compete with MatrixFold, Guardian)
 - **Matters:** Army PBAS FPV awards (reported up to $500M), Drone Dominance orders, USMC/SOCOM orders, Ukraine exports, interceptor wins, factory output, funding ($250M Series C at $2.5B, 2026-08).
 - **Usually noise:** Product videos, hiring, podcasts, small allied demos, founder commentary.
 
 ### Nuro (private)
-- **Reads through to:** SERV ± (Delivery-bot heritage and Uber ties; Nuro Driver licensing could reach delivery)
+- **Reads through to:** none direct — context only
 - **Matters:** Lucid/Uber robotaxi driverless Bay Area launch (slipping toward Q1 2027), Uber milestone payments, new Nuro Driver licensing customers, funding/valuation, any re-entry into delivery.
 - **Usually noise:** Research and AI-platform blog posts, safety reports, hiring, conference talks.
 
@@ -601,18 +601,18 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Exercise demos, OverDrive/OverWatch feature posts, hiring, conference panels.
 
 ### Perennial Autonomy (private)
-- **Reads through to:** ONDS − (Merops interceptors compete with Iron Drone Raider and DZYNE C-UAS for JIATF-401); PUSA − (Rivals Powerus Guardian interceptors for DoD counter-drone buys); AXON ± (Competes with Dedrone for JIATF-401 C-UAS budget; possible integration partner)
+- **Reads through to:** PUSA − (Rivals Powerus Guardian interceptors for DoD counter-drone buys); ONDS − (Merops interceptors compete with Iron Drone Raider and DZYNE C-UAS for JIATF-401); AXON ± (Competes with Dedrone for JIATF-401 C-UAS budget; possible integration partner); RCAT − (Drone Dominance Gauntlet II leader; Teal missed that leaderboard); DPRO − (Drone Dominance Gauntlet II leader; its DDP orders are share Draganfly missed)
 - **Matters:** Task orders under the $500M JIATF-401 IDIQ, Merops fielding with U.S./NATO units, German production (Twentyfour Industries), Army interceptor program wins, funding.
 - **Usually noise:** Unverified Ukraine intercept counts, demos, hiring, Schmidt interviews.
 - **Status:** Eric Schmidt's former Project Eagle/Swift Beat, renamed in 2026
 
 ### Performance Drone Works (private)
-- **Reads through to:** UMAC ± (Customer ($3.75M order), but OSC-funded component plant may compete with UMAC); ONDS + (Ondas Capital invested $35M in PDW (2025-11)); RCAT − (C100 competes with Teal Black Widow and FANG in Army buys)
+- **Reads through to:** UMAC + (UMAC customer: $3.75M initial order under strategic supplier relationship (2025-12)); ONDS + (Ondas Capital invested $35M in PDW (2025-11)); RCAT − (C100 competes with Teal Black Widow and FANG in Army buys)
 - **Matters:** OSC $820M conditional loan finalization, Army C100 orders under its BOA, Drone Dominance awards, motor/battery/camera plant output, named suppliers or new investors.
 - **Usually noise:** Trade-show demos, Huntsville expansion PR, executive hires, training events.
 
 ### Physical Intelligence (private)
-- **Reads through to:** BOT + (Its rounds mark comps for BOT's Dyna Robotics stake, a large NAV holding); PDYN − (Named in Palladyne's 10-K as robot-autonomy software comparable); AGLT ± (Generalist robot models could power or commoditize Digit software)
+- **Reads through to:** PDYN − (Named in Palladyne's 10-K as robot-autonomy software comparable)
 - **Matters:** Funding/valuation (Series C ~$1.05B at $11B; talks near $20B), commercial deployments or licensing of pi models, humanoid/OEM partnerships, especially with Agility or rivals.
 - **Usually noise:** Research papers, demo videos, benchmark claims, hiring, podcasts.
 
@@ -628,7 +628,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Media coverage restating past milestones, conference talks, executive hires and generic autonomous-aviation features.
 
 ### Robot.com (private; formerly Kiwibot)
-- **Reads through to:** MBAI ± (Hospitality/food-service RaaS rival; R-noid is also a robot MBody could orchestrate); AGLT − (Wheeled R-noid humanoid targets picking and packing tasks Digit pursues); SERV − (Ex-Kiwibot sidewalk delivery robots compete for campus and platform delivery volume)
+- **Reads through to:** AGLT − (Wheeled R-noid humanoid targets picking and packing tasks Digit pursues); SERV − (Ex-Kiwibot sidewalk delivery robots compete for campus and platform delivery volume)
 - **Matters:** R-noid deployments and named customers (hospitality, food service, logistics), large RaaS fleet contracts with operators like Sodexo, delivery-platform deals, funding >= $50M.
 - **Usually noise:** CEO blog essays, trade-show demos such as Automate, rebrand marketing and single-site pilot announcements.
 - **Status:** Kiwibot rebranded as Robot.com in 2025
@@ -639,7 +639,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Roush Performance Mustang/F-150 packages, Roush CleanTech propane fleets, motorsport and general engineering-services news.
 
 ### Saildrone (private)
-- **Reads through to:** RCAT ± (Navy USV awards size Blue Ops' market; rival for maritime ISR budgets)
+- **Reads through to:** none direct — context only
 - **Matters:** Navy task orders (NAVOCEANO mapping, SOUTHCOM Voyager fleet), MUSV competition and litigation outcome, Spectre strike-USV contract, Lockheed JAGM integration, allied navy orders, funding >= $100M.
 - **Usually noise:** Ocean-science and hurricane missions, NOAA research data, fisheries surveys, conference talks and awards.
 
@@ -649,17 +649,17 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Medium culture and engineering posts, hiring drives, events, leadership profiles and policy op-eds.
 
 ### Shield AI (private)
-- **Reads through to:** PDYN − (Hivemind competes with Palladyne Pilot/SwarmOS for drone autonomy and swarming work); MRLN − (Hivemind CCA autonomy and X-BAT compete for military aircraft-autonomy funding); RCAT ± (V-BAT/Hivemind wins and $12.7B valuation set bar for U.S. drone makers)
+- **Reads through to:** PDYN − (Hivemind competes with Palladyne Pilot/SwarmOS for drone autonomy and swarming work); MRLN − (Hivemind CCA autonomy and X-BAT compete for military aircraft-autonomy funding)
 - **Matters:** V-BAT production orders (U.S. services, allies), Hivemind licensing on third-party aircraft, USAF CCA autonomy and LUCAS swarming awards, X-BAT funding or first flight, raises >= $100M, S-1 filing.
 - **Usually noise:** Blog explainers, podcasts, hiring, conference keynotes, non-binding MOUs and small international demos.
 
 ### Skild AI (private)
-- **Reads through to:** PDYN − (Named in Palladyne's 10-K as robot-autonomy software competitor); AGLT ± (Humanoid 'brain' supplier; its OEM deals and mega-rounds shape humanoid funding climate)
+- **Reads through to:** PDYN − (Named in Palladyne's 10-K as robot-autonomy software competitor)
 - **Matters:** Skild Brain releases tied to real deployments, OEM licensing deals with humanoid or industrial-arm makers, NVIDIA/SoftBank partnerships, funding >= $100M or valuation marks (>$14B Jan 2026).
 - **Usually noise:** Research blog posts, demo videos, benchmark claims without customers, hiring and conference talks.
 
 ### Skydio (private)
-- **Reads through to:** AXON + (Supplies X10/R10 drones and docks sold through Axon Air DFR); RCAT − (X10D competes with Teal Black Widow for Army SRR orders); DPRO − (U.S.-made public-safety and defense drone rival; Blue UAS competitor); ONDS − (Skydio Dock competes with Airobotics Optimus drone-in-a-box for site security)
+- **Reads through to:** AXON + (Supplies X10/R10 drones and docks sold through Axon Air DFR); RCAT − (X10D competes with Teal Black Widow for Army SRR orders); DPRO − (U.S.-made public-safety and defense drone rival; Blue UAS competitor); ONDS − (Skydio Dock competes with Airobotics Optimus drone-in-a-box for site security); PDYN − (Named in Palladyne 10-Q; Skydio Autonomy rivals Palladyne Pilot drone autonomy)
 - **Matters:** Army SRR/X10D orders and production ramp, Blue UAS and allied military wins, police DFR deployments, Dock/R10 launches, Chinese sanctions or supply hits, funding >= $100M or IPO.
 - **Usually noise:** Customer case-study blogs, webinars, minor software releases, trade-show posts and thought-leadership pieces.
 
@@ -680,7 +680,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Exhibition appearances, hires, small SBIRs, reposted PRNewswire items and demo-event coverage.
 
 ### Verkada (private)
-- **Reads through to:** AXON ± (Cloud video/LPR rival in enterprise and public-sector security platforms); REKR − (Verkada LPR cameras (80 mph, three lanes) compete with Rekor Scout ALPR); EVLV ± (Same school/hospital security buyers; a Verkada IPO would set security comps)
+- **Reads through to:** AXON − (Cloud video/LPR rival in enterprise and public-sector security platforms); REKR − (Verkada LPR cameras (80 mph, three lanes) compete with Rekor Scout ALPR)
 - **Matters:** IPO filing (S-1), funding or valuation ($5.8B Dec 2025), public-safety or LPR products, large school/hospital/city contracts, bookings milestones, breaches or privacy regulatory actions.
 - **Usually noise:** Monthly product-update roundups, customer case studies, partner integrations, awards and event marketing.
 
@@ -706,6 +706,6 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Single-school deployments, renewals, detection anecdotes, veteran-hiring PR, webinars, small referral partnerships.
 
 ### Zipline (private)
-- **Reads through to:** SERV − (Drone delivery competes for restaurant and grocery last-mile orders, platform deals)
+- **Reads through to:** none direct — context only
 - **Matters:** Restaurant or delivery-platform deals (Uber Eats, DoorDash), Walmart 300-site rollout pace, new US metros, funding ($1.5B at $21.5B, Nov 2026), FAA BVLOS approvals.
 - **Usually noise:** Overseas health-system pilots, single-site launches, delivery-count milestones, sustainability posts, executive profiles.
