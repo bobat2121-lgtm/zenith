@@ -1,0 +1,24 @@
+name = "zenith-core"
+main = "src/index.js"
+compatibility_date = "2026-07-09"
+workers_dev = true
+
+# Ingest covered-lane items from news-monitor every 5 minutes. Grading happens
+# in the hourly Claude routine (rubric served by this Worker).
+[triggers]
+crons = ["*/5 * * * *"]
+
+# zenith-db: items, grades, feedback (labels), runs.
+[[d1_databases]]
+binding = "DB"
+database_name = "zenith-db"
+database_id = "be7c75d5-3b4c-4155-a412-336f028da97d"
+migrations_dir = "migrations"
+
+# news-monitor-db, read-only by convention: zenith-core only SELECTs from it.
+[[d1_databases]]
+binding = "NEWS"
+database_name = "news-monitor-db"
+database_id = "d9217220-a23b-4715-b4ab-c7ddd057415c"
+
+# Secrets (wrangler secret put): ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN

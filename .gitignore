@@ -1,0 +1,11 @@
+# secrets — never commit
+.secrets.local.json
+worker/.dev.vars
+app/.streamlit/secrets.toml
+# local state
+node_modules/
+.wrangler/
+worker/.wrangler/
+app/.venv/
+__pycache__/
+.zenith/
