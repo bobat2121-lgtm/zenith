@@ -220,6 +220,504 @@
         "XTRAF"
       ]
     },
+    "agco_humanoid": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "amazon_humanoid": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "gxo_humanoid": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "meli_robotics": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "schaeffler_humanoid": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "toyota_humanoid": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "avispl_autonomy": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "charger_av": {
+      "role": "customer",
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
+    "detmar_av": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "dsv_autonomy": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "hirschbach_av": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "mclane_av": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "valuetruck_av": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "werner_av": {
+      "role": "customer",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "freyr_ai": {
+      "role": "customer",
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "taoyuan_airport": {
+      "role": "customer",
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "dtl_kdk": {
+      "role": "customer",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "ikea_supply": {
+      "role": "customer",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "roehl_kdk": {
+      "role": "customer",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "rogue_fires": {
+      "role": "program",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "westfraser_kdk": {
+      "role": "customer",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "caesars_mbai": {
+      "role": "customer",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "cariberoyale_mbai": {
+      "role": "customer",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "mgm_mbai": {
+      "role": "customer",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "mohegan_mbai": {
+      "role": "customer",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "sse_drone": {
+      "role": "customer",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "uvision": {
+      "role": "program",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "pdyn_cust_iai": {
+      "role": "customer",
+      "affects": [
+        "PDYN",
+        "ONDS"
+      ]
+    },
+    "google_suncatcher": {
+      "role": "program",
+      "affects": [
+        "PL"
+      ]
+    },
+    "jsat_eo": {
+      "role": "customer",
+      "affects": [
+        "PL"
+      ]
+    },
+    "ceiia_atlantic": {
+      "role": "customer",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "heo": {
+      "role": "customer",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "onr_slingshot": {
+      "role": "program",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "synmax": {
+      "role": "customer",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "tasl_satellites": {
+      "role": "customer",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "bedrock_robotics": {
+      "role": "customer",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "grubhub_robots": {
+      "role": "customer",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "fpl_drones": {
+      "role": "customer",
+      "affects": [
+        "SPAI"
+      ]
+    },
+    "wheelsup": {
+      "role": "customer",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "albertsons": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "awg": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "cswg": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "medline": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "southernglazers": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "unfi": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "msgvenues": {
+      "role": "customer",
+      "affects": [
+        "XTRAF"
+      ]
+    },
+    "sphere_security": {
+      "role": "customer",
+      "affects": [
+        "XTRAF"
+      ]
+    },
+    "neura": {
+      "role": "rival",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "one_x_tech": {
+      "role": "rival",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "sanctuary": {
+      "role": "rival",
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "botauto": {
+      "role": "rival",
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
+    "dxyz": {
+      "role": "rival",
+      "affects": [
+        "BOT"
+      ]
+    },
+    "nslr": {
+      "role": "rival",
+      "affects": [
+        "BOT"
+      ]
+    },
+    "vcx": {
+      "role": "rival",
+      "affects": [
+        "BOT"
+      ]
+    },
+    "swarmdefense": {
+      "role": "rival",
+      "affects": [
+        "DPRO"
+      ]
+    },
+    "tfvector": {
+      "role": "rival",
+      "affects": [
+        "DPRO",
+        "RCAT"
+      ]
+    },
+    "volatus": {
+      "role": "rival",
+      "affects": [
+        "DPRO"
+      ]
+    },
+    "garrett_security": {
+      "role": "rival",
+      "affects": [
+        "EVLV"
+      ]
+    },
+    "libertydefense": {
+      "role": "rival",
+      "affects": [
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "omnilert": {
+      "role": "rival",
+      "affects": [
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "braincorp": {
+      "role": "rival",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "pudu": {
+      "role": "rival",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "sikorsky_matrix": {
+      "role": "rival",
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "skyryse": {
+      "role": "rival",
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "index_ftserussell": {
+      "role": "index_event",
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "index_nasdaq100": {
+      "role": "index_event",
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "index_spdji": {
+      "role": "index_event",
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "msci_mstr": {
+      "role": "index_event",
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "leidos_strike": {
+      "role": "rival",
+      "affects": [
+        "PDYN"
+      ]
+    },
+    "airbus_space": {
+      "role": "rival",
+      "affects": [
+        "PL",
+        "SATL"
+      ]
+    },
+    "skycutter": {
+      "role": "rival",
+      "affects": [
+        "RCAT",
+        "DPRO"
+      ]
+    },
+    "pixxel": {
+      "role": "rival",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "boutiqueair": {
+      "role": "rival",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "capeair": {
+      "role": "rival",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "contour": {
+      "role": "rival",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "skywest_eas": {
+      "role": "rival",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "greyorange": {
+      "role": "rival",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "witron": {
+      "role": "rival",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "arkelectronics": {
+      "role": "rival",
+      "affects": [
+        "UMAC"
+      ]
+    },
+    "modalai": {
+      "role": "rival",
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "DPRO"
+      ]
+    },
+    "orqa": {
+      "role": "rival",
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "DPRO"
+      ]
+    },
     "joby": {
       "role": "rival",
       "affects": [
