@@ -6,9 +6,9 @@ Version 3.1, 2026-11-18. Read on every run. Replaces Zenith `firm-core.md` v2 an
 
 ## 1. Scope
 
-**Covered universe (26):** RCAT Red Cat · UMAC Unusual Machines · DPRO Draganfly · SPAI Safe Pro · ONDS Ondas · AXON Axon Enterprise · KDK Kodiak AI · AUR Aurora · SERV Serve Robotics · AGLT Agility Robotics · PL Planet Labs · SATL Satellogic · EVLV Evolv · XTRAF Xtract One · SSTI SoundThinking · REKR Rekor · SYM Symbotic · PDYN Palladyne AI · MRLN Merlin · SRFM Surf Air Mobility · GRRR Gorilla Technology · MBAI MBody AI · PUSA Powerus · BOT RoboStrategy · MSTR Strategy · ASST Strive.
+**Covered universe (24):** RCAT Red Cat · UMAC Unusual Machines · DPRO Draganfly · SPAI Safe Pro · ONDS Ondas · AXON Axon Enterprise · KDK Kodiak AI · AUR Aurora · SERV Serve Robotics · AGLT Agility Robotics · PL Planet Labs · SATL Satellogic · EVLV Evolv · XTRAF Xtract One · SYM Symbotic · PDYN Palladyne AI · MRLN Merlin · SRFM Surf Air Mobility · GRRR Gorilla Technology · MBAI MBody AI · PUSA Powerus · BOT RoboStrategy · MSTR Strategy · ASST Strive.
 
-**In scope:** the subject is one of these companies, or a subsidiary, brand, product, predecessor or shell listed in its sheet (Teal Drones, Blue Ops → RCAT; Sarcos → PDYN; ShotSpotter, SafePointe → SSTI; CCXI → AGLT), or the item passes section 9.
+**In scope:** the subject is one of these companies, or a subsidiary, brand, product, predecessor or shell listed in its sheet (Teal Drones, Blue Ops → RCAT; Sarcos → PDYN; CCXI → AGLT), or the item passes section 9.
 
 Hard rules, applied before scoring:
 - **Entity first.** Match on sheet terms, aliases and traps, then check the match against the collision table below and every other sheet. Wrong entity: 0-5, `reason:off_entity`.
@@ -26,7 +26,7 @@ Hard rules, applied before scoring:
 - **Own items are never out of scope.** An item from a covered source key about the company itself (results, 10-Q, 8-K, S-3, date notices, releases) is graded on its content. It is never `out_of_scope`, and never `insufficient_evidence` on scope grounds. Old graders did this to the Q3 results of SRFM (30), MRLN (35) and ASST (5).
 - **Contamination.** Another issuer under a covered key (ChemoCentryx/Amgen 2022 in `aglt_press`): 0-9, `reason:source_quality`. Old archive material (MicroStrategy 2020-23 in `strategy`): 0-9, `reason:stale`. Both get `source_repair` and never reach the feed.
 - **Out of scope:** peers, competitors, the sector, policy, macro, general news, budgets that name no covered program, market sizing, other companies' earnings, and thematic pieces with a forced tag. 0-15, `reason:out_of_scope`, whatever the dollars; never above 39.
-- **Status changes.** A bought company stays covered until the owner removes it (SSTI closed 2026-11-18). After the close, only final filings and sheet drivers (CVR, earnout) rank. If a primary item contradicts the sheet, trust the item and flag `sheet_stale`.
+- **Status changes.** A bought company stays covered until the owner removes it (SSTI closed 2026-11-18; the owner removed SSTI and REKR from coverage on 2026-11-20, and calibration examples that cite them still illustrate the rules). After the close, only final filings and sheet drivers (CVR, earnout) rank. If a primary item contradicts the sheet, trust the item and flag `sheet_stale`.
 
 ## 2. Score scale and bands
 
@@ -281,7 +281,7 @@ Noise applies only when the ceremony or promotion is the whole item. An item tha
 - **<20, `reason:out_of_scope`:** stock-move pieces, price targets, ratings, options flow, mNAV commentary; thematic pieces with a forced tag.
 - **<30, `reason:late_repost`:** secondary earnings recaps more than 24h after the print; guidance retellings more than 72h after (the owner processes prints the same day). Sheets cite this rule and never restate it.
 - **30-39:** index inclusion (S&P 500 inclusion 60-70).
-- **Weapons detection (EVLV, SSTI SafePointe, XTRAF):**
+- **Weapons detection (EVLV, XTRAF):**
   - Tier accounts are NFL, NBA, NHL, MLB and MLS home venues, named multi-hospital systems, whole school districts and airlines.
   - A tier win scores 70-80 individually; a tier renewal 65-75 (the owner upvoted the Texans renewal).
   - Other single-venue or single-school wins score 55-68 with `group:wd_roundup`.
@@ -315,6 +315,8 @@ A non-company item counts for a covered name only if:
 4. a rival wins at a sheet key account in the company's category: 50-69 as a possible loss, or `money` bad news (70+) if the replacement is confirmed.
 
 **Investees:** news about an equity-method or minority investee (financings, valuations, sites) counts only when it names the covered company or the covered company discloses the mark or terms. A JV's operating milestone counts when it names the covered company's systems.
+
+**Counterparty sources:** an item whose claim shows `COUNTERPARTY: role=… affects=…` comes from a search or feed about a covered company's partners (`relationship`), customers (`customer`), programs (`program`), rivals (`rival`) or index providers (`index_event`). It is never an own item, so the own-item rule in section 1 does not apply: it counts only through rules 1-4 above, otherwise 0-15 `reason:out_of_scope`. Grade it under its `ticker` with the bare item_id. When it also passes a rule for another ticker in `affects`, add a `"<item_id>#<TICKER>"` grade for that ticker. Rival items reach the queue only when the title names the covered company or a sheet key account; still check that the rival actually won, renewed or replaced at that account. Index items count for MSTR when the provider names Strategy or MSTR in an inclusion, exclusion or methodology decision.
 
 Everything else is `out_of_scope`, whatever old read-through precedents said: peer wins and financings, sector budgets, competitor executives, other companies' AV launches, market studies. Sheet lines that surface items not naming the company (regulation, peer distress, RFPs, FX) break this hard rule unless they carry an `owner:<date>` mark. Otherwise they belong in the sheet's catalyst calendar as context and are never graded. A co-mention or tag is not news. A covered company named in another covered company's own item counts as direct involvement for both.
 

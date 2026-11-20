@@ -238,7 +238,7 @@ Core floors apply as written: `results` 80, `guidance` 80, `calendar` 72 fixed, 
   - Confirmed replacement is `money` bad news, at 70+.
 - **Flock Safety:** ALPR and drones. City switches from Flock to Axon are AXON items because Axon is named. They follow the award line (60-68 below tiny).
 - **ONDS (covered):** counter-drone rival through Sentrycs and DZYNE. An item that names both companies is direct involvement for both.
-- **REKR (covered):** ALPR rival. Same rule as ONDS.
+- **Rekor (REKR, not covered since 2026-11-20):** ALPR rival. Its own news is out of scope unless it names Axon or wins at an Axon key account (core §9 rule 4).
 - **DroneShield:** counter-drone rival.
 - **Everything else is `out_of_scope`.** This covers peer wins, peer financings, sector budgets and Skydio-only news. Grade an item only when it names Axon or one of its products, or when a key customer acts on a product in Axon's category (core §9.2).
 

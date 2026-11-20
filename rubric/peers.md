@@ -1,13 +1,13 @@
 # Peer notes — other-lane companies
 
-Short notes for the 133 companies news-monitor tracks outside the covered lane
+Short notes for the 135 companies news-monitor tracks outside the covered lane
 (competitors, customers, partners, bellwethers). Use them when an item about a covered
 company names one of these companies. A peer's own news counts for a covered company
 only through an explicit link (see core.md, read-through boundary).
 
 Direction: **+** partner / customer / validation · **−** competitor · **±** depends on the event.
 
-## Public companies (68)
+## Public companies (69)
 
 ### AeroVironment (AVAV)
 - **Reads through to:** RCAT − (Main small-UAS rival; owns ESAero, a Black Widow contract manufacturer); ONDS − (BlueHalo C-UAS and Group 2-3 UAS vs Sentrycs, Iron Drone, DZYNE); PDYN − (Switchblade loitering munitions compete with Palladyne SwarmStrike for strike-drone awards); MRLN − (Named competitor in Merlin's prospectus for military autonomous-aircraft programs); PUSA − (Freedom Eagle-1 and BlueHalo kinetic C-UAS compete with Powerus Guardian interceptors)
@@ -156,7 +156,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Flight-demo videos, vertiport MOUs, international LOIs, airshow appearances, executive commentary.
 
 ### Knightscope (KSCP)
-- **Reads through to:** SSTI − (Automated gunshot-detection offering competes with ShotSpotter for municipal contracts)
+- **Reads through to:** none direct — context only
 - **Matters:** Gunshot-detection municipal wins, security-robot fleet contracts (federal/USAF), quarterly revenue/backlog, dilutive ATM raises, Nasdaq compliance.
 - **Usually noise:** Small renewal bundles, emergency call-box orders, award releases, CEO letters, trade-show appearances.
 
@@ -207,7 +207,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Small design wins with unnamed foreign OEMs, trade-show appearances, investor-conference notices, financing housekeeping.
 
 ### Motorola Solutions (MSI)
-- **Reads through to:** EVLV + (OEM partner reselling Motorola-branded CWD built on Evolv Express); AXON − (Main platform rival: body cams, evidence, CAD, ALPR, DFR drones); ONDS − (D-Fend acquisition ($1.5B, 2026) competes with Sentrycs cyber-takeover C-UAS); REKR − (Vigilant ALPR competes for state and municipal plate-reader contracts)
+- **Reads through to:** EVLV + (OEM partner reselling Motorola-branded CWD built on Evolv Express); AXON − (Main platform rival: body cams, evidence, CAD, ALPR, DFR drones); ONDS − (D-Fend acquisition ($1.5B, 2026) competes with Sentrycs cyber-takeover C-UAS)
 - **Matters:** Concealed-weapons-detection deals (credit EVLV), body-camera/evidence/CAD wins or losses vs Axon, Vigilant ALPR contracts (REKR, SSTI), D-Fend closing and C-UAS orders, DFR acquisitions.
 - **Usually noise:** LMR and APX radio orders, international P25 networks, dividends, buybacks, generic AI-assistant product launches.
 
@@ -257,6 +257,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Reads through to:** RCAT − (Stalker/Penguin long-range recon UAS compete with FlightWave Edge 130 for Army/NATO)
 - **Matters:** Edge Autonomy drone awards: Army LRR Stalker production decisions, Stalker/Penguin NATO and Taiwan orders, Ukraine deals, drone revenue/backlog; space segment only if guidance or financing shifts.
 - **Usually noise:** Space-station hardware, ISS experiments, roll-out solar array deliveries, conference talks, executive hires.
+
+### Rekor Systems (NASDAQ: REKR)
+- **Reads through to:** AXON − (ALPR and roadway-intelligence rival to Axon's plate-reader and real-time crime center products)
+- **Matters:** State DOT and city ALPR or traffic-analytics awards and cancellations at Axon accounts, Nasdaq listing-compliance steps, financings.
+- **Usually noise:** Product webinars, blog posts, conference appearances and case studies.
+- **Status:** Covered until 2026-11-20, when the owner removed it from coverage
 
 ### Richtech Robotics (RR)
 - **Reads through to:** MBAI − (Rival service robots in Las Vegas casinos/hotels; wins at MGM or Caesars hurt)
@@ -456,7 +462,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Matters:** Little direct; sector context only: NHTSA exemption for no-steering-wheel vehicles, recalls or crashes, Uber Las Vegas/LA rollout, paid-service launch timing.
 - **Usually noise:** Journal explainers, free-ride area expansions, events, hiring, Las Vegas Strip marketing.
 
-## Private companies (49)
+## Private companies (50)
 
 ### Anduril (private)
 - **Reads through to:** RCAT ± (Leads Apium's Swarm Forge Crucible 4 team; Ghost-X rivals Teal in Army sUAS); ONDS − (Anvil/Roadrunner/Lattice C-UAS benchmark versus Iron Drone and Sentrycs); SPAI + (Ghost-X is the drone on Safe Pro's $2.5M Army CSO; Lattice partner); PDYN ± (Lattice integration partner for SwarmOS/Pilot; also a 10-Q-named drone-autonomy competitor); MRLN − (Prospectus-named competitor; Lattice/Fury autonomy rivals Merlin for military aircraft-autonomy funding); PUSA − (Anvil and Roadrunner interceptors compete with Powerus Guardian for C-UAS buys)
@@ -479,12 +485,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** PX4/developer blog posts, commercial-inspection partner news, webinars, trade-show demos, hiring.
 
 ### Brinc Drones (private)
-- **Reads through to:** AXON − (Motorola-resold Guardian DFR competes with Axon Air/Skydio docks for agencies); DPRO − (Rival U.S. public-safety drone maker for police and fire departments); SSTI + (ShotSpotter alerts auto-dispatch BRINC drones (Pueblo, CO integration))
+- **Reads through to:** AXON − (Motorola-resold Guardian DFR competes with Axon Air/Skydio docks for agencies); DPRO − (Rival U.S. public-safety drone maker for police and fire departments)
 - **Matters:** Agency DFR wins or statewide contracts, Motorola reseller and radio/CAD integrations, Guardian Seattle production, funding ≥$100M, FAA BVLOS waivers, ShotSpotter integrations.
 - **Usually noise:** Single small-town deployments, webinars, rescue anecdotes, conference booths, DFR policy thought-leadership posts.
 
 ### CEIA OpenGate (private, Italy)
-- **Reads through to:** EVLV − (OpenGate wins K-12 and venue screening bids Evolv Express targets); XTRAF − (Rival to SmartGateway for school, hospital and venue weapons-screening tenders); SSTI − (SafePointe rival; lost SafePointe sites cut FY2027 revenue setting the CVR)
+- **Reads through to:** EVLV − (OpenGate wins K-12 and venue screening bids Evolv Express targets); XTRAF − (Rival to SmartGateway for school, hospital and venue weapons-screening tenders)
 - **Matters:** District, university and venue contract wins (e.g., Duval $2M, Fairfax expansion, Georgia Tech), head-to-head displacements of Evolv/Xtract, OPENGATE 2.0 adoption, certification news.
 - **Usually noise:** Reposted local media, distributor marketing, blog content, trade-show appearances.
 
@@ -520,7 +526,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Status:** Withdrew planned ASX IPO in Oct 2026 after weak demand
 
 ### Flock Safety (private)
-- **Reads through to:** AXON − (Competes in ALPR, real-time crime centers (FlockOS) and Aerodome DFR drones); REKR − (Dominant ALPR rival; its city cancellations or state rules shift plate-reader share); SSTI − (Raven gunshot detection competes with ShotSpotter; city switches cut CVR-linked revenue)
+- **Reads through to:** AXON − (Competes in ALPR, real-time crime centers (FlockOS) and Aerodome DFR drones)
 - **Matters:** City or state contract wins/cancellations and vendor switches, ALPR data-sharing laws or bans, Raven and DFR drone expansion, funding/valuation or IPO filing, acquisitions.
 - **Usually noise:** Single-agency case studies, crimes-solved stories, blog posts, product webinars and activist op-eds without policy action.
 
@@ -663,6 +669,12 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Matters:** Army SRR/X10D orders and production ramp, Blue UAS and allied military wins, police DFR deployments, Dock/R10 launches, Chinese sanctions or supply hits, funding >= $100M or IPO.
 - **Usually noise:** Customer case-study blogs, webinars, minor software releases, trade-show posts and thought-leadership pieces.
 
+### SoundThinking (private; ex-NASDAQ: SSTI)
+- **Reads through to:** EVLV − (SafePointe AI weapons detection competes for hospital and venue screening); XTRAF − (SafePointe competes with SmartGateway for the same screening budgets)
+- **Matters:** SafePointe wins at EVLV or XTRAF accounts (core §9 rule 4), ShotSpotter city cancellations or renewals.
+- **Usually noise:** Crimes-solved stories, case studies and product webinars.
+- **Status:** Taken private by Transom Capital 2026-11-18; removed from coverage 2026-11-20
+
 ### Starship Technologies (private)
 - **Reads through to:** SERV − (Sidewalk-robot rival; Uber Eats global deal targets U.S. cities by 2027)
 - **Matters:** Uber Eats rollout and U.S. city launches, grocery-retailer fleet deals, fleet scale toward 12,000 robots by 2027, new delivery-platform partners, funding >= $50M.
@@ -680,7 +692,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Usually noise:** Exhibition appearances, hires, small SBIRs, reposted PRNewswire items and demo-event coverage.
 
 ### Verkada (private)
-- **Reads through to:** AXON − (Cloud video/LPR rival in enterprise and public-sector security platforms); REKR − (Verkada LPR cameras (80 mph, three lanes) compete with Rekor Scout ALPR)
+- **Reads through to:** AXON − (Cloud video/LPR rival in enterprise and public-sector security platforms)
 - **Matters:** IPO filing (S-1), funding or valuation ($5.8B Dec 2025), public-safety or LPR products, large school/hospital/city contracts, bookings milestones, breaches or privacy regulatory actions.
 - **Usually noise:** Monthly product-update roundups, customer case studies, partner integrations, awards and event marketing.
 
@@ -701,7 +713,7 @@ Direction: **+** partner / customer / validation · **−** competitor · **±**
 - **Status:** Plans Mumbai IPO targeted Jan-Mar 2027; not yet listed
 
 ### ZeroEyes (private)
-- **Reads through to:** EVLV − (Rival for school security budgets and state firearm-detection grants); XTRAF − (Camera gun-detection alternative competing with Gateway in schools, healthcare); SSTI − (SoundThinking-disclosed competitor to ShotSpotter and SafePointe weapons screening)
+- **Reads through to:** EVLV − (Rival for school security budgets and state firearm-detection grants); XTRAF − (Camera gun-detection alternative competing with Gateway in schools, healthcare)
 - **Matters:** Statewide school grant programs (e.g. Kansas $10M), large district or state contracts, big funding or M&A, false-alert controversies, federal approvals (FedRAMP, DHS SAFETY Act).
 - **Usually noise:** Single-school deployments, renewals, detection anecdotes, veteran-hiring PR, webinars, small referral partnerships.
 

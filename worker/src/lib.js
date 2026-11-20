@@ -153,3 +153,44 @@ export function skipReason(row) {
   if (!Number.isFinite(pub) || !Number.isFinite(seen)) return null;
   return seen - pub > STALE_DAYS * 86_400_000 ? "stale_on_arrival" : null;
 }
+
+// --- Counterparty sources ---------------------------------------------------
+// One regex per phrase list: case-insensitive, and a phrase must not sit inside
+// a longer word ("Axon" never matches "Axonics"; "$SERV" and "Inc." still work).
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function phraseRegex(phrases) {
+  const list = [...new Set((phrases || []).filter((p) => typeof p === "string" && p.trim().length >= 3).map((p) => p.trim()))];
+  if (!list.length) return null;
+  list.sort((a, b) => b.length - a.length);
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${list.map(escapeRe).join("|")})(?![\\p{L}\\p{N}])`, "iu");
+}
+
+// Routes an item from a counterparty source (cp = { role, affects }).
+//   match: { TICKER: { terms, accounts } } from the rubric build.
+// Returns the ticker to grade it under and, for a rival item whose title names
+// neither an affected company nor one of its key accounts, skip
+// "rival_no_key_account" (core.md section 9 rule 4: a rival's news counts only
+// when it wins at a sheet key account). Ticker order: an affected company the
+// title names (rule 1), then one whose key account it names, then the first
+// affected ticker. "Kodiak and Charger Logistics launch a lane" goes to KDK
+// even though Charger is also an AUR account.
+const routeCache = new WeakMap();
+function regexesFor(match, t) {
+  let byTicker = routeCache.get(match);
+  if (!byTicker) routeCache.set(match, (byTicker = new Map()));
+  if (!byTicker.has(t)) byTicker.set(t, { company: phraseRegex(match[t].terms), account: phraseRegex(match[t].accounts) });
+  return byTicker.get(t);
+}
+export function routeCounterparty(title, cp, match) {
+  const affects = (cp?.affects || []).filter((t) => match?.[t]);
+  if (!affects.length) return null;
+  const text = String(title || "");
+  const company = affects.filter((t) => regexesFor(match, t).company?.test(text));
+  const account = affects.filter((t) => regexesFor(match, t).account?.test(text));
+  return {
+    ticker: company[0] || account[0] || affects[0],
+    role: cp.role || "counterparty",
+    affects: affects.join(","),
+    skip: cp.role === "rival" && !company.length && !account.length ? "rival_no_key_account" : null,
+  };
+}

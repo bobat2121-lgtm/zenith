@@ -81,7 +81,13 @@ def safe_url(url: str | None) -> bool:
     return bool(url) and urlparse(url).scheme in ("http", "https")
 
 
-def source_badge(key: str) -> str:
+ROLE_BADGE = {"relationship": "Partner", "customer": "Customer", "program": "Program", "rival": "Rival", "index_event": "Index"}
+
+
+def source_badge(key: str, role: str | None = None) -> str:
+    # Counterparty sources (customers, partners, programs, rivals, index providers).
+    if role:
+        return ROLE_BADGE.get(role, "Counterparty")
     if key.startswith("edgar_") or key.endswith("_sec_northland"):
         return "SEC"
     if key.endswith("_press") or key in ("mbody", "draganfly"):
@@ -139,7 +145,7 @@ def render_card(it: dict) -> None:
         badge = '<span class="z-badge pending">grading…</span>'
     also = "".join(f'<span class="z-badge also">also {html.escape(a)}</span>' for a in (it.get("also") or "").split(",") if a)
     label = f'<span class="z-label">· you: {html.escape(it["label"])}</span>' if it.get("label") else ""
-    head = (f'<b>{html.escape(it["ticker"])}</b> <span class="z-badge src">{source_badge(it["source_key"])}</span> '
+    head = (f'<b>{html.escape(it["ticker"])}</b> <span class="z-badge src">{source_badge(it["source_key"], it.get("role"))}</span> '
             f'· {ago(it.get("first_seen"))} {badge} {also} {label}')
     clean_title = html.escape(" ".join(str(it["title"]).split()))
     title = (f'<a href="{html.escape(it["url"], quote=True)}" target="_blank" rel="noopener noreferrer">{clean_title}</a>'

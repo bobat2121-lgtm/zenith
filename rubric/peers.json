@@ -184,11 +184,6 @@
     "ticker": "DPRO",
     "direction": "-",
     "why": "Rival U.S. public-safety drone maker for police and fire departments"
-   },
-   {
-    "ticker": "SSTI",
-    "direction": "+",
-    "why": "ShotSpotter alerts auto-dispatch BRINC drones (Pueblo, CO integration)"
    }
   ],
   "matters": "Agency DFR wins or statewide contracts, Motorola reseller and radio/CAD integrations, Guardian Seattle production, funding ≥$100M, FAA BVLOS waivers, ShotSpotter integrations.",
@@ -326,16 +321,6 @@
     "ticker": "AXON",
     "direction": "-",
     "why": "Competes in ALPR, real-time crime centers (FlockOS) and Aerodome DFR drones"
-   },
-   {
-    "ticker": "REKR",
-    "direction": "-",
-    "why": "Dominant ALPR rival; its city cancellations or state rules shift plate-reader share"
-   },
-   {
-    "ticker": "SSTI",
-    "direction": "-",
-    "why": "Raven gunshot detection competes with ShotSpotter; city switches cut CVR-linked revenue"
    }
   ],
   "matters": "City or state contract wins/cancellations and vendor switches, ALPR data-sharing laws or bans, Raven and DFR drone expansion, funding/valuation or IPO filing, acquisitions.",
@@ -609,11 +594,6 @@
     "ticker": "XTRAF",
     "direction": "-",
     "why": "Rival to SmartGateway for school, hospital and venue weapons-screening tenders"
-   },
-   {
-    "ticker": "SSTI",
-    "direction": "-",
-    "why": "SafePointe rival; lost SafePointe sites cut FY2027 revenue setting the CVR"
    }
   ],
   "matters": "District, university and venue contract wins (e.g., Duval $2M, Fairfax expansion, Georgia Tech), head-to-head displacements of Evolv/Xtract, OPENGATE 2.0 adoption, certification news.",
@@ -972,11 +952,6 @@
     "ticker": "AXON",
     "direction": "-",
     "why": "Cloud video/LPR rival in enterprise and public-sector security platforms"
-   },
-   {
-    "ticker": "REKR",
-    "direction": "-",
-    "why": "Verkada LPR cameras (80 mph, three lanes) compete with Rekor Scout ALPR"
    }
   ],
   "matters": "IPO filing (S-1), funding or valuation ($5.8B Dec 2025), public-safety or LPR products, large school/hospital/city contracts, bookings milestones, breaches or privacy regulatory actions.",
@@ -1090,11 +1065,6 @@
     "ticker": "XTRAF",
     "direction": "-",
     "why": "Camera gun-detection alternative competing with Gateway in schools, healthcare"
-   },
-   {
-    "ticker": "SSTI",
-    "direction": "-",
-    "why": "SoundThinking-disclosed competitor to ShotSpotter and SafePointe weapons screening"
    }
   ],
   "matters": "Statewide school grant programs (e.g. Kansas $10M), large district or state contracts, big funding or M&A, false-alert controversies, federal approvals (FedRAMP, DHS SAFETY Act).",
@@ -1537,13 +1507,7 @@
   "name": "Knightscope (KSCP)",
   "status": "public",
   "status_note": "",
-  "reads_through": [
-   {
-    "ticker": "SSTI",
-    "direction": "-",
-    "why": "Automated gunshot-detection offering competes with ShotSpotter for municipal contracts"
-   }
-  ],
+  "reads_through": [],
   "matters": "Gunshot-detection municipal wins, security-robot fleet contracts (federal/USAF), quarterly revenue/backlog, dilutive ATM raises, Nasdaq compliance.",
   "noise": "Small renewal bundles, emergency call-box orders, award releases, CEO letters, trade-show appearances."
  },
@@ -1678,11 +1642,6 @@
     "ticker": "ONDS",
     "direction": "-",
     "why": "D-Fend acquisition ($1.5B, 2026) competes with Sentrycs cyber-takeover C-UAS"
-   },
-   {
-    "ticker": "REKR",
-    "direction": "-",
-    "why": "Vigilant ALPR competes for state and municipal plate-reader contracts"
    }
   ],
   "matters": "Concealed-weapons-detection deals (credit EVLV), body-camera/evidence/CAD wins or losses vs Axon, Vigilant ALPR contracts (REKR, SSTI), D-Fend closing and C-UAS orders, DFR acquisitions.",
@@ -2142,5 +2101,40 @@
   "reads_through": [],
   "matters": "Actual DoD/Army orders, Blue UAS listing of IQ Quad/ZenaDrone 1000, interceptor test results, organic DaaS growth, final quarterly results versus preliminary estimates.",
   "noise": "Paid promotional articles, policy-memo reaction releases, serial small DaaS survey-firm acquisitions, demos and congressional-engagement PRs."
+ },
+ {
+  "key": "rekor",
+  "name": "Rekor Systems (NASDAQ: REKR)",
+  "status": "public",
+  "status_note": "Covered until 2026-11-20, when the owner removed it from coverage",
+  "reads_through": [
+   {
+    "ticker": "AXON",
+    "direction": "-",
+    "why": "ALPR and roadway-intelligence rival to Axon's plate-reader and real-time crime center products"
+   }
+  ],
+  "matters": "State DOT and city ALPR or traffic-analytics awards and cancellations at Axon accounts, Nasdaq listing-compliance steps, financings.",
+  "noise": "Product webinars, blog posts, conference appearances and case studies."
+ },
+ {
+  "key": "soundthinking",
+  "name": "SoundThinking (private; ex-NASDAQ: SSTI)",
+  "status": "private",
+  "status_note": "Taken private by Transom Capital 2026-11-18; removed from coverage 2026-11-20",
+  "reads_through": [
+   {
+    "ticker": "EVLV",
+    "direction": "-",
+    "why": "SafePointe AI weapons detection competes for hospital and venue screening"
+   },
+   {
+    "ticker": "XTRAF",
+    "direction": "-",
+    "why": "SafePointe competes with SmartGateway for the same screening budgets"
+   }
+  ],
+  "matters": "SafePointe wins at EVLV or XTRAF accounts (core §9 rule 4), ShotSpotter city cancellations or renewals.",
+  "noise": "Crimes-solved stories, case studies and product webinars."
  }
 ]

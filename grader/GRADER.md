@@ -38,6 +38,10 @@ the analyst has to fix the environment. Do not retry in a loop.
      acquirer, look it up with `grep -i -A5 "<name>" .zenith/rubric/peers.md` (do not
      read the whole file). A peer's own news counts for a covered company only
      through an explicit link, as core.md section 9 defines.
+   - **Counterparty items:** an item with a `COUNTERPARTY: role=… affects=…` line comes
+     from a partner, customer, program, rival or index source, not the company's own
+     source. Grade it only through core.md section 9 ("Counterparty sources"); add
+     `"<item_id>#<TICKER>"` grades for other tickers in `affects` that it also passes.
    - **Sources:** each claimed item may carry the opening text of its release or
      filing (`EXCERPT (ok)`). That excerpt is the captured source text; set
      `read_source: true` when the facts you graded on are in it. When there is no
