@@ -11,7 +11,9 @@ const BATCH = 400;
 const MAX_BATCHES = 6;
 const BACKFILL_DAYS = 30;
 const COUNTERPARTY = COVERED.counterparty || {};
-const SOURCE_KEYS = [...Object.keys(COVERED.sources), ...Object.keys(COUNTERPARTY)];
+// Filtered in code, not with SQL IN (...): D1 allows at most 100 bound
+// parameters per query and there are ~150 source keys.
+const SOURCE_KEYS = new Set([...Object.keys(COVERED.sources), ...Object.keys(COUNTERPARTY)]);
 
 async function getMeta(db, key) {
   const row = await db.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
@@ -42,17 +44,16 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  const placeholders = SOURCE_KEYS.map(() => "?").join(",");
   let scanned = 0, inserted = 0, skipped = 0;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
       .bind(cursor, BATCH).first();
     if (!win || win.hi == null) break;
-    const rows = (await news.prepare(
+    const rows = ((await news.prepare(
       `SELECT rowid AS nm_rowid, source_key, url, title, published, category, first_seen, notified
-         FROM items WHERE rowid > ? AND rowid <= ? AND source_key IN (${placeholders}) ORDER BY rowid`,
-    ).bind(cursor, win.hi, ...SOURCE_KEYS).all()).results || [];
+         FROM items WHERE rowid > ? AND rowid <= ? ORDER BY rowid`,
+    ).bind(cursor, win.hi).all()).results || []).filter((r) => SOURCE_KEYS.has(r.source_key));
     const now = nowIso();
     const stmts = [];
     for (const r of rows) {
