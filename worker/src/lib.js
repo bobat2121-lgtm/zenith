@@ -153,3 +153,37 @@ export function skipReason(row) {
   if (!Number.isFinite(pub) || !Number.isFinite(seen)) return null;
   return seen - pub > STALE_DAYS * 86_400_000 ? "stale_on_arrival" : null;
 }
+
+// --- Counterparty sources ---------------------------------------------------
+// One regex per phrase list: case-insensitive, and a phrase must not sit inside
+// a longer word ("Axon" never matches "Axonics"; "$SERV" and "Inc." still work).
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function phraseRegex(phrases) {
+  const list = [...new Set((phrases || []).filter((p) => typeof p === "string" && p.trim().length >= 3).map((p) => p.trim()))];
+  if (!list.length) return null;
+  list.sort((a, b) => b.length - a.length);
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${list.map(escapeRe).join("|")})(?![\\p{L}\\p{N}])`, "iu");
+}
+
+// Routes an item from a counterparty source (cp = { role, affects }).
+//   match: { TICKER: { terms, accounts } } from the rubric build.
+// Returns the ticker to grade it under (the first affected ticker whose company
+// or key account the title names, else the first affected ticker) and, for a
+// rival item that names neither, skip "rival_no_key_account" (core.md section 9
+// rule 4: a rival's news counts only when it wins at a sheet key account).
+const routeCache = new Map();
+export function routeCounterparty(title, cp, match) {
+  const affects = (cp?.affects || []).filter((t) => match?.[t]);
+  if (!affects.length) return null;
+  const hits = affects.filter((t) => {
+    if (!routeCache.has(t)) routeCache.set(t, phraseRegex([...(match[t].terms || []), ...(match[t].accounts || [])]));
+    const re = routeCache.get(t);
+    return re ? re.test(String(title || "")) : false;
+  });
+  return {
+    ticker: hits[0] || affects[0],
+    role: cp.role || "counterparty",
+    affects: affects.join(","),
+    skip: cp.role === "rival" && !hits.length ? "rival_no_key_account" : null,
+  };
+}

@@ -28,7 +28,7 @@ async function readJson(request) {
 }
 
 const ITEM_COLS = `i.id AS item_id, i.ticker, i.source_key, i.title, i.url, i.published, i.category,
-  i.nm_first_seen AS first_seen, i.nm_notified, i.state, i.skip_reason, i.attempts`;
+  i.nm_first_seen AS first_seen, i.nm_notified, i.state, i.skip_reason, i.attempts, i.role, i.affects`;
 
 async function claim(env, body) {
   const limit = Math.max(1, Math.min(MAX_CLAIM, Number(body?.limit) || 30));

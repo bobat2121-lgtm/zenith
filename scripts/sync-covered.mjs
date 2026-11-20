@@ -20,7 +20,22 @@ for (const s of SOURCES) {
   if (s.lane === "covered" && s.coveredTicker) sources[s.key] = s.coveredTicker;
 }
 const tickers = [...new Set(Object.values(sources))].sort();
-const out = { generated_from: "news-monitor src/priority.js (lane=covered)", tickers, sources };
+
+// Counterparty sources (customers, partners, programs, rivals, index providers):
+// role and the covered tickers each one affects, from src/counterparty-sources.js.
+const counterparty = {};
+const cpPath = join(repo, "src", "counterparty-sources.js");
+const { COUNTERPARTY_SOURCES = [], COUNTERPARTY_EXISTING = {} } = await import(pathToFileURL(cpPath).href).catch(() => ({}));
+const polled = new Set(SOURCES.map((s) => s.key));
+for (const s of [...COUNTERPARTY_SOURCES, ...Object.entries(COUNTERPARTY_EXISTING).map(([key, v]) => ({ key, ...v }))]) {
+  const affects = (s.affects || []).filter((t) => tickers.includes(t));
+  if (!affects.length || !polled.has(s.key) || sources[s.key]) continue;
+  counterparty[s.key] = { role: s.role, affects };
+}
+const out = {
+  generated_from: "news-monitor src/priority.js (lane=covered) and src/counterparty-sources.js",
+  tickers, sources, counterparty,
+};
 const target = join(dirname(fileURLToPath(import.meta.url)), "..", "worker", "src", "covered.json");
 writeFileSync(target, JSON.stringify(out, null, 2) + "\n");
-console.log(`wrote ${Object.keys(sources).length} sources for ${tickers.length} tickers -> ${target}`);
+console.log(`wrote ${Object.keys(sources).length} sources for ${tickers.length} tickers and ${Object.keys(counterparty).length} counterparty sources -> ${target}`);

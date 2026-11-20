@@ -1,13 +1,17 @@
-// Copies new covered-lane items from news-monitor-db (binding NEWS, read-only
-// by convention: this module only SELECTs from it) into zenith-db by rowid
-// cursor. The cursor advances over every scanned row, matched or not.
+// Copies new covered-lane items, and items from counterparty sources (customers,
+// partners, programs, rivals and index providers of the covered companies), from
+// news-monitor-db (binding NEWS, read-only by convention: this module only
+// SELECTs from it) into zenith-db by rowid cursor. The cursor advances over
+// every scanned row, matched or not.
 import COVERED from "./covered.json";
-import { nowIso, skipReason, isHttpUrl } from "./lib.js";
+import { MATCH } from "./rubric.generated.js";
+import { nowIso, skipReason, isHttpUrl, routeCounterparty } from "./lib.js";
 
 const BATCH = 400;
 const MAX_BATCHES = 6;
 const BACKFILL_DAYS = 30;
-const COVERED_KEYS = Object.keys(COVERED.sources);
+const COUNTERPARTY = COVERED.counterparty || {};
+const SOURCE_KEYS = [...Object.keys(COVERED.sources), ...Object.keys(COUNTERPARTY)];
 
 async function getMeta(db, key) {
   const row = await db.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
@@ -23,6 +27,13 @@ async function initialCursor(news) {
   return row?.r != null ? row.r - 1 : (max?.r ?? 0);
 }
 
+// Ticker, role and skip reason for one news-monitor row.
+export function routeRow(r) {
+  const cp = COUNTERPARTY[r.source_key];
+  if (!cp) return { ticker: COVERED.sources[r.source_key], role: null, affects: null, skip: null };
+  return routeCounterparty(r.title, cp, MATCH);
+}
+
 export async function ingest(env) {
   const db = env.DB;
   const news = env.NEWS;
@@ -31,7 +42,7 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  const placeholders = COVERED_KEYS.map(() => "?").join(",");
+  const placeholders = SOURCE_KEYS.map(() => "?").join(",");
   let scanned = 0, inserted = 0, skipped = 0;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
@@ -41,22 +52,26 @@ export async function ingest(env) {
     const rows = (await news.prepare(
       `SELECT rowid AS nm_rowid, source_key, url, title, published, category, first_seen, notified
          FROM items WHERE rowid > ? AND rowid <= ? AND source_key IN (${placeholders}) ORDER BY rowid`,
-    ).bind(cursor, win.hi, ...COVERED_KEYS).all()).results || [];
+    ).bind(cursor, win.hi, ...SOURCE_KEYS).all()).results || [];
     const now = nowIso();
-    const stmts = rows.map((r) => {
+    const stmts = [];
+    for (const r of rows) {
+      const route = routeRow(r);
+      if (!route?.ticker) continue;
       // Only http(s) links are ever fetched or shown in the feed.
-      const reason = isHttpUrl(r.url) ? skipReason(r) : "bad_url";
+      const reason = !isHttpUrl(r.url) ? "bad_url" : skipReason(r) || route.skip;
       if (reason) skipped++;
-      return db.prepare(
-        `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(r.nm_rowid, r.source_key, COVERED.sources[r.source_key], r.url, r.title || "(untitled)", r.published, r.category,
-        r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason);
-    });
+      stmts.push(db.prepare(
+        `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(r.nm_rowid, r.source_key, route.ticker, r.url, r.title || "(untitled)", r.published, r.category,
+        r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason || null, route.role, route.affects));
+    }
+    const n = stmts.length;
     stmts.push(setMeta(db, "nm_cursor", win.hi));
     stmts.push(setMeta(db, "last_ingest_at", now));
     const res = await db.batch(stmts);
-    inserted += res.slice(0, rows.length).reduce((n, r) => n + (r.meta?.changes || 0), 0);
+    inserted += res.slice(0, n).reduce((k, r) => k + (r.meta?.changes || 0), 0);
     scanned += win.n;
     cursor = win.hi;
     if (win.n < BATCH) break;

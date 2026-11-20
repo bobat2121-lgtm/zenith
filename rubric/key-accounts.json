@@ -1,0 +1,1033 @@
+{
+ "_about": "Key accounts per covered ticker, extracted 2026-11-20 from each rubric sheet (every term appears in its sheet). Zenith ingests a rival-feed item only when its title names the covered company (sheet terms) or one of these accounts (core.md section 9 rule 4).",
+ "AGLT": [
+  {
+   "name": "GXO Logistics, Inc.",
+   "kind": "customer",
+   "terms": [
+    "GXO Logistics",
+    "GXO"
+   ]
+  },
+  {
+   "name": "Schaeffler AG",
+   "kind": "customer",
+   "terms": [
+    "Schaeffler"
+   ]
+  },
+  {
+   "name": "Toyota Motor Manufacturing Canada Inc. (Toyota Motor Corporation)",
+   "kind": "customer",
+   "terms": [
+    "Toyota Motor Manufacturing Canada",
+    "TMMC"
+   ]
+  },
+  {
+   "name": "MercadoLibre, Inc. (Mercado Libre)",
+   "kind": "customer",
+   "terms": [
+    "Mercado Libre"
+   ]
+  },
+  {
+   "name": "AGCO Corporation",
+   "kind": "customer",
+   "terms": [
+    "AGCO"
+   ]
+  },
+  {
+   "name": "Amazon.com, Inc.",
+   "kind": "customer",
+   "terms": [
+    "Amazon"
+   ]
+  }
+ ],
+ "AUR": [
+  {
+   "name": "Hirschbach Motor Lines, Inc.",
+   "kind": "customer",
+   "terms": [
+    "Hirschbach"
+   ]
+  },
+  {
+   "name": "Charger Logistics Inc. (US arm: Charger USA)",
+   "kind": "customer",
+   "terms": [
+    "Charger Logistics"
+   ]
+  },
+  {
+   "name": "Uber Freight",
+   "kind": "customer",
+   "terms": [
+    "Uber Freight"
+   ]
+  },
+  {
+   "name": "Werner Enterprises, Inc.",
+   "kind": "customer",
+   "terms": [
+    "Werner"
+   ]
+  },
+  {
+   "name": "McLane Company, Inc.",
+   "kind": "customer",
+   "terms": [
+    "McLane"
+   ]
+  },
+  {
+   "name": "Value Truck",
+   "kind": "customer",
+   "terms": [
+    "Value Truck"
+   ]
+  },
+  {
+   "name": "Detmar Logistics",
+   "kind": "customer",
+   "terms": [
+    "Detmar Logistics",
+    "Detmar"
+   ]
+  },
+  {
+   "name": "FedEx",
+   "kind": "customer",
+   "terms": [
+    "FedEx"
+   ]
+  },
+  {
+   "name": "Schneider",
+   "kind": "customer",
+   "terms": [
+    "Schneider"
+   ]
+  },
+  {
+   "name": "DSV A/S",
+   "kind": "customer",
+   "terms": [
+    "DSV"
+   ]
+  },
+  {
+   "name": "AVI-SPL",
+   "kind": "customer",
+   "terms": [
+    "AVI-SPL"
+   ]
+  }
+ ],
+ "KDK": [
+  {
+   "name": "Atlas Energy Solutions / Fountainhead (AESI)",
+   "kind": "customer",
+   "terms": [
+    "Atlas Energy Solutions",
+    "Fountainhead",
+    "AESI"
+   ]
+  },
+  {
+   "name": "IKEA Supply",
+   "kind": "customer",
+   "terms": [
+    "IKEA Supply",
+    "IKEA"
+   ]
+  },
+  {
+   "name": "DTL Transport",
+   "kind": "customer",
+   "terms": [
+    "DTL Transport"
+   ]
+  },
+  {
+   "name": "Charger USA (Charger Logistics)",
+   "kind": "customer",
+   "terms": [
+    "Charger USA",
+    "Charger Logistics"
+   ]
+  },
+  {
+   "name": "Roehl Transport",
+   "kind": "customer",
+   "terms": [
+    "Roehl Transport",
+    "Roehl"
+   ]
+  },
+  {
+   "name": "West Fraser",
+   "kind": "customer",
+   "terms": [
+    "West Fraser"
+   ]
+  },
+  {
+   "name": "USMC ROGUE-Fires (NMESIS)",
+   "kind": "program",
+   "terms": [
+    "ROGUE-Fires",
+    "NMESIS"
+   ]
+  }
+ ],
+ "BOT": [],
+ "RCAT": [
+  {
+   "name": "U.S. Army Short Range Reconnaissance (SRR) program, PM UAS",
+   "kind": "program",
+   "terms": [
+    "Army SRR",
+    "platoon-level SRR",
+    "PM UAS"
+   ]
+  },
+  {
+   "name": "U.S. Air Force Security Forces Center (AFSFC)",
+   "kind": "customer",
+   "terms": [
+    "Air Force Security Forces Center",
+    "AFSFC"
+   ]
+  },
+  {
+   "name": "Japan MoD / ATLA (JGSDF)",
+   "kind": "customer",
+   "terms": [
+    "ATLA",
+    "JGSDF"
+   ]
+  },
+  {
+   "name": "HAMA K.K. (Japan channel partner)",
+   "kind": "channel_partner",
+   "terms": [
+    "HAMA K.K."
+   ]
+  },
+  {
+   "name": "NATO Support and Procurement Agency (NSPA), for a NATO ally",
+   "kind": "channel_partner",
+   "terms": [
+    "NSPA"
+   ]
+  },
+  {
+   "name": "Ukraine MoD / Spetstechnoexport (STE)",
+   "kind": "channel_partner",
+   "terms": [
+    "Spetstechnoexport"
+   ]
+  },
+  {
+   "name": "DoW Drone Dominance program",
+   "kind": "program",
+   "terms": [
+    "Drone Dominance"
+   ]
+  },
+  {
+   "name": "DIU Swarm Forge",
+   "kind": "program",
+   "terms": [
+    "Swarm Forge"
+   ]
+  }
+ ],
+ "DPRO": [
+  {
+   "name": "Canadian Armed Forces / DND - Defence Drone Initiative (Low-Cost Tactical ISR UAS)",
+   "kind": "program",
+   "terms": [
+    "Defence Drone Initiative",
+    "Canadian Armed Forces",
+    "Low-Cost Tactical ISR UAS"
+   ]
+  },
+  {
+   "name": "US Department of War Light Infantry Divisions (Flex, Heavy Lift, Commander 3XL customer)",
+   "kind": "customer",
+   "terms": [
+    "Light Infantry Divisions"
+   ]
+  },
+  {
+   "name": "DEVCOM Army Research Laboratory counter-UAS development",
+   "kind": "program",
+   "terms": [
+    "DEVCOM",
+    "Army Research Laboratory"
+   ]
+  },
+  {
+   "name": "Drone Dominance Program (DIU)",
+   "kind": "program",
+   "terms": [
+    "Drone Dominance"
+   ]
+  },
+  {
+   "name": "Mountain Horse Solutions",
+   "kind": "channel_partner",
+   "terms": [
+    "Mountain Horse Solutions"
+   ]
+  },
+  {
+   "name": "Global Ordnance",
+   "kind": "channel_partner",
+   "terms": [
+    "Global Ordnance"
+   ]
+  },
+  {
+   "name": "F4 Defense International",
+   "kind": "channel_partner",
+   "terms": [
+    "F4 Defense"
+   ]
+  },
+  {
+   "name": "Prime Strategic Holdings (Razon Group, Philippines)",
+   "kind": "channel_partner",
+   "terms": [
+    "Prime Strategic Holdings",
+    "Razon Group"
+   ]
+  },
+  {
+   "name": "SRLEEA",
+   "kind": "channel_partner",
+   "terms": [
+    "SRLEEA"
+   ]
+  },
+  {
+   "name": "IACLEA",
+   "kind": "channel_partner",
+   "terms": [
+    "IACLEA"
+   ]
+  }
+ ],
+ "UMAC": [
+  {
+   "name": "Powerus (PUSA)",
+   "kind": "customer",
+   "terms": [
+    "Powerus"
+   ]
+  },
+  {
+   "name": "Red Cat / Teal Drones (RCAT)",
+   "kind": "customer",
+   "terms": [
+    "Red Cat",
+    "Teal Drones"
+   ]
+  },
+  {
+   "name": "Performance Drone Works (PDW)",
+   "kind": "customer",
+   "terms": [
+    "Performance Drone Works",
+    "PDW"
+   ]
+  },
+  {
+   "name": "XTEND AI Robotics",
+   "kind": "customer",
+   "terms": [
+    "XTEND"
+   ]
+  },
+  {
+   "name": "Strategic Logix",
+   "kind": "customer",
+   "terms": [
+    "Strategic Logix"
+   ]
+  },
+  {
+   "name": "Drone Dominance Program (Department of War / DIU)",
+   "kind": "program",
+   "terms": [
+    "Drone Dominance"
+   ]
+  }
+ ],
+ "EVLV": [
+  {
+   "name": "Motorola Solutions",
+   "kind": "channel_partner",
+   "terms": [
+    "Motorola Solutions"
+   ]
+  },
+  {
+   "name": "American Hospital Association",
+   "kind": "channel_partner",
+   "terms": [
+    "American Hospital Association"
+   ]
+  },
+  {
+   "name": "Gwinnett County Public Schools",
+   "kind": "customer",
+   "terms": [
+    "Gwinnett County Public Schools",
+    "Gwinnett"
+   ]
+  },
+  {
+   "name": "Bellin Health",
+   "kind": "customer",
+   "terms": [
+    "Bellin Health"
+   ]
+  },
+  {
+   "name": "TidalHealth",
+   "kind": "customer",
+   "terms": [
+    "TidalHealth"
+   ]
+  },
+  {
+   "name": "St. John's Riverside Hospital",
+   "kind": "customer",
+   "terms": [
+    "St. John's Riverside"
+   ]
+  },
+  {
+   "name": "Southwest Healthcare System (UHS)",
+   "kind": "customer",
+   "terms": [
+    "Southwest Healthcare System"
+   ]
+  },
+  {
+   "name": "Bank of America Stadium",
+   "kind": "customer",
+   "terms": [
+    "Bank of America Stadium"
+   ]
+  },
+  {
+   "name": "Houston Texans",
+   "kind": "customer",
+   "terms": [
+    "Houston Texans"
+   ]
+  },
+  {
+   "name": "Philadelphia Phillies",
+   "kind": "customer",
+   "terms": [
+    "Phillies"
+   ]
+  },
+  {
+   "name": "TD Garden",
+   "kind": "customer",
+   "terms": [
+    "TD Garden"
+   ]
+  },
+  {
+   "name": "Climate Pledge Arena",
+   "kind": "customer",
+   "terms": [
+    "Climate Pledge Arena"
+   ]
+  },
+  {
+   "name": "Utah Jazz / Utah Mammoth / Delta Center",
+   "kind": "customer",
+   "terms": [
+    "Utah Jazz",
+    "Utah Mammoth",
+    "Delta Center"
+   ]
+  },
+  {
+   "name": "Crypto.com Arena",
+   "kind": "customer",
+   "terms": [
+    "Crypto.com Arena"
+   ]
+  },
+  {
+   "name": "Houston Astros",
+   "kind": "customer",
+   "terms": [
+    "Houston Astros"
+   ]
+  },
+  {
+   "name": "Tennessee Titans",
+   "kind": "customer",
+   "terms": [
+    "Tennessee Titans"
+   ]
+  },
+  {
+   "name": "St. Louis CITY SC",
+   "kind": "customer",
+   "terms": [
+    "St. Louis CITY SC"
+   ]
+  },
+  {
+   "name": "SoFi Stadium / Hollywood Park",
+   "kind": "customer",
+   "terms": [
+    "SoFi Stadium",
+    "Hollywood Park"
+   ]
+  },
+  {
+   "name": "Mercedes-Benz Stadium",
+   "kind": "customer",
+   "terms": [
+    "Mercedes-Benz Stadium"
+   ]
+  },
+  {
+   "name": "Acrisure Stadium",
+   "kind": "customer",
+   "terms": [
+    "Acrisure Stadium"
+   ]
+  },
+  {
+   "name": "Bridgestone Arena",
+   "kind": "customer",
+   "terms": [
+    "Bridgestone Arena"
+   ]
+  },
+  {
+   "name": "New Ryan Field (Northwestern)",
+   "kind": "customer",
+   "terms": [
+    "New Ryan Field",
+    "Ryan Field"
+   ]
+  },
+  {
+   "name": "University of Memphis / Simmons Bank Liberty Stadium",
+   "kind": "customer",
+   "terms": [
+    "University of Memphis",
+    "Simmons Bank Liberty Stadium"
+   ]
+  },
+  {
+   "name": "Boston College",
+   "kind": "customer",
+   "terms": [
+    "Boston College"
+   ]
+  }
+ ],
+ "XTRAF": [
+  {
+   "name": "MSG family (MSG Sports, Madison Square Garden Entertainment, Sphere Entertainment)",
+   "kind": "customer",
+   "terms": [
+    "MSG Sports",
+    "Madison Square Garden Entertainment",
+    "Sphere Entertainment"
+   ]
+  },
+  {
+   "name": "Integrated Protection Services (IPS)",
+   "kind": "channel_partner",
+   "terms": [
+    "Integrated Protection Services"
+   ]
+  },
+  {
+   "name": "Health PEI",
+   "kind": "customer",
+   "terms": [
+    "Health PEI"
+   ]
+  },
+  {
+   "name": "Peterborough Regional Health Centre",
+   "kind": "customer",
+   "terms": [
+    "Peterborough Regional Health Centre"
+   ]
+  },
+  {
+   "name": "University of Michigan Health-West",
+   "kind": "customer",
+   "terms": [
+    "University of Michigan Health-West",
+    "UM Health-West"
+   ]
+  },
+  {
+   "name": "San Mateo Medical Center",
+   "kind": "customer",
+   "terms": [
+    "San Mateo Medical Center"
+   ]
+  },
+  {
+   "name": "Hazel Hawkins Memorial Hospital",
+   "kind": "customer",
+   "terms": [
+    "Hazel Hawkins"
+   ]
+  },
+  {
+   "name": "Contra Costa Health",
+   "kind": "customer",
+   "terms": [
+    "Contra Costa Health"
+   ]
+  },
+  {
+   "name": "Willis Independent School District",
+   "kind": "customer",
+   "terms": [
+    "Willis ISD",
+    "Willis Independent School District"
+   ]
+  },
+  {
+   "name": "Granville County Public Schools",
+   "kind": "customer",
+   "terms": [
+    "Granville County Public Schools"
+   ]
+  },
+  {
+   "name": "Manor ISD",
+   "kind": "customer",
+   "terms": [
+    "Manor ISD"
+   ]
+  },
+  {
+   "name": "Metro Toronto Convention Centre",
+   "kind": "customer",
+   "terms": [
+    "Metro Toronto Convention Centre"
+   ]
+  },
+  {
+   "name": "Pacific National Exhibition",
+   "kind": "customer",
+   "terms": [
+    "Pacific National Exhibition"
+   ]
+  }
+ ],
+ "MBAI": [
+  {
+   "name": "MGM Resorts International Operations, Inc.",
+   "kind": "customer",
+   "terms": [
+    "MGM Resorts"
+   ]
+  },
+  {
+   "name": "Caesars Enterprise Services, LLC",
+   "kind": "customer",
+   "terms": [
+    "Caesars Enterprise Services",
+    "Caesars"
+   ]
+  },
+  {
+   "name": "Mohegan Sun (Uncasville, CT)",
+   "kind": "customer",
+   "terms": [
+    "Mohegan Sun"
+   ]
+  },
+  {
+   "name": "Caribe Royale Orlando",
+   "kind": "customer",
+   "terms": [
+    "Caribe Royale"
+   ]
+  },
+  {
+   "name": "Buyers Edge Platform",
+   "kind": "channel_partner",
+   "terms": [
+    "Buyers Edge"
+   ]
+  }
+ ],
+ "MRLN": [
+  {
+   "name": "USSOCOM / U.S. Air Force C-130J Automated Crew and Workload IDIQ",
+   "kind": "program",
+   "terms": [
+    "USSOCOM",
+    "Automated Crew and Workload",
+    "C-130J autonomy"
+   ]
+  },
+  {
+   "name": "USAFRICOM Autonomous Casualty Evacuation (CASEVAC) Industry Technology Challenge",
+   "kind": "program",
+   "terms": [
+    "AFRICOM",
+    "Autonomous Casualty Evacuation",
+    "CASEVAC"
+   ]
+  },
+  {
+   "name": "U.S. Air Force KC-135 Center Console Refresh (pursuit with GE Aerospace)",
+   "kind": "program",
+   "terms": [
+    "KC-135 Center Console Refresh",
+    "KC-135 CCR"
+   ]
+  },
+  {
+   "name": "Israel Aerospace Industries (IAI)",
+   "kind": "channel_partner",
+   "terms": [
+    "Israel Aerospace Industries"
+   ]
+  },
+  {
+   "name": "Textron Aviation (Cessna SkyCourier UX concept)",
+   "kind": "channel_partner",
+   "terms": [
+    "Textron Aviation",
+    "SkyCourier UX"
+   ]
+  },
+  {
+   "name": "Northrop Grumman (Mission Autonomy SDK MOA)",
+   "kind": "channel_partner",
+   "terms": [
+    "Northrop Grumman",
+    "Mission Autonomy SDK"
+   ]
+  }
+ ],
+ "PDYN": [
+  {
+   "name": "U.S. Air Force AFWERX STRATFI at Warner Robins ALC (Palladyne IQ depot automation)",
+   "kind": "program",
+   "terms": [
+    "STRATFI",
+    "Warner Robins"
+   ]
+  },
+  {
+   "name": "AFRL HANGTIME (cross-domain operations contract)",
+   "kind": "program",
+   "terms": [
+    "HANGTIME"
+   ]
+  },
+  {
+   "name": "AFRL Relentless Wolfpack (SwarmStrike plus SwarmOS bid)",
+   "kind": "program",
+   "terms": [
+    "Relentless Wolfpack"
+   ]
+  },
+  {
+   "name": "U.S. Army 4th Infantry Division (Ivy Mass, Disruptive Applications BAA)",
+   "kind": "program",
+   "terms": [
+    "4th Infantry Division",
+    "Ivy Mass",
+    "Disruptive Applications"
+   ]
+  },
+  {
+   "name": "U.S. Army Project Convergence Capstone 6",
+   "kind": "program",
+   "terms": [
+    "Project Convergence"
+   ]
+  },
+  {
+   "name": "U.S. Army FUZE xTech (Apex Intercept)",
+   "kind": "program",
+   "terms": [
+    "FUZE xTech",
+    "Apex Intercept"
+   ]
+  },
+  {
+   "name": "Army Contracting Command Heavy Lift System (PIID W911QY26PA045)",
+   "kind": "program",
+   "terms": [
+    "Heavy Lift System",
+    "W911QY26PA045"
+   ]
+  },
+  {
+   "name": "U.S. Navy ALRRM (SBIR Phase 2 air-launched missile)",
+   "kind": "program",
+   "terms": [
+    "ALRRM"
+   ]
+  },
+  {
+   "name": "FANUC America (Palladyne IQ channel)",
+   "kind": "channel_partner",
+   "terms": [
+    "FANUC America"
+   ]
+  }
+ ],
+ "PL": [
+  {
+   "name": "SKY Perfect JSAT",
+   "kind": "customer",
+   "terms": [
+    "SKY Perfect JSAT",
+    "JSAT"
+   ]
+  },
+  {
+   "name": "German government (BMI / BKG / Bundeswehr)",
+   "kind": "customer",
+   "terms": [
+    "Bundeswehr",
+    "BKG"
+   ]
+  },
+  {
+   "name": "Swedish Armed Forces / FMV",
+   "kind": "customer",
+   "terms": [
+    "Swedish Armed Forces",
+    "FMV"
+   ]
+  },
+  {
+   "name": "NRO EOCL (Electro-Optical Commercial Layer)",
+   "kind": "program",
+   "terms": [
+    "EOCL",
+    "NRO"
+   ]
+  },
+  {
+   "name": "NGA (Luno B, Global Monitoring Service)",
+   "kind": "customer",
+   "terms": [
+    "NGA",
+    "Luno B"
+   ]
+  },
+  {
+   "name": "U.S. Navy (Pacific vessel detection)",
+   "kind": "customer",
+   "terms": [
+    "U.S. Navy"
+   ]
+  },
+  {
+   "name": "Google (Alphabet) - Project Suncatcher",
+   "kind": "program",
+   "terms": [
+    "Project Suncatcher",
+    "Suncatcher"
+   ]
+  }
+ ],
+ "SATL": [
+  {
+   "name": "CEiiA (Portugal)",
+   "kind": "customer",
+   "terms": [
+    "CEiiA"
+   ]
+  },
+  {
+   "name": "HEO (Australia)",
+   "kind": "customer",
+   "terms": [
+    "HEO"
+   ]
+  },
+  {
+   "name": "Government of Albania",
+   "kind": "customer",
+   "terms": [
+    "Government of Albania",
+    "Albania"
+   ]
+  },
+  {
+   "name": "Palantir",
+   "kind": "customer",
+   "terms": [
+    "Palantir"
+   ]
+  },
+  {
+   "name": "ONR Slingshot III via IDT",
+   "kind": "program",
+   "terms": [
+    "Slingshot III",
+    "Office of Naval Research"
+   ]
+  },
+  {
+   "name": "SynMax",
+   "kind": "channel_partner",
+   "terms": [
+    "SynMax"
+   ]
+  },
+  {
+   "name": "Tata (India)",
+   "kind": "customer",
+   "terms": [
+    "Tata"
+   ]
+  },
+  {
+   "name": "SpaceKnow",
+   "kind": "channel_partner",
+   "terms": [
+    "SpaceKnow"
+   ]
+  }
+ ],
+ "SRFM": [
+  {
+   "name": "U.S. DOT Essential Air Service program (incl. Lanai and DuBois, PA)",
+   "kind": "program",
+   "terms": [
+    "Essential Air Service",
+    "Lanai",
+    "DuBois"
+   ]
+  },
+  {
+   "name": "Wheels Up Experience Inc.",
+   "kind": "customer",
+   "terms": [
+    "Wheels Up"
+   ]
+  },
+  {
+   "name": "Sprintbach Aviation",
+   "kind": "customer",
+   "terms": [
+    "Sprintbach"
+   ]
+  },
+  {
+   "name": "SkyDance Air",
+   "kind": "customer",
+   "terms": [
+    "SkyDance Air"
+   ]
+  },
+  {
+   "name": "Air Fuga",
+   "kind": "customer",
+   "terms": [
+    "Air Fuga"
+   ]
+  },
+  {
+   "name": "Clipper Aviation",
+   "kind": "customer",
+   "terms": [
+    "Clipper Aviation"
+   ]
+  },
+  {
+   "name": "Flying Zebra",
+   "kind": "customer",
+   "terms": [
+    "Flying Zebra"
+   ]
+  }
+ ],
+ "SYM": [
+  {
+   "name": "Walmart Inc.",
+   "kind": "customer",
+   "terms": [
+    "Walmart"
+   ]
+  },
+  {
+   "name": "Walmex (Nueva Wal-Mart de Mexico)",
+   "kind": "customer",
+   "terms": [
+    "Walmex",
+    "Nueva Wal-Mart de México"
+   ]
+  },
+  {
+   "name": "C&S Wholesale Grocers, LLC",
+   "kind": "customer",
+   "terms": [
+    "C&S Wholesale Grocers"
+   ]
+  },
+  {
+   "name": "United Natural Foods, Inc. (UNFI)",
+   "kind": "customer",
+   "terms": [
+    "UNFI"
+   ]
+  },
+  {
+   "name": "Albertsons Companies, Inc.",
+   "kind": "customer",
+   "terms": [
+    "Albertsons"
+   ]
+  },
+  {
+   "name": "Southern Glazer's Wine & Spirits, LLC",
+   "kind": "customer",
+   "terms": [
+    "Southern Glazer's"
+   ]
+  },
+  {
+   "name": "Medline Inc. (Medline Industries)",
+   "kind": "customer",
+   "terms": [
+    "Medline"
+   ]
+  },
+  {
+   "name": "Associated Wholesale Grocers, Inc. (AWG)",
+   "kind": "customer",
+   "terms": [
+    "Associated Wholesale Grocers",
+    "AWG"
+   ]
+  }
+ ]
+}
