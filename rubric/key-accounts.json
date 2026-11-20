@@ -1,5 +1,46 @@
 {
  "_about": "Key accounts per covered ticker, extracted 2026-11-20 from each rubric sheet (every term appears in its sheet). Zenith ingests a rival-feed item only when its title names the covered company (sheet terms) or one of these accounts (core.md section 9 rule 4).",
+ "_company_names_about": "Everyday names the sheets use for each covered company (sheet `terms` hold the formal forms). Added to the company match for counterparty routing; every name appears in its sheet.",
+ "company_names": {
+  "AGLT": [
+   "Agility"
+  ],
+  "AUR": [
+   "Aurora"
+  ],
+  "DPRO": [
+   "Draganfly"
+  ],
+  "EVLV": [
+   "Evolv"
+  ],
+  "GRRR": [
+   "Gorilla"
+  ],
+  "KDK": [
+   "Kodiak"
+  ],
+  "MBAI": [
+   "MBody"
+  ],
+  "MRLN": [
+   "Merlin"
+  ],
+  "PDYN": [
+   "Palladyne"
+  ],
+  "PL": [
+   "Planet"
+  ],
+  "RCAT": [
+   "Red Cat"
+  ],
+  "SRFM": [
+   "Surf Air",
+   "Southern Airways",
+   "Mokulele"
+  ]
+ },
  "AGLT": [
   {
    "name": "GXO Logistics, Inc.",

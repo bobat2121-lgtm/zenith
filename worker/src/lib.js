@@ -167,23 +167,30 @@ export function phraseRegex(phrases) {
 
 // Routes an item from a counterparty source (cp = { role, affects }).
 //   match: { TICKER: { terms, accounts } } from the rubric build.
-// Returns the ticker to grade it under (the first affected ticker whose company
-// or key account the title names, else the first affected ticker) and, for a
-// rival item that names neither, skip "rival_no_key_account" (core.md section 9
-// rule 4: a rival's news counts only when it wins at a sheet key account).
-const routeCache = new Map();
+// Returns the ticker to grade it under and, for a rival item whose title names
+// neither an affected company nor one of its key accounts, skip
+// "rival_no_key_account" (core.md section 9 rule 4: a rival's news counts only
+// when it wins at a sheet key account). Ticker order: an affected company the
+// title names (rule 1), then one whose key account it names, then the first
+// affected ticker. "Kodiak and Charger Logistics launch a lane" goes to KDK
+// even though Charger is also an AUR account.
+const routeCache = new WeakMap();
+function regexesFor(match, t) {
+  let byTicker = routeCache.get(match);
+  if (!byTicker) routeCache.set(match, (byTicker = new Map()));
+  if (!byTicker.has(t)) byTicker.set(t, { company: phraseRegex(match[t].terms), account: phraseRegex(match[t].accounts) });
+  return byTicker.get(t);
+}
 export function routeCounterparty(title, cp, match) {
   const affects = (cp?.affects || []).filter((t) => match?.[t]);
   if (!affects.length) return null;
-  const hits = affects.filter((t) => {
-    if (!routeCache.has(t)) routeCache.set(t, phraseRegex([...(match[t].terms || []), ...(match[t].accounts || [])]));
-    const re = routeCache.get(t);
-    return re ? re.test(String(title || "")) : false;
-  });
+  const text = String(title || "");
+  const company = affects.filter((t) => regexesFor(match, t).company?.test(text));
+  const account = affects.filter((t) => regexesFor(match, t).account?.test(text));
   return {
-    ticker: hits[0] || affects[0],
+    ticker: company[0] || account[0] || affects[0],
     role: cp.role || "counterparty",
     affects: affects.join(","),
-    skip: cp.role === "rival" && !hits.length ? "rival_no_key_account" : null,
+    skip: cp.role === "rival" && !company.length && !account.length ? "rival_no_key_account" : null,
   };
 }

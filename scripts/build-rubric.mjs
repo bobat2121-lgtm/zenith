@@ -78,7 +78,7 @@ const MATCH = {};
 for (const t of covered.tickers) {
   if (!companies[t]) continue;
   MATCH[t] = {
-    terms: [...new Set(sheetTerms(companies[t]).filter((x) => x.length >= 3))],
+    terms: [...new Set([...sheetTerms(companies[t]), ...(keyAccounts.company_names?.[t] || [])].filter((x) => x.length >= 3))],
     accounts: [...new Set((keyAccounts[t] || []).flatMap((a) => a.terms).filter((x) => x.length >= 3))],
   };
 }

@@ -60,3 +60,36 @@ test("every covered ticker has match terms, and key accounts come from its sheet
     for (const a of MATCH[t].accounts) assert.ok(sheet.includes(a.toLowerCase()), `${t} key account "${a}" appears in its sheet`);
   }
 });
+
+// Rival headlines that name the covered company by its everyday name (review
+// of 2026-11-20): each must reach the queue under that ticker.
+test("rival items naming the covered company by its everyday name are queued", () => {
+  const cases = [
+    ["volatus", "Volatus Aerospace signs distribution deal with Draganfly", "DPRO"],
+    ["skycutter", "Skycutter beats Red Cat for Ukraine FPV order", "RCAT"],
+    ["airbus_space", "Airbus and Planet sign imagery partnership", "PL"],
+    ["botauto", "Bot Auto overtakes Aurora in driverless miles", "AUR"],
+    ["botauto", "Bot Auto vs Kodiak: who wins Texas", "KDK"],
+    ["leidos_strike", "Leidos picks Palladyne for swarm autonomy", "PDYN"],
+    ["pudu", "Pudu signs MBody as US reseller", "MBAI"],
+    ["garrett_security", "Garrett takes on Evolv in stadium screening", "EVLV"],
+    ["one_x_tech", "1X NEO humanoid takes on Agility's Digit in warehouses", "AGLT"],
+    ["capeair", "Cape Air takes over Southern Airways routes in Pennsylvania", "SRFM"],
+  ];
+  for (const [key, title, want] of cases) {
+    const cp = covered.counterparty[key];
+    assert.ok(cp, `${key} is a counterparty source`);
+    const r = routeCounterparty(title, cp, MATCH);
+    assert.equal(r.skip, null, `${key}: ${title}`);
+    assert.equal(r.ticker, want, `${key}: ${title}`);
+  }
+  assert.equal(routeCounterparty("Bot Auto raises Series B", covered.counterparty.botauto, MATCH).skip, "rival_no_key_account");
+});
+
+test("a company named in the title outranks another ticker's key account", () => {
+  const cp = covered.counterparty.charger_av;
+  assert.deepEqual(cp.affects, ["AUR", "KDK"]);
+  assert.equal(routeCounterparty("Kodiak AI and Charger Logistics launch driverless lane in Texas", cp, MATCH).ticker, "KDK");
+  assert.equal(routeCounterparty("Charger Logistics adds 20 Kodiak driverless trucks", cp, MATCH).ticker, "KDK");
+  assert.equal(routeCounterparty("Charger Logistics expands Laredo terminal", cp, MATCH).ticker, "AUR");
+});
