@@ -202,3 +202,20 @@ test("SEC Item headings: a one-sentence 8-K item is kept; a 10-Q contents page w
   assert.ok(tenQ.indexOf("Item 2. Management") - tenQ.indexOf("Item 1. Financial Statements 3") > 160, "the contents entry for Item 1 is long");
   assert.ok(secBody(tenQ).startsWith("Item 1. Financial Statements\nTotal assets"), secBody(tenQ).slice(0, 60));
 });
+
+test("sec.gov requests start at least 150 ms apart, whatever the concurrency", async () => {
+  const starts = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    starts.push(Date.now());
+    const body = SEC[String(url)];
+    return new Response(body ?? "missing", { status: body ? 200 : 404, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const env = { CONTACT_EMAIL: "ops@example.org" };
+    await Promise.all([fetchExcerpt(env, { url: GRRR_6K, title: "g" }), fetchExcerpt(env, { url: AUR_8K, title: "a" })]);
+  } finally { globalThis.fetch = real; }
+  assert.equal(starts.length, 5);
+  const sorted = [...starts].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) assert.ok(sorted[i] - sorted[i - 1] >= 140, `gap ${sorted[i] - sorted[i - 1]} ms`);
+});

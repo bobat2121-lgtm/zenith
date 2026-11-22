@@ -11,7 +11,7 @@ import { nowIso, isHttpUrl } from "./lib.js";
 const PER_TICK = 18;
 const SEC_PER_TICK = 5;           // up to 3 sec.gov fetches each (filing, index, exhibit)
 const CONCURRENCY = 6;            // Workers allows 6 simultaneous outbound connections
-const SEC_CONCURRENCY = 2;        // stays well under sec.gov's 10 requests a second
+const SEC_CONCURRENCY = 2;        // in flight at once; secPace() sets the request rate
 const MAX_BYTES = 600_000;
 const MAX_TEXT_INPUT = 300_000;   // cap what the HTML-to-text pass ever sees
 const EXCERPT_CHARS = 2500;
@@ -385,9 +385,25 @@ function decode(buf, label) {
 const RETRYABLE = (status) => status === "skipped_sec_needs_contact" || status === "http_429" || /^http_5\d\d$/.test(status) || status.startsWith("error");
 const isSecUrl = (u) => /(^|\.)sec\.gov$/i.test(u.hostname);
 
+// sec.gov fair access allows 10 requests a second. Requests to it start at
+// least SEC_GAP_MS apart in this isolate (under 7 a second, whatever the
+// concurrency), and the cron's SEC pass stands aside while an admin refresh
+// holds the lease (refreshSecExcerpts), so the two never add up.
+const SEC_GAP_MS = 150;
+const SEC_LEASE_KEY = "sec_refresh_until";
+const SEC_LEASE_MS = 120_000;
+let secNextStart = 0;
+async function secPace() {
+  const now = Date.now();
+  const at = Math.max(now, secNextStart);
+  secNextStart = at + SEC_GAP_MS;
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+}
+
 // One page: { status: "ok", html } or { status: http_<code> | skipped_* | error* }.
 async function fetchPage(url, ua) {
   if (/\.(pdf|xlsx?|docx?|zip)$/i.test(new URL(url).pathname)) return { status: "skipped_binary" };
+  if (isSecUrl(new URL(url))) await secPace();
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort("timeout"), 9000); // starts when this fetch starts
   try {
@@ -493,72 +509,111 @@ function resultStatement(env, { item, status, excerpt }, now) {
 
 const SEC_URL_SQL = "(url LIKE 'https://www.sec.gov/%' OR url LIKE 'https://sec.gov/%' OR url LIKE 'http://www.sec.gov/%')";
 
+// Due for a fetch: no retry is scheduled, its time has come, or (once
+// CONTACT_EMAIL is set) it only waited for a contact address, which never
+// spends a try. ?1 = now, ?2 = 1 when CONTACT_EMAIL is set.
+const DUE_SQL = (p = "") => `(${p}excerpt_next_at IS NULL OR ${p}excerpt_next_at <= ?1 OR (?2 = 1 AND COALESCE(${p}excerpt_tries, 0) = 0))`;
+
+async function secLeaseHeld(env, now) {
+  const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).first();
+  return Boolean(row && row.value > now);
+}
+
 export async function enrich(env) {
   const now = nowIso();
-  const due = `excerpt_status IS NULL AND state IN ('pending','claimed') AND (excerpt_next_at IS NULL OR excerpt_next_at <= ?)`;
+  const contact = env.CONTACT_EMAIL ? 1 : 0;
   const pick = (secOnly, limit) => env.DB.prepare(
-    `SELECT id, url, title, excerpt_tries FROM items WHERE ${due} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
-      ORDER BY nm_first_seen DESC LIMIT ?`,
-  ).bind(now, limit).all().then((r) => r.results || []);
+    `SELECT id, url, title, excerpt_tries FROM items
+      WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
+      ORDER BY nm_first_seen DESC LIMIT ?3`,
+  ).bind(now, contact, limit).all().then((r) => r.results || []);
+  // An admin SEC refresh in progress has sec.gov's budget to itself.
+  const secBusy = await secLeaseHeld(env, now);
   const results = [
     ...await fetchAll(env, await pick(false, PER_TICK - SEC_PER_TICK), CONCURRENCY),
-    ...await fetchAll(env, await pick(true, SEC_PER_TICK), SEC_CONCURRENCY),
+    ...(secBusy ? [] : await fetchAll(env, await pick(true, SEC_PER_TICK), SEC_CONCURRENCY)),
   ];
   const stmts = results.map((r) => resultStatement(env, r, now));
   if (stmts.length) await env.DB.batch(stmts);
   const ok = results.filter((r) => r.status === "ok").length;
-  return { tried: results.length, ok, retry: results.filter((r) => RETRYABLE(r.status)).length, at: now };
+  return { tried: results.length, ok, retry: results.filter((r) => RETRYABLE(r.status)).length, sec_deferred: secBusy, at: now };
 }
 
+// Last reads that ended in a refusal or an outage, worth one more pass.
+const TRANSIENT_FINAL_SQL = (p = "") =>
+  `(${p}excerpt_status IN ('http_403','http_429') OR ${p}excerpt_status LIKE 'http_5%' OR ${p}excerpt_status LIKE 'error%')`;
+
 // Admin (POST /v1/admin/requeue {mode:"sec_excerpts"}): re-reads sec.gov items
-// that were never read with this reader (excerpt_at is NULL), graded ones
-// included, and requeues each one it could read so it is graded on the filing
-// text. Bounded per call; call again until remaining is 0. Needs CONTACT_EMAIL.
-//   limit (1-10, default 8), since (first_seen lower bound), include_duplicates, dry_run
-export async function refreshSecExcerpts(env, body = {}) {
+// of the given (covered) tickers that were never read with this reader
+// (excerpt_at is NULL), graded ones included, and requeues each one it could
+// read so it is graded on the filing text. Bounded per call; call again until
+// remaining is 0. Items in retry backoff wait for their next try and are
+// counted as waiting, so back-to-back calls never spend an item's tries at
+// once. Needs CONTACT_EMAIL; one refresh runs at a time.
+//   limit (1-10, default 8), since (first_seen lower bound), include_duplicates,
+//   retry_failed (also re-read items whose last read ended in a 403, 429, 5xx
+//   or network error; pass it on every call of that pass), dry_run
+export async function refreshSecExcerpts(env, body = {}, tickers = null) {
   if (!env.CONTACT_EMAIL) {
     return { mode: "sec_excerpts", error: "CONTACT_EMAIL is not set: sec.gov requires a contact address in the User-Agent, so filings cannot be read yet" };
   }
   const now = nowIso();
   const limit = Math.max(1, Math.min(10, Number(body.limit) || 8));
   const since = body.since ? String(body.since) : "1970-01-01";
-  const where = `${SEC_URL_SQL.replaceAll("url", "i.url")} AND i.excerpt_at IS NULL AND i.nm_first_seen >= ?1
-      AND (i.state IN ('pending','graded') OR (i.state = 'claimed' AND i.claimed_until < ?2))
-      AND (?3 = 1 OR g.band IS NULL OR g.band != 'duplicate')`;
-  const binds = [since, now, body.include_duplicates ? 1 : 0];
-  const count = async () => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM items i LEFT JOIN grades g ON g.id = i.grade_id WHERE ${where}`).bind(...binds).first())?.n || 0;
-  const rows = (await env.DB.prepare(
-    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries FROM items i LEFT JOIN grades g ON g.id = i.grade_id
-      WHERE ${where} ORDER BY i.nm_first_seen DESC LIMIT ?4`,
-  ).bind(...binds, limit).all()).results || [];
-  if (body.dry_run) return { mode: "sec_excerpts", dry_run: true, remaining: await count(), next: rows.map((r) => ({ item_id: r.id, state: r.state, title: r.title })) };
-  // Final statuses written before this reader ran (excerpt_at NULL) are cleared,
-  // with their tries: those attempts had no contact address or the old reader.
-  // Later failures either stay retryable (status NULL) or set excerpt_at, so
-  // this never resets an attempt made here.
-  const cleared = await env.DB.prepare(
-    `UPDATE items SET excerpt_status = NULL, excerpt_tries = 0, excerpt_next_at = NULL
-      WHERE ${SEC_URL_SQL} AND excerpt_at IS NULL AND excerpt_status IS NOT NULL`,
-  ).run();
-  const ids = new Set(rows.map((r) => r.id));
-  const fresh = (await env.DB.prepare(
-    `SELECT id, excerpt_tries FROM items WHERE id IN (${rows.map(() => "?").join(",") || "NULL"})`,
-  ).bind(...ids).all()).results || [];
-  const tries = new Map(fresh.map((r) => [r.id, r.excerpt_tries]));
-  const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY);
-  const stmts = [], items = [];
-  for (const r of results) {
-    stmts.push(resultStatement(env, r, now));
-    const requeue = r.status === "ok" && r.item.state !== "pending";
-    if (requeue) {
-      stmts.push(env.DB.prepare("UPDATE items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=0 WHERE id = ? AND state IN ('graded','claimed')").bind(r.item.id));
-    }
-    items.push({ item_id: r.item.id, status: r.status, requeued: requeue });
-  }
-  if (stmts.length) await env.DB.batch(stmts);
-  return {
-    mode: "sec_excerpts", cleared: cleared.meta?.changes || 0, processed: results.length, ok: results.filter((r) => r.status === "ok").length,
-    requeued: items.filter((i) => i.requeued).length, retry: results.filter((r) => RETRYABLE(r.status)).length,
-    remaining: await count(), items,
+  const unread = body.retry_failed ? `(i.excerpt_at IS NULL OR ${TRANSIENT_FINAL_SQL("i.")})` : "i.excerpt_at IS NULL";
+  const scope = `${SEC_URL_SQL.replaceAll("url", "i.url")} AND ${unread} AND i.nm_first_seen >= ?3
+      AND (i.state IN ('pending','graded') OR (i.state = 'claimed' AND i.claimed_until < ?1))
+      AND (?4 = 1 OR g.band IS NULL OR g.band != 'duplicate')
+      AND (?5 IS NULL OR i.ticker IN (SELECT value FROM json_each(?5)))`;
+  // A transient final (excerpt_at set) is due again; its old backoff is spent.
+  const due = `(${DUE_SQL("i.")} OR i.excerpt_at IS NOT NULL)`;
+  const binds = [now, 1, since, body.include_duplicates ? 1 : 0, Array.isArray(tickers) ? JSON.stringify(tickers) : null];
+  const FROM = "FROM items i LEFT JOIN grades g ON g.id = i.grade_id";
+  const counts = async () => {
+    const r = await env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN ${due} THEN 1 ELSE 0 END), 0) AS remaining, COALESCE(SUM(CASE WHEN ${due} THEN 0 ELSE 1 END), 0) AS waiting ${FROM} WHERE ${scope}`)
+      .bind(...binds).first();
+    return { remaining: r?.remaining || 0, waiting: r?.waiting || 0 };
   };
+  const rows = (await env.DB.prepare(
+    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries ${FROM} WHERE ${scope} AND ${due} ORDER BY i.nm_first_seen DESC LIMIT ?6`,
+  ).bind(...binds, limit).all()).results || [];
+  if (body.dry_run) return { mode: "sec_excerpts", dry_run: true, ...await counts(), next: rows.map((r) => ({ item_id: r.id, state: r.state, title: r.title })) };
+  if (!rows.length) return { mode: "sec_excerpts", cleared: 0, processed: 0, ok: 0, requeued: 0, retry: 0, ...await counts(), items: [] };
+  // One refresh at a time, and the cron's SEC pass waits while it runs.
+  const lease = await env.DB.prepare(
+    `INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE meta.value <= ?3`,
+  ).bind(SEC_LEASE_KEY, nowIso(Date.now() + SEC_LEASE_MS), now).run();
+  if (!lease.meta?.changes) return { mode: "sec_excerpts", error: "another SEC excerpt refresh is running; call again in a minute" };
+  try {
+    // Statuses written before this reader ran (excerpt_at NULL), and with
+    // retry_failed the transient finals, are cleared with their tries: those
+    // attempts had no contact address, the old reader, or a passing refusal.
+    // Retries scheduled by this reader keep status NULL and their tries.
+    const ids = rows.map((r) => r.id);
+    const ph = ids.map(() => "?").join(",");
+    const cleared = await env.DB.prepare(
+      `UPDATE items SET excerpt_status = NULL, excerpt_tries = 0, excerpt_next_at = NULL, excerpt_at = NULL
+        WHERE id IN (${ph}) AND excerpt_status IS NOT NULL AND (excerpt_at IS NULL${body.retry_failed ? ` OR ${TRANSIENT_FINAL_SQL()}` : ""})`,
+    ).bind(...ids).run();
+    const fresh = (await env.DB.prepare(`SELECT id, excerpt_tries FROM items WHERE id IN (${ph})`).bind(...ids).all()).results || [];
+    const tries = new Map(fresh.map((r) => [r.id, r.excerpt_tries]));
+    const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY);
+    const stmts = [], items = [];
+    for (const r of results) {
+      stmts.push(resultStatement(env, r, now));
+      const requeue = r.status === "ok" && r.item.state !== "pending";
+      if (requeue) {
+        stmts.push(env.DB.prepare("UPDATE items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=0 WHERE id = ? AND state IN ('graded','claimed')").bind(r.item.id));
+      }
+      items.push({ item_id: r.item.id, status: r.status, requeued: requeue });
+    }
+    if (stmts.length) await env.DB.batch(stmts);
+    return {
+      mode: "sec_excerpts", cleared: cleared.meta?.changes || 0, processed: results.length, ok: results.filter((r) => r.status === "ok").length,
+      requeued: items.filter((i) => i.requeued).length, retry: results.filter((r) => RETRYABLE(r.status)).length,
+      ...await counts(), items,
+    };
+  } finally {
+    await env.DB.prepare("DELETE FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).run();
+  }
 }

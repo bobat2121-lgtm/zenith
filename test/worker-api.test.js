@@ -239,3 +239,115 @@ test("grades: an SEC filing's excerpt can carry the investor-day words; calendar
   assert.deepEqual(res.results.map((r) => [r.item_id, r.score]), [[filing, 80]]);
   assert.match(res.rejected[0].error, /score it 75 and keep the flag/);
 });
+
+// sec_excerpts review fixes: backoff is respected, failed reads can be retried
+// on request, one refresh at a time, covered tickers only.
+const SEC_8K = "https://www.sec.gov/Archives/edgar/data/1828108/000182810826000045/aur-20261028.htm";
+function addGradedFiling(env, over = {}) {
+  const id = addItem(env, { source_key: "edgar_aur", ticker: "AUR", url: SEC_8K, title: "Aurora: 8-K filed 2026-10-28", ...over });
+  addGrade(env, id, { ticker: over.ticker || "AUR", score: 55, band: "borderline", flags: ["reason:primary_source", "no_figures"] });
+  return id;
+}
+async function withSecFetch(handler, run) {
+  const real = globalThis.fetch;
+  globalThis.fetch = handler;
+  try { return await run(); } finally { globalThis.fetch = real; }
+}
+const serveSec = async (u) => new Response(SEC[String(u)] ?? "missing", { status: SEC[String(u)] ? 200 : 404, headers: { "content-type": "text/html" } });
+
+test("sec_excerpts: back-to-back calls wait out an item's retry backoff instead of spending its tries", async () => {
+  const env = newEnv({ CONTACT_EMAIL: "ops@example.org" });
+  const id = addGradedFiling(env);
+  let calls = 0;
+  await withSecFetch(async () => { calls++; return new Response("busy", { status: 503 }); }, async () => {
+    const first = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts" } })).body;
+    assert.deepEqual([first.processed, first.retry, first.remaining, first.waiting], [1, 1, 0, 1]);
+    for (let k = 0; k < 3; k++) {
+      const again = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts" } })).body;
+      assert.deepEqual([again.processed, again.remaining, again.waiting], [0, 0, 1], "the item waits for its next try");
+    }
+  });
+  assert.equal(calls, 1);
+  const row = env.DB.rows("SELECT state, excerpt_status, excerpt_tries, excerpt_at FROM items WHERE id = ?", id)[0];
+  assert.deepEqual([row.state, row.excerpt_status, row.excerpt_tries, row.excerpt_at], ["graded", null, 1, null]);
+  // Once the retry is due it is read, and the item is requeued.
+  env.DB.db.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").run(iso(HOUR), id);
+  await withSecFetch(serveSec, async () => {
+    const r = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts" } })).body;
+    assert.deepEqual([r.processed, r.ok, r.requeued, r.remaining, r.waiting], [1, 1, 1, 0, 0]);
+  });
+  assert.equal(env.DB.rows("SELECT state FROM items WHERE id = ?", id)[0].state, "pending");
+});
+
+test("sec_excerpts: retry_failed re-reads a filing whose last read was refused; default calls leave it", async () => {
+  const env = newEnv({ CONTACT_EMAIL: "ops@example.org" });
+  const id = addGradedFiling(env);
+  env.DB.db.prepare("UPDATE items SET excerpt_status = 'http_403', excerpt_tries = 2, excerpt_at = ? WHERE id = ?").run(iso(HOUR), id);
+  const notFound = addGradedFiling(env, { url: SEC_8K.replace("aur-20261028", "gone") });
+  env.DB.db.prepare("UPDATE items SET excerpt_status = 'http_404', excerpt_tries = 1, excerpt_at = ? WHERE id = ?").run(iso(HOUR), notFound);
+  assert.equal((await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts", dry_run: true } })).body.remaining, 0);
+  const dry = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts", retry_failed: true, dry_run: true } })).body;
+  assert.deepEqual(dry.next.map((n) => n.item_id), [id], "a 404 is final, not a passing refusal");
+  await withSecFetch(serveSec, async () => {
+    const r = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts", retry_failed: true } })).body;
+    assert.deepEqual([r.cleared, r.processed, r.ok, r.requeued, r.remaining], [1, 1, 1, 1, 0]);
+  });
+  const row = env.DB.rows("SELECT state, excerpt_status, excerpt_tries FROM items WHERE id = ?", id)[0];
+  assert.deepEqual([row.state, row.excerpt_status, row.excerpt_tries], ["pending", "ok", 1]);
+});
+
+test("sec_excerpts holds a lease: a second refresh is refused and the cron's SEC pass stands aside", async () => {
+  const { enrich } = await import("../worker/src/excerpt.js");
+  const env = newEnv({ CONTACT_EMAIL: "ops@example.org" });
+  addGradedFiling(env);
+  const pending = addItem(env, { source_key: "edgar_aur", ticker: "AUR", url: SEC_8K.replace("aur-20261028", "new"), title: "Aurora: 8-K filed 2026-11-20" });
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('sec_refresh_until', ?)").run(new Date(Date.now() + 60_000).toISOString());
+  let calls = 0;
+  await withSecFetch(async () => { calls++; return new Response("x", { status: 404 }); }, async () => {
+    const busy = await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts" } });
+    assert.equal(busy.status, 409);
+    assert.match(busy.body.error, /is running/);
+    const e = await enrich(env);
+    assert.equal(e.sec_deferred, true);
+    assert.equal(calls, 0, "no sec.gov request while the lease is held");
+    // An expired lease is taken over, and released when the refresh ends.
+    env.DB.db.prepare("UPDATE meta SET value = ? WHERE key = 'sec_refresh_until'").run(iso(1000));
+    assert.equal((await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts", limit: 1 } })).status, 200);
+    assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM meta WHERE key = 'sec_refresh_until'")[0].n, 0);
+    assert.equal((await enrich(env)).sec_deferred, false);
+  });
+  assert.ok(env.DB.rows("SELECT excerpt_status FROM items WHERE id = ?", pending)[0].excerpt_status, "the cron read it once the lease was gone");
+});
+
+test("requeue modes leave tickers dropped from coverage alone (REKR)", async () => {
+  const env = newEnv({ CONTACT_EMAIL: "ops@example.org" });
+  const day = "2026-11-19T10:00:00.000Z";
+  const rekr = addItem(env, { source_key: "rekor", ticker: "REKR", published: "2026-10-27T12:00:00Z", nm_first_seen: "2026-10-27T13:00:00Z" });
+  addGrade(env, rekr, { ticker: "REKR", score: 10, band: "reject", flags: ["reason:stale"], graded_at: day });
+  const aur = addItem(env, { source_key: "aurora", ticker: "AUR", published: "2026-10-27T12:00:00Z", nm_first_seen: "2026-10-27T13:00:00Z" });
+  addGrade(env, aur, { ticker: "AUR", score: 10, band: "reject", flags: ["reason:stale"], graded_at: day });
+  const late = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "late_flags" } })).body;
+  assert.deepEqual(late.items.map((i) => i.item_id), [aur]);
+  assert.equal(env.DB.rows("SELECT state FROM items WHERE id = ?", rekr)[0].state, "graded");
+  const filing = addGradedFiling(env, { source_key: "edgar_rekr", ticker: "REKR", title: "Rekor Systems: 8-K filed 2026-11-12" });
+  let calls = 0;
+  await withSecFetch(async () => { calls++; return new Response("x", { status: 404 }); }, async () => {
+    const r = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "sec_excerpts" } })).body;
+    assert.deepEqual([r.processed, r.remaining, r.waiting], [0, 0, 0]);
+  });
+  assert.equal(calls, 0, "a dropped ticker's filing is never fetched");
+  assert.equal(env.DB.rows("SELECT state FROM items WHERE id = ?", filing)[0].state, "graded");
+});
+
+test("enrich: once CONTACT_EMAIL is set, filings that only waited for it are read on the next tick", async () => {
+  const { enrich } = await import("../worker/src/excerpt.js");
+  const env = newEnv();
+  const id = addItem(env, { source_key: "edgar_aur", ticker: "AUR", url: SEC_8K, title: "Aurora: 8-K filed 2026-10-28" });
+  await enrich(env);
+  assert.ok(Date.parse(env.DB.rows("SELECT excerpt_next_at FROM items WHERE id = ?", id)[0].excerpt_next_at) > Date.now() + 11 * HOUR);
+  env.CONTACT_EMAIL = "ops@example.org";
+  await withSecFetch(serveSec, async () => {
+    assert.equal((await enrich(env)).ok, 1);
+  });
+  assert.equal(env.DB.rows("SELECT excerpt_status FROM items WHERE id = ?", id)[0].excerpt_status, "ok");
+});

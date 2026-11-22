@@ -301,9 +301,12 @@ function rubric(url) {
 //     whose item news-monitor first saw within 21 days of its published date:
 //     the grading clock, not the sighting, made them late (core.md 4.5).
 //     late_first_sighting also requeues undated items; archive bursts are kept.
-//   { mode: "sec_excerpts", limit, since, include_duplicates, dry_run }
+//   { mode: "sec_excerpts", limit, since, include_duplicates, retry_failed, dry_run }
 //     Clears and refetches sec.gov excerpts (graded items included), then
-//     requeues the items it read. Needs CONTACT_EMAIL; call until remaining is 0.
+//     requeues the items it read. Needs CONTACT_EMAIL; call until remaining is
+//     0 (items in retry backoff are counted as waiting).
+//   Both modes touch covered tickers only (dropped names such as REKR and
+//   SSTI keep their history).
 const LATE_FLAG_BACKFILL_DAY = "2026-11-19";
 
 async function requeueIds(env, ids) {
@@ -328,8 +331,9 @@ async function requeueLateFlags(env, body) {
       WHERE i.state = 'graded' AND g.graded_at >= ? AND g.graded_at < ?
         AND (g.flags LIKE '%"late_first_sighting"%' OR g.flags LIKE '%"reason:stale"%')
         AND g.flags NOT LIKE '%"archive_burst"%'
+        AND i.ticker IN (SELECT value FROM json_each(?))
       ORDER BY i.id LIMIT 1000`,
-  ).bind(from, to).all()).results || [];
+  ).bind(from, to, JSON.stringify(COVERED.tickers)).all()).results || [];
   const picked = rows.filter((r) => {
     const age = sightingAgeDays(r.published, r.first_seen);
     if (age == null) return r.flags.includes('"late_first_sighting"');
@@ -343,7 +347,7 @@ async function requeueLateFlags(env, body) {
 async function requeue(env, body) {
   if (body?.mode === "late_flags") return requeueLateFlags(env, body);
   if (body?.mode === "sec_excerpts") {
-    const r = await refreshSecExcerpts(env, body);
+    const r = await refreshSecExcerpts(env, body, COVERED.tickers);
     return json(r, r.error ? 409 : 200);
   }
   if (body?.mode) return json({ error: "mode must be late_flags or sec_excerpts (or pass item_ids)" }, 400);
