@@ -152,7 +152,7 @@ Bands and floors are the core's. The lines below are this name's mapping and exa
 Core §6 floors apply as written. This name's identifiers map to them as follows.
 - **Results:** 8-K Item 2.02, a same-day results release, or a preliminary revenue and backlog release (8-K 2.02/8.01) takes `floor:results` 80. The preliminary FY2026 release also takes `resolves:prelim_fy26`.
 - **Guidance:** an FY revenue or burn guide raised, cut or withdrawn takes `floor:guidance` 80.
-- **Calendar:** an earnings-date or call notice is fixed at 72, `floor:calendar`, `group:earnings_calendar`.
+- **Calendar:** an earnings-date or call notice is fixed at 75, `floor:calendar`, `group:earnings_calendar`.
 - **Executives:** 8-K 5.02 for the CEO or CFO takes `floor:neo_ceo_cfo` 75. A President or the chief legal officer takes `floor:neo` 70. Confirm the role from the text.
 - **Capital and controls:**
   - A going-concern note, Item 4.02 non-reliance or Item 2.04 takes `floor:existence` 85.

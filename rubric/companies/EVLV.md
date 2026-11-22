@@ -111,7 +111,7 @@ Core bands apply unless a line below is a documented thesis lift or carries an `
 **Digest (70-89):**
 - **Results.** Same-day quarterly results: `floor:results` 80, figures first.
 - **SEC approval on the disclosed terms:** 80, `floor:open_item`, `resolves:sec_settlement`. It removes an overhang and the liquidity covenant.
-- **Earnings-date notices:** fixed 72, `group:earnings_calendar`, `floor:calendar`.
+- **Earnings-date notices:** fixed 75, `group:earnings_calendar`, `floor:calendar`.
 - **Investor or analyst day notices:** `floor:investor_day` 80. Score 85+ when the notice or the event sets new long-term targets. The 2026-06-09 investor day set the ~25% revenue CAGR target through 2031.
 - **Named major customers:**
   - Major pro venues (NFL, NBA, NHL, MLB, MLS stadiums and arenas), new or subscription: 70-78, scored individually.
@@ -126,7 +126,7 @@ Core bands apply unless a line below is a documented thesis lift or carries an `
 
 Examples:
 - "Evolv Technology Reports Third Quarter Financial Results" (2026-11-10), ~85. Revenue guidance was tightened to $182-185M, ARR guidance reaffirmed, adjusted EBITDA guidance raised, and new-customer adds slowed.
-- "Evolv Technology to Release Third Quarter Financial Results on November 10, 2026" (2026-10-05), 72. The owner graded it 75; core fixes date notices at 72.
+- "Evolv Technology to Release Third Quarter Financial Results on November 10, 2026" (2026-10-05), 75. The owner graded it 75; core fixes date notices at 75.
 - "Evolv Technology to Host Investor Day on June 9, 2026" (2026-06-01), 80, `floor:investor_day`.
 - "Evolv Technology Enters Subscription Agreement With Utah Jazz, Utah Mammoth, and the Delta Center" (2026-10-23), ~75. A new NBA/NHL arena on a subscription.
 - "Evolv Express Selected to Support Security Operations at Climate Pledge Arena" (2026-09-28), ~72. A new NHL arena.
@@ -176,7 +176,7 @@ Examples:
 - **Item 8.01 with a settlement or regulatory outcome:** 70. Example: the 2026-08-10 8-K on the derivative settlement stipulation and notice.
 - **SEC litigation or administrative release, or Commission approval, naming Evolv:** 80 on the disclosed terms (`resolves:sec_settlement`). 90 if the terms differ or the release includes a DOJ action.
 - **SAFETY Act status:** any change for Express or eXpedite, `floor:regulator` 75.
-- **Calendar:** earnings-date notices fixed 72 (`group:earnings_calendar`). Investor-day notices `floor:investor_day` 80.
+- **Calendar:** earnings-date notices fixed 75 (`group:earnings_calendar`). Investor-day notices `floor:investor_day` 80.
 - **Customer B:** identified, or a change to it, 75 (`resolves:customer_b`). Customer B is a reseller that was 15.3% of FY2025 revenue (12.6% in FY2024) per the FY2025 10-K.
 - **Capital:** a draw on the MidCap DDTL or revolver, 70 (thesis lift). An equity raise follows core section 4.2.2.
 

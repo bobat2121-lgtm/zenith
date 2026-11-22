@@ -158,12 +158,12 @@ _Researched 2026-11-18. Nasdaq: AGLT (common) and AGLTW (warrants, $11.50 strike
   - Stock-move pieces, price targets and analyst initiations (core section 7).
 
 ## Always surface (floors)
-Use the core section 6 floors as written: `results` 80; `neo_ceo_cfo` 75; `neo` 70; `deficiency` 70; `capital_big` 75; `calendar` 72 fixed; `order` 70; `lead_order` 90; `key_loss` 70. These lines are specific to this name:
+Use the core section 6 floors as written: `results` 80; `neo_ceo_cfo` 75; `neo` 70; `deficiency` 70; `capital_big` 75; `calendar` 75 fixed; `order` 70; `lead_order` 90; `key_loss` 70. These lines are specific to this name:
 - **8-K items:** open the filing (the feed drops item numbers) and grade by core section 5.
   - 1.01 or 2.03 financings by core 4.2.2.
   - 3.01: watch the post-de-SPAC holder-count and public-float tests as well as the $1.00 bid price.
 - **Results:** the first operating figures are the 8-K/A Ex.99.3 and 99.4. The registrant 10-Q of 2026-11-13 covers the CCXI shell's Q3 (trust account) and is not results: below 25. The FY2026 10-K with release gets `floor:results` 80, figures first.
-- **Earnings-date notices:** `floor:calendar` 72 fixed, `group:earnings_calendar`.
+- **Earnings-date notices:** `floor:calendar` 75 fixed, `group:earnings_calendar`.
 - **Digit 5 order counterparty** (`digit5_orderbook` thesis lift): any disclosure naming the customer, or the definitive warrant agreement, has floor 85 and flag `resolves:digit5_warrant_agreement`.
   - Legacy terms: 453 warrants per robot sourced, 1,000-robot minimum (453,000 total).
   - Exercise price and terms were not final as of 2026-11-13.

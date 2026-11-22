@@ -144,7 +144,7 @@ Bands and rung ranges are core §2-§4. Scores below are for these RCAT examples
 - **Apium advances to Swarm Forge Crucible 4** on Anduril's team (2026-11-16): 72-78. It is a selection (one of four teams; work begins January 2027), never a contract. Standalone it is a separate item; inside the Q3 release it is part of the results card.
 - **First U.S. Government B-26 purchase order** (in the Q3 release): standalone it scores 75-80 (binding, no value, first order for the product, `blue_ops`). Inside the Q3 release it is part of the results card.
 - **Named-officer change:** CRO Geoffrey Hitchcock terminated for cause, plus his lawsuit ([8-K Items 5.02/8.01](https://www.sec.gov/Archives/edgar/data/748268/000149315226034190/form8-k.htm), filed 2026-07-22): 70-78 (other NEO, `floor:neo`). If first seen 40 days late in the 2026-08-31 burst: -15, cap 79, `late_first_sighting`.
-- **Earnings-date notices:** fixed 72, `group:earnings_calendar`. Example: [Q3 date, 2026-10-26](https://ir.redcatholdings.com/news-events/press-releases/detail/247/red-cat-announces-third-quarter-2026-earnings-release-date-and-participation-in-upcoming-investor-conferences). Bundled conference participation adds nothing.
+- **Earnings-date notices:** fixed 75, `group:earnings_calendar`. Example: [Q3 date, 2026-10-26](https://ir.redcatholdings.com/news-events/press-releases/detail/247/red-cat-announces-third-quarter-2026-earnings-release-date-and-participation-in-upcoming-investor-conferences). Bundled conference participation adds nothing.
 - **Capital:** a priced raise with d 5-10% scores 70-80; d 10-20% scores 78-88 (`floor:capital_big`).
 - **Quantified MOU or partnership** (named major counterparty plus units, value, term or territory): 60-85 by the core scope rule.
 
@@ -199,7 +199,7 @@ These were seen in `redcat` and `edgar_rcat` in news-monitor-db, and every row w
 - **Press-release burst, 2026-07-09.** 10 `redcat` rows were first seen at 18:30, with dates from 2026-04-16 to 2026-07-02. This meets the core archive-burst test (≥5 rows, span >30 days). Gate each row on its own date.
 - **Bare EDGAR titles** (for example "Red Cat Holdings, Inc.: 8-K filed 2026-11-16" or "10-Q filed 2026-11-16"): `dup_of` the same-day release.
   - A 10-Q is an update (60-85) only when it adds facts the release lacks. Examples: Customer A at 38% of 9M 2026 revenue, inventory reserves, the share count.
-- **Promotional or ceremonial releases:** Blue Ops Day, FAU, Washington Commanders, and conference participation bundled into earnings-date releases score below 25. The date part of a bundled release goes to `earnings_calendar` at 72.
+- **Promotional or ceremonial releases:** Blue Ops Day, FAU, Washington Commanders, and conference participation bundled into earnings-date releases score below 25. The date part of a bundled release goes to `earnings_calendar` at 75.
 - **Partnership flow:** releases such as Sine, FAU, Havoc and Futures Initiative arrive about every two to four weeks. Grade each by the core scope rule: generic 25-39; named counterparty with concrete integration 55-65; quantified 60-85.
 
 ## Catalyst calendar

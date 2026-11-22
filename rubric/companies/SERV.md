@@ -137,7 +137,7 @@ Core rungs and bands apply. The lines below are SERV examples. Anything above th
   - A new ATM or S-3 with takedown capacity: core 4.2.2. The 2026-05-11 $150M ATM was ≥20% of market cap, so 75-85.
   - Bolt-on acquisitions signed or closed (Diligent 2026-01-20/27; Vebu 2026-02-17): `floor:deal_signed` 75.
   - 8.01 volume or demand updates on a platform (e.g. the 2026-08-17 Uber volume 8.01): 70+ (`thesis lift`, uber_replacement / platform_ramp).
-  - Earnings-date notice: fixed 72, `floor:calendar`, `group:earnings_calendar`.
+  - Earnings-date notice: fixed 75, `floor:calendar`, `group:earnings_calendar`.
 - **Borderline (40-69):**
   - Single merchant adds on a platform, e.g. "Serve Robotics and White Castle Launch Autonomous Delivery via Uber Eats", 2026-03-11: 55-65. Merchants are not paying customers (see Materiality bases).
   - New verticals with no volume or fee, e.g. the NoScrubs laundry pilot in LA, 2026-06-02: 55-65, plus 5 if stated as paid (then small_base applies).
@@ -168,7 +168,7 @@ Core §6 floors apply as written. Sheet-specific lifts, each a documented `thesi
 - Core floors restated for clarity:
   - 8-K **2.02**, including off-cycle preliminary figures: `floor:results` 80.
   - New or changed guidance lines: `floor:guidance` 80.
-  - Earnings-date notices: fixed 72, `group:earnings_calendar`.
+  - Earnings-date notices: fixed 75, `group:earnings_calendar`.
 
 ## Noise patterns
 From news-monitor keys `serve` and `edgar_serv` (all rows notified=1):

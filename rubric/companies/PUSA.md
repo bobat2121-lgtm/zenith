@@ -141,7 +141,7 @@ The core ladder and §4.2 math apply unchanged. The examples below are re-scored
   - Forms 3 and 4 for grants, S-8, EFFECT notices, and passive 13G filings.
 
 ## Always surface (floors)
-Core §6 floors apply as written; this sheet does not restate them. Results and 8.01 financial exhibits floor at 80, calendar notices are fixed at 72, and the order, small-base, covered-pair, existence and deficiency floors also apply. This sheet adds only these documented thesis lifts:
+Core §6 floors apply as written; this sheet does not restate them. Results and 8.01 financial exhibits floor at 80, calendar notices are fixed at 75, and the order, small-base, covered-pair, existence and deficiency floors also apply. This sheet adds only these documented thesis lifts:
 - **`drone_dominance`:** any Gauntlet result, production order or exclusion that names Powerus or MatrixFold is ≥70. So is a published leaderboard for a round Powerus entered that omits it, as a miss under the core §9.3 program rule. A miss is bad news, not noise (owner). A production award ranks as Lead.
 - **`af_idiq`:** any task order under the Air Force Guardian-2 IDIQ, or any order naming Tandem Defense, is ≥70, with the obligated value tested against lead ($1.78M).
 - **Open items:** resolving an unexpired `open_items` entry floors at 80 with `resolves:<id>`.

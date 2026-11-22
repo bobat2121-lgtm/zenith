@@ -178,7 +178,7 @@ Yardsticks follow core 4.2.3 (treasury) and 4.2.2 (capital). All USD lines are i
   - **STRC monthly rate change** (up or down). Core preferred dividend change 75-85, lifted by `strc_digital_credit` to 80-88. An unchanged rate carries no lift.
   - **Debt repurchase, redemption or exchange.** Core buyback band (≥5% of market cap 70-80; smaller 50-60), lifted +5-15 by `liquidity_debt` when it retires 15% or more of convert principal or a series with a put inside 12 months. Example: "Strategy Completes $1.5 Billion Debt Repurchase … Now Holds 843,738 BTC" (2026-05-26; the 2029 notes fell from $3.0B to $1.5B): about 75. Flag `needs_owner`.
   - **Other results days.** Same-day quarterly results: floor 80, figures first (see Grader notes).
-  - **Earnings-date notices.** Fixed 72, `group:earnings_calendar` (`floor:calendar`). Example: "Strategy Announces Earnings Release Date … Third Quarter 2026" (2026-10-08).
+  - **Earnings-date notices.** Fixed 75, `group:earnings_calendar` (`floor:calendar`). Example: "Strategy Announces Earnings Release Date … Third Quarter 2026" (2026-10-08).
   - **Shareholder votes that change preferred dividend terms.** Core preferred dividend change 75-85. Example: daily-dividend proposal approved at the 2026-10-28 special meeting (8-K filed 2026-10-29). Other 5.07 results follow core §5 (routine 10-25; capital approvals 45-65).
   - **Credit ratings on Strategy or its preferreds.** New rating or upgrade 70-80; downgrade or watch-negative 80-90 (`strc_digital_credit` lift, `needs_owner`). Example: "S&P Global Ratings Assigns a 'B-' Issuer Credit Rating to Strategy" (2025-10-27).
   - **A new ATM program.** Core 75-90. Example: "$4.2 Billion STRC At-The-Market Program" (2025-07-31).
@@ -206,7 +206,7 @@ Core §6 floors that apply to this name:
 - **`treasury_sale` 85:** any BTC sale, in an 8-K, a release, or first disclosed in a 10-Q/10-K roll-forward; any company-stated mNAV or ATM trigger.
 - **`results` 80:** same-day results with figures (8-K 2.02, release).
 - **`neo_ceo_cfo` 75 / `neo` 70:** Item 5.02 for CEO, CFO or another named executive officer.
-- **`calendar` 72 fixed:** earnings-date notices, `group:earnings_calendar`.
+- **`calendar` 75 fixed:** earnings-date notices, `group:earnings_calendar`.
 - **`existence` 85, `deficiency` 70, `probe` 80, `open_item` 80:** as in core.
 
 Sheet floors (thesis lifts, core 4.4):
@@ -238,7 +238,7 @@ Sheet floors (thesis lifts, core 4.4):
 - **2027-01-01:**
   - Virasteh becomes CFO (`open_item: cfo_transition`).
   - STRF, STRK and STRD move to daily dividends (`open_item: daily_dividends_2027`).
-- **Mid-January 2027:** Q4 earnings-date notice (fixed 72, `group:earnings_calendar`).
+- **Mid-January 2027:** Q4 earnings-date notice (fixed 75, `group:earnings_calendar`).
 - **About early February 2027:** Q4/FY2026 results and the 10-K.
 - **About February 2027:** Strategy World 2027 (not yet announced; the 2026 edition ran Feb 23-25). Promotional.
 - **Spring 2027:** proxy and annual meeting. The 2026 meeting had its DEF 14A on 2026-04-28 and its 5.07 result on 2026-06-10.
