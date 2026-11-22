@@ -351,3 +351,31 @@ test("enrich: once CONTACT_EMAIL is set, filings that only waited for it are rea
   });
   assert.equal(env.DB.rows("SELECT excerpt_status FROM items WHERE id = ?", id)[0].excerpt_status, "ok");
 });
+
+test("feed paging returns every pinned Lead once, even when they fill several pages", async () => {
+  const env = newEnv();
+  const leads = [], others = [];
+  for (let k = 1; k <= 10; k++) {
+    const id = addItem(env, { nm_first_seen: iso(k * HOUR) });
+    if (k <= 8 && k !== 4) { addGrade(env, id, { score: 95, band: "lead" }); leads.push(id); }
+    else { addGrade(env, id, { score: 50, band: "borderline" }); others.push(id); }
+  }
+  const seen = [];
+  let before = null, pages = 0;
+  for (; pages < 10; pages++) {
+    const r = (await request(worker, env, "GET", `/v1/feed?limit=3${before != null ? `&before_id=${before}` : ""}`, { role: "app" })).body;
+    seen.push(...r.items.map((i) => i.item_id));
+    if (r.next_before_id == null) break;
+    before = r.next_before_id;
+  }
+  const desc = (a, b) => b - a;
+  assert.deepEqual(seen, [...[...leads].sort(desc), ...[...others].sort(desc)], "pinned Leads first, then newest, no gaps or repeats");
+  assert.equal(pages, 3);
+  // A page that ends inside the pinned Leads hands back a negative cursor.
+  const first = (await request(worker, env, "GET", "/v1/feed?limit=3", { role: "app" })).body;
+  assert.ok(first.items.every((i) => i.pinned === 1));
+  assert.equal(first.next_before_id, -first.items[2].item_id);
+  // Without pinning a negative cursor is just an id bound.
+  const flat = (await request(worker, env, "GET", `/v1/feed?order=newest&limit=50&before_id=${-leads[3]}`, { role: "app" })).body;
+  assert.ok(flat.items.every((i) => i.item_id < leads[3]));
+});

@@ -36,7 +36,7 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `POST /v1/queue/claim` `{limit, run_id}` | grader |
 | `POST /v1/grades` `{claim_id, run_id, rubric_version, model, grades[]}` | grader |
 | `GET /v1/labels?since=` | grader |
-| `GET /v1/feed?limit&before_id&ticker&min_score&state&unlabeled&order=newest` (recent Leads first, then newest) | app |
+| `GET /v1/feed?limit&before_id&ticker&min_score&state&unlabeled&order=newest` (recent Leads first, then newest; page with `before_id` = the last page's `next_before_id`, passed back unchanged: it is negative while the pinned Leads continue) | app |
 | `POST /v1/feedback` `{item_id, label, note, ticker or grade_id}` | app |
 | `GET /v1/stats` | grader, app |
 | `POST /v1/admin/ingest`, `/v1/admin/enrich`, `/v1/admin/requeue` `{item_ids}` or `{mode: "late_flags"}` or `{mode: "sec_excerpts", retry_failed?}` (covered tickers only; repeat until `remaining` is 0, `waiting` counts items in retry backoff) | admin |

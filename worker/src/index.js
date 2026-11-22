@@ -155,11 +155,15 @@ async function feed(env, url) {
   const PINNED = pinHours > 0 ? "(CASE WHEN g.band = 'lead' AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)" : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
+  // Paging: pass next_before_id back unchanged. A negative cursor means the
+  // last page ended inside the pinned Leads: the rest of them (below that id)
+  // come next, then the whole newest-first list. A positive one continues the
+  // newest-first list after every pinned Lead was shown.
   const before = Number(q.get("before_id"));
-  if (Number.isInteger(before) && before > 0) {
-    // Later pages continue the newest-first list; pinned Leads were on page one.
-    where.push("i.id < ?"); binds.push(before);
-    if (pinHours > 0) { where.push(`NOT ${PINNED}`); binds.push(pinSince); }
+  if (Number.isInteger(before) && before !== 0) {
+    if (pinHours > 0 && before < 0) { where.push(`(${PINNED} = 0 OR i.id < ?)`); binds.push(pinSince, -before); }
+    else if (pinHours > 0) { where.push("i.id < ?", `${PINNED} = 0`); binds.push(before, pinSince); }
+    else { where.push("i.id < ?"); binds.push(Math.abs(before)); }
   }
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
   const minScore = Number(q.get("min_score"));
@@ -190,9 +194,8 @@ async function feed(env, url) {
   }
   let next = null;
   if (rows.length === limit) {
-    const unpinned = rows.filter((r) => !r.pinned);
-    // A page of pinned Leads only: the newest-first list starts from the top.
-    next = unpinned.length ? unpinned[unpinned.length - 1].item_id : Number.MAX_SAFE_INTEGER;
+    const last = rows[rows.length - 1];
+    next = last.pinned ? -last.item_id : last.item_id;
   }
   return json({ items: rows, next_before_id: next });
 }
