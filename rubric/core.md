@@ -189,11 +189,11 @@ Never invent one. If the base or share count is unknown, say so in `why`, null t
 
 ### 4.5 Timeliness
 
-The clock is the **event date** (ET), never the article, crawl, `first_seen` or index time; if the event date is unknown, say so. 0-3 days old: no change. 4-21 days old, first sighting: -5 to -10, with the original date in `why`. Over 21 days: section 8.
+The **age** of an item is its event date (ET) measured to news-monitor's **first sighting** (`first_seen`), never to the time you grade it. The queue can wait hours or days; that wait never lowers a score (AUR's Q3 letter was seen the day it came out and graded 22 days later: it is a same-day result, floor 80). The claim prints `seen_after_days` (first sighting minus the published date) for each item. The event date is the date of the event or its first announcement, never a secondary article's, crawl or index time; if it is unknown, say so. Age 0-3 days: no change. 4-21 days at first sighting: -5 to -10, with the original date in `why`. Over 21 days at first sighting: section 8.
 
 ## 5. SEC filings
 
-EDGAR rows are bare form titles. **Open the filing and its exhibits** (`read_source: true`) before scoring above 39, and grade the facts, never the receipt (R-0056; owner on SRFM: "give me numbers, not the sole fact that Surf published its 10-Q"). If the figures cannot be read: cap 55 unless a floor applies by identifier, write "no figures available" in `why`, flag `no_figures`, confidence ≤0.4.
+EDGAR rows are bare form titles. When `CONTACT_EMAIL` is set, the Worker's excerpt of a filing starts at its first Item heading and adds the release furnished as Ex-99.1 (`EX-99.1:`), keeping the sentences with figures. **Read the filing and its exhibits** (that excerpt, or the documents themselves; `read_source: true`) before scoring above 39, and grade the facts, never the receipt (R-0056; owner on SRFM: "give me numbers, not the sole fact that Surf published its 10-Q"). If the figures cannot be read: cap 55 unless a floor applies by identifier (then the floor itself), write "no figures available" in `why`, flag `no_figures`, confidence ≤0.4. The API applies this cap to every EDGAR grade with `read_source: false` and records `sec_unread_capped_from_<score>`.
 
 **8-K items** (a 6-K follows the item its exhibit matches):
 
@@ -244,7 +244,9 @@ EDGAR rows are bare form titles. **Open the filing and its exhibits** (`read_sou
 
 ## 6. Universal floors
 
-Floors apply once the item is canonical, fresh, on-entity and verified. They never rescue `off_entity`, `stale`, `duplicate`, `already_covered` or `late_repost`. Modifiers only lift above a floor. Record `floor:<id>`. Sheets may raise a floor; lowering one needs an `owner:<date>` mark.
+Floors apply once the item is canonical, fresh, on-entity and verified. They never rescue `off_entity`, `stale`, `duplicate`, `already_covered` or `late_repost`, and a `late_first_sighting` takes its section 8 cap instead. Modifiers only lift above a floor. Record `floor:<id>`. Sheets may raise a floor; lowering one needs an `owner:<date>` mark.
+
+The API reads this table and **rejects** a grade that flags a floor and scores below it (`calendar` must be exactly 75; `lead_order` accepts 85 while `magnitude_usd` is null). Flag a floor only when its identifier is met; if it is not, drop the flag rather than the score. `floor:investor_day` needs the company's own words: the notice must call the event an investor day or an analyst day, and the API rejects the flag when the title names neither. Webcasts, live Q&As, shareholder calls, fireside chats and "investor presentations" are not investor days (MSTR's retail "Live Q&A with Investors", BOT's "Investor Webcast"): grade them as section 7 promotion or a calendar card.
 
 | `floor:` id | Identifier | Floor |
 |---|---|---|
@@ -256,7 +258,7 @@ Floors apply once the item is canonical, fresh, on-entity and verified. They nev
 | `treasury_sale` | Treasury sale or stated policy trigger | 85 |
 | `results` | Same-day primary results with figures (2.02 including preliminary, 6-K, release, first-record 10-Q/10-K) | 80 |
 | `guidance` | Company guidance raised, cut or withdrawn | 80 |
-| `investor_day` | Investor or analyst day notice; 85 if it is the first ever or the company listed ≤24 months ago (AGLT: "arguably #1") | 80 |
+| `investor_day` | Notice of an event the company calls an investor day or analyst day; 85 if it is the first ever or the company listed ≤24 months ago (AGLT: "arguably #1") | 80 |
 | `probe` | Company-disclosed government investigation | 80 |
 | `open_item` | Resolves an unexpired sheet open item | 80 |
 | `calendar` | Results or call date notice, call-only included | 75 fixed |
@@ -303,8 +305,8 @@ Noise applies only when the ceremony or promotion is the whole item. An item tha
 - **Never multiply money:** overlapping headlines are one commitment; an order total includes earlier orders; ceiling ≠ obligated; booked ≠ pipeline. A wire copy is still the issuer's claim.
 - **Corrections:** a changed figure, party or stage is an update on the change; a typo fix is a duplicate.
 - **Groups:** score members individually and consistently; the feed merges them. Core keys: `earnings_calendar`, `<ticker>_awards`, `wd_roundup`, `treasury_<TICKER>`, `nav_<TICKER>`, `deployment_wave_<TICKER>`. The only other keys allowed are `<ticker>_<slug>` keys declared in a sheet. Keys match case-insensitively and are emitted lowercase. A date notice is a card member, never a cross-company duplicate.
-- **Freshness:** more than 21 days after the event: <30, `reason:stale`. Exception: a material official record that never surfaced before, seen as the first public record, scores the event score -15, cap 79, `late_first_sighting`, with the original date in `why`. Legal echoes are stale (EVLV derivative settlement, "originally from April").
-- **Archive bursts (R-0050):** ≥5 items from one source sharing one `first_seen`, with event dates spanning more than 30 days. Examples: `strategy`, 101 MicroStrategy releases first seen 2026-11-03; `edgar_bot`, `bot_press`, `edgar_aglt`, `aglt_press` on 2026-11-18. Gate each item on its own date. Items more than 21 days old: 0-9, `reason:stale`, `archive_burst`, `source_repair`. Undated backfill never ranks.
+- **Freshness:** first seen more than 21 days after the event: <30, `reason:stale`. Exception: a material official record that never surfaced before, seen as the first public record, scores the event score -15, cap 79, `late_first_sighting`, with the original date in `why`. Both are measured at first sighting (4.5), never at grading time. The API rejects `late_first_sighting` when the item was first seen within 21 days of its published date; when the record itself was published long after the event it reports (an award posted a month late), keep the flag, add `event_predates_publication` and give the event date in `why`. Legal echoes are stale (EVLV derivative settlement, "originally from April").
+- **Archive bursts (R-0050):** ≥5 items from one source sharing one `first_seen`, with event dates spanning more than 30 days. Examples: `strategy`, 101 MicroStrategy releases first seen 2026-11-03; `edgar_bot`, `bot_press`, `edgar_aglt`, `aglt_press` on 2026-11-18. Gate each item on its own date. Items more than 21 days old: 0-9, `reason:stale`, `archive_burst`, `source_repair`. Undated backfill never ranks. zenith-core parks such rows at ingest (five or more from one source sharing one `first_seen`, undated or published more than 14 days earlier: skip reason `archive_seed`); any that still reach you follow this rule.
 
 ## 9. Read-through boundary
 
@@ -344,10 +346,10 @@ One JSON object per item, nothing else:
 - **magnitude_usd:** V in USD, or null. **magnitude_pct_of_base:** p, d, h, units or % of NAV, one decimal, or null.
 - **why:** ≤25 words: the literal stage, figures with period labels, and the test used ("Intent to award, $1.4M total (~$280K/yr), 2.8% of $50.6M base"). Every number must be traceable to the source. No implications.
 - **note_hook:** ≤20 words, the factual line the analyst would write ("ONDS: >$165M new orders since last update, company-reported"). No invented numbers.
-- **confidence:** joint certainty of entity, stage and figures. ≤0.5 if `read_source` is false; ≤0.6 if the entity or date is uncertain or figures are estimated.
+- **confidence:** joint certainty of entity, stage and figures. ≤0.5 if `read_source` is false (≤0.4 for an unread EDGAR filing); ≤0.6 if the entity or date is uncertain or figures are estimated.
 - **read_source:** true only if you read the source text: the URL or document you opened, or the Worker-captured excerpt of it (`EXCERPT (ok)`) when the facts you graded on are in that excerpt. Required for EDGAR items above 39, cryptic titles, and items scoring 70+ whose captured text lacks figures. The API caps confidence at 0.5 when it is false.
 - **thesis_drivers_hit / resolves:** only ids present in the sheet's front matter. If the block is missing, emit `[]` and no `resolves:`, and flag `sheet_incomplete`.
-- **flags:** exactly one `reason:` from `material`, `primary_source`, `new_information`, `calendar_card`, `below_materiality`, `stale`, `late_repost`, `already_covered`, `duplicate`, `insufficient_evidence`, `source_quality`, `off_entity`, `out_of_scope`, `promotional`. Plus any of: `group:<key>`, `dup_of:<id>`, `also:<TICKER>`, `floor:<id>`, `resolves:<id>`, `ceiling_only`, `estimate`, `company_reported`, `no_figures`, `pct_is_dilution`, `pct_is_holdings`, `pct_is_units`, `alt_base`, `archive_burst`, `source_repair`, `late_first_sighting`, `sheet_stale`, `sheet_incomplete`, `no_sheet`, `needs_owner`.
+- **flags:** exactly one `reason:` from `material`, `primary_source`, `new_information`, `calendar_card`, `below_materiality`, `stale`, `late_repost`, `already_covered`, `duplicate`, `insufficient_evidence`, `source_quality`, `off_entity`, `out_of_scope`, `promotional`. Plus any of: `group:<key>`, `dup_of:<id>`, `also:<TICKER>`, `floor:<id>`, `resolves:<id>`, `ceiling_only`, `estimate`, `company_reported`, `no_figures`, `pct_is_dilution`, `pct_is_holdings`, `pct_is_units`, `alt_base`, `archive_burst`, `source_repair`, `late_first_sighting`, `event_predates_publication`, `sheet_stale`, `sheet_incomplete`, `no_sheet`, `needs_owner`.
 
 ## 11. Calibration anchors
 
