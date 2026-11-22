@@ -107,6 +107,60 @@ test("content work is bounded: a megabyte of path operators reads quickly", asyn
   assert.equal((await pdfText(pdf)).status, "no_text", "too little text to call readable");
 });
 
+// One page of plain text, with extra objects before or after its page tree.
+function pageWith({ before = [], after = [], trailerExtra = "" } = {}) {
+  const lines = Array.from({ length: 6 }, (_, k) => `Line ${k} says revenue grew to $${k}.5 million in the quarter, up 12% from a year ago.`);
+  const content = "BT /F1 12 Tf 72 720 Td 14 TL\n" + lines.map((l) => `(${l}) Tj T*`).join("\n") + "\nET";
+  return buildPdf([
+    { num: 1, dict: "<< /Type /Catalog /Pages 2 0 R >>" },
+    ...before,
+    { num: 2, dict: "<< /Type /Pages /Kids [10 0 R] /Count 1 /Resources << /Font << /F1 3 0 R >> >> >>" },
+    { num: 3, dict: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>" },
+    { num: 10, dict: "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 11 0 R >>" },
+    { num: 11, dict: "<< >>", stream: content, flate: true },
+    ...after,
+  ], { trailerExtra });
+}
+
+test("the word 'stream' inside a string is not a stream keyword", async () => {
+  const pdf = pageWith({
+    before: [
+      { num: 5, dict: "<< /Title (Q3 2026: new revenue streams) /Producer (Writer) >>" },
+      { num: 6, dict: "<< /Type /Annot /Subtype /Link /A << /S /URI /URI (https://example.com/livestream/q3) >> >>" },
+      { num: 7, dict: "<< /Type /Outlines /Title (Data\nstream\nservices) >>" },
+    ],
+    trailerExtra: "/Info 5 0 R",
+  });
+  const r = await pdfText(pdf);
+  assert.equal(r.status, "ok");
+  assert.equal(r.stats.objects, 8);
+  assert.equal(r.stats.pages, 1);
+  assert.equal(r.stats.truncated, false);
+  assert.match(r.pages[0], /^Line 0 says revenue grew to \$0\.5 million/);
+});
+
+test("the object scan is linear: 60,000 small objects without streams read quickly", async () => {
+  const after = Array.from({ length: 60_000 }, (_, k) => ({ num: 1000 + k, dict: `<< /Type /StructElem /S /P /T (Paragraph ${k}) >>` }));
+  const pdf = pageWith({ after });
+  const started = Date.now();
+  const r = await pdfText(pdf);
+  const ms = Date.now() - started;
+  assert.equal(r.status, "ok");
+  assert.equal(r.stats.objects, 60_005);
+  assert.ok(ms < 1500, `took ${ms} ms`);
+});
+
+test("objects without endobj are read up to the next object's header, not to the end of the file", async () => {
+  const s = Buffer.from(pageWith({ before: [{ num: 5, dict: "<< /Title (Deck) /Producer (Writer) >>" }] })).toString("latin1");
+  // From object 5 on, the writer left out every endobj.
+  const at = s.indexOf("5 0 obj");
+  const cut = s.slice(0, at) + s.slice(at).replaceAll("endobj", "");
+  const r = await pdfText(new Uint8Array(Buffer.from(cut, "latin1")));
+  assert.equal(r.status, "ok");
+  assert.equal(r.stats.pages, 1);
+  assert.equal(r.stats.objects, 6);
+});
+
 test("readable() refuses symbol soup", () => {
   assert.equal(readable("§¤¶ ÷×Ø ¦¬¯ ".repeat(40)), false);
   assert.equal(readable("Revenue grew thirty nine percent to twelve million dollars in the third quarter of the year. ".repeat(3)), true);

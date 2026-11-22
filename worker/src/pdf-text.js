@@ -133,6 +133,9 @@ function readName(s, i) {
 
 const NUM_RE = /[+-]?(?:\d+\.?\d*|\.\d+)/y;
 const REF_RE = /\s+(\d+)\s+R(?![A-Za-z0-9])/y;
+// A stream's keyword: after its dictionary's ">>", then an end of line (some
+// writers leave spaces before it). The match ends where the data starts.
+const STREAM_KW = />>[ \t\r\n\f\0]*stream[ \t]*(?:\r\n|\r|\n)/;
 
 // One value at i. Returns [value, end]; [undefined, i] at an unknown token.
 function parseValue(s, i, depth = 0) {
@@ -210,21 +213,32 @@ class PdfDoc {
   }
 
   // Later segments (later in the file) override earlier definitions.
+  // Each object is searched only within its own text (to its endobj, or for a
+  // cut-off object to the next object's header), so the scan stays linear in
+  // the file however many small objects it has.
   scan(seg) {
     const s = seg.s;
     const re = /(\d{1,10})[ \t\r\n\f\0]+(\d{1,5})[ \t\r\n\f\0]+obj(?![A-Za-z0-9])/g;
-    let m;
+    const nextHead = /\d{1,10}[ \t\r\n\f\0]+\d{1,5}[ \t\r\n\f\0]+obj(?![A-Za-z0-9])/g;
+    let m, noEndobj = false;
     while ((m = re.exec(s))) {
       const num = Number(m[1]);
       const bodyStart = re.lastIndex;
-      const endobj = s.indexOf("endobj", bodyStart);
-      let stream = s.indexOf("stream", bodyStart);
-      while (stream !== -1 && s.slice(stream - 3, stream) === "end") stream = s.indexOf("stream", stream + 6);
-      if (stream !== -1 && (endobj === -1 || stream < endobj)) {
+      const endobj = noEndobj ? -1 : s.indexOf("endobj", bodyStart);
+      if (endobj === -1) noEndobj = true;
+      let stop = endobj;
+      if (stop === -1) {
+        nextHead.lastIndex = bodyStart;
+        stop = nextHead.exec(s)?.index ?? s.length;
+      }
+      // The stream keyword is the one that follows the stream's dictionary
+      // (">>", then an end of line): never "stream" inside a string such as
+      // a title's "revenue streams" or a "/livestream/" link.
+      const kw = STREAM_KW.exec(s.slice(bodyStart, stop));
+      if (kw) {
+        const stream = bodyStart + kw.index + kw[0].indexOf("stream");
         const text = s.slice(bodyStart, stream);
-        let start = stream + 6;
-        if (s[start] === "\r") start++;
-        if (s[start] === "\n") start++;
+        const start = bodyStart + kw.index + kw[0].length;
         let end = -1, next = -1;
         const len = /\/Length[ \t\r\n]+(\d+)(?![ \t\r\n]+\d+[ \t\r\n]+R)/.exec(text);
         if (len) {
@@ -244,8 +258,8 @@ class PdfDoc {
         re.lastIndex = next;
       } else {
         if (endobj === -1) this.stats.truncated = true;
-        this.objects.set(num, { seg, text: s.slice(bodyStart, endobj === -1 ? s.length : endobj) });
-        re.lastIndex = endobj === -1 ? s.length : endobj + 6;
+        this.objects.set(num, { seg, text: s.slice(bodyStart, stop) });
+        re.lastIndex = endobj === -1 ? stop : endobj + 6;
       }
     }
   }
