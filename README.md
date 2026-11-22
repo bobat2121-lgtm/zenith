@@ -24,22 +24,22 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `rubric/core.md`, `rubric/companies/<TICKER>.md` | The grading rubric. Bundled into the Worker at deploy (`npm run build:rubric`); its content hash is the rubric version stamped on every grade. |
 | `worker/` | zenith-core: `src/ingest.js` (cursor over news-monitor-db), `src/excerpt.js` (opening text of each release), `src/index.js` (API), `migrations/`. |
 | `grader/` | What the hourly routine runs: `GRADER.md` (procedure) and `zenith.mjs` (API CLI). |
-| `app/` | Streamlit feed. Views: For you (≥70), Latest, Label queue, Lead only. Labels High/Medium/Low/Noise plus a "why it matters" note feed back to the grader. |
-| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy. |
+| `app/` | Streamlit feed. Views: For you (≥70), Latest, Label queue, Lead only. Labels High/Medium/Low/Noise and Too high/Too low, recorded against the grade on the card, plus a "why it matters" note feed back to the grader. |
+| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`. |
 
 ## API (bearer tokens: ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN)
 
 | Route | Role |
 |---|---|
 | `GET /health` | public |
-| `GET /v1/rubric[/TICKER]` | grader, app |
+| `GET /v1/rubric[/TICKER]` | grader |
 | `POST /v1/queue/claim` `{limit, run_id}` | grader |
 | `POST /v1/grades` `{claim_id, run_id, rubric_version, model, grades[]}` | grader |
-| `GET /v1/labels?since=` | grader, app |
-| `GET /v1/feed?limit&before_id&ticker&min_score&state&unlabeled` | app |
-| `POST /v1/feedback` `{item_id, label, note}` | app |
+| `GET /v1/labels?since=` | grader |
+| `GET /v1/feed?limit&before_id&ticker&min_score&state&unlabeled&order=newest` (recent Leads first, then newest) | app |
+| `POST /v1/feedback` `{item_id, label, note, ticker or grade_id}` | app |
 | `GET /v1/stats` | grader, app |
-| `POST /v1/admin/ingest`, `/v1/admin/enrich`, `/v1/admin/requeue` | admin |
+| `POST /v1/admin/ingest`, `/v1/admin/enrich`, `/v1/admin/requeue` `{item_ids}` or `{mode: "late_flags"}` or `{mode: "sec_excerpts"}` | admin |
 
 ## Operate
 
