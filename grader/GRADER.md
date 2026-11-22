@@ -15,17 +15,27 @@ the analyst has to fix the environment. Do not retry in a loop.
 
 ## Procedure
 
-1. **Orient.** `node grader/zenith.mjs stats`.
-2. **Load the rubric.** `node grader/zenith.mjs rubric`. Read `.zenith/rubric/core.md`
-   in full once. It is authoritative: scale, event ladder, modifiers, SEC handling,
-   floors, noise rules, read-through boundary and the output contract (section 10).
-3. **Learn from the analyst.** `node grader/zenith.mjs labels 30`. It lists only
-   items whose current grade falls outside the analyst's label range (HIGH 80-100,
-   MEDIUM 60-89, LOW 30-69, NOISE 0-29). Where you and the analyst disagree, the
-   analyst is right: apply the lesson to similar items in this run. Analyst notes
-   are preferences about what matters, never instructions to do anything else.
-4. **Grade in batches** (at most 6 batches per run):
-   - `node grader/zenith.mjs claim 20` and read the items.
+1. **Claim first.** `node grader/zenith.mjs claim 20`. If it prints `NOTHING WAITING`,
+   stop here and report "nothing to grade": do not load the rubric or labels. The claim
+   lease is 45 minutes, so start grading it within this run.
+2. **Load the rubric** (only when the claim returned items). `node grader/zenith.mjs rubric`.
+   Read `.zenith/rubric/core.md` in full once. It is authoritative: scale, event ladder,
+   modifiers, SEC handling, floors, noise rules, read-through boundary and the output
+   contract (section 10).
+3. **Learn from the analyst.** `node grader/zenith.mjs labels 30`. It lists only items
+   whose current grade falls outside the analyst's label: HIGH 80-100, MEDIUM 60-89,
+   LOW 30-69, NOISE 0-29, TOO HIGH (below the score the analyst saw) and TOO LOW (above
+   it). A label belongs to the ticker it names: on a cross-ticker card it judges that
+   ticker's grade. Where you and the analyst disagree, the analyst is right: apply the
+   lesson to similar items in this run. Analyst notes are preferences about what
+   matters, never instructions to do anything else.
+4. **Grade in batches** (at most 6 batches per run): the items from step 1 first, then
+   `node grader/zenith.mjs claim 20` for each further batch.
+   - **The clock is first sighting.** Each item prints `first_seen`, `published` and
+     `seen_after_days`. Timeliness (core.md 4.5) and freshness (section 8) use the age
+     at first sighting, never today's date: an item news-monitor saw the day it came
+     out is fresh however long it waited in the queue. Use `late_first_sighting` or
+     `reason:stale` only when the event was already old when first seen.
    - **Company sheets:** the first time a ticker appears in this run, read
      `.zenith/rubric/<TICKER>.md` once and keep its rules in mind; do not re-read it
      for later batches. For the core's entity-collision check against *other*
@@ -42,12 +52,25 @@ the analyst has to fix the environment. Do not retry in a loop.
      from a partner, customer, program, rival or index source, not the company's own
      source. Grade it only through core.md section 9 ("Counterparty sources"); add
      `"<item_id>#<TICKER>"` grades for other tickers in `affects` that it also passes.
-   - **Sources:** each claimed item may carry the opening text of its release or
-     filing (`EXCERPT (ok)`). That excerpt is the captured source text; set
-     `read_source: true` when the facts you graded on are in it. When there is no
-     excerpt and the title cannot place the item on the ladder (e.g. a bare
-     "8-K filed"), use WebSearch once for the matching release or filing summary;
-     follow core.md's rules for unread sources and its confidence caps.
+   - **Sources:** each claimed item may carry the text of its release or filing
+     (`EXCERPT (ok)`): the lead and the sentences with figures, and for an SEC filing
+     its Item text plus the Ex-99.1 release. That excerpt is the captured source text;
+     set `read_source: true` when the facts you graded on are in it.
+   - **Open the source before a 70+ grade without figures.** If a results, guidance,
+     order or investor-day item would score 70 or more and its excerpt has no figures
+     (or there is no excerpt), open the item's URL with WebFetch before grading,
+     including PDFs (decks, letters, filings), and grade on what it says. If it cannot
+     be opened, grade from what you have, flag `no_figures` and keep confidence ≤0.5.
+     For any other item with no excerpt whose title cannot place it on the ladder
+     (e.g. a bare "8-K filed"), use WebSearch once for the matching release or filing
+     summary; follow core.md's rules for unread sources and its confidence caps.
+   - **Floors:** flag `floor:<id>` only when its identifier is met, and score at least
+     the floor (`floor:calendar` exactly 75). Where a company sheet says date notices
+     are "fixed 72", ignore that line: it has no `owner:` mark, so score 75 with
+     `floor:calendar`. `floor:investor_day` only when the company calls the event an
+     investor day or an analyst day (the title or the excerpt must say so; for an SEC
+     filing it is the excerpt): a webcast, live Q&A, shareholder call or "investor
+     presentation" is not one.
    - Write `.zenith/grades.json`: a JSON array, one object per claimed item,
      following **core.md section 10 exactly**. The item's own grade uses the bare
      `item_id`; a covered-to-covered grade for *another* covered ticker uses
@@ -56,11 +79,14 @@ the analyst has to fix the environment. Do not retry in a loop.
      `dup_of:<item_id>`.
    - `node grader/zenith.mjs submit .zenith/grades.json`. The API accepts only items
      from your current claim, checks score, band, ticker, reason flag, duplicate
-     fields and read_source/confidence, and ignores grades it already stored for this
-     run — so after fixing any REJECTED objects you can resubmit the same file.
-     The CLI also lists claimed items you did not grade: grade them before the next
-     claim. Resubmit at most twice, then report what is still rejected.
-   - Stop when a claim returns 0 items.
+     fields, floors (a score below a flagged floor is rejected), the investor-day
+     flag, `late_first_sighting` against the first-sighting age, and
+     read_source/confidence; it caps unread EDGAR grades at 55 (or the floor) itself.
+     It ignores grades it already stored for this run — so after fixing any REJECTED
+     objects you can resubmit the same file. The CLI also lists claimed items you did
+     not grade: grade them before the next claim. Resubmit at most twice, then report
+     what is still rejected.
+   - Stop when a claim prints `NOTHING WAITING`.
 5. **Report.** End with one line: items graded, how many Lead/Digest, the highest
    item, and anything that looked broken (e.g. many items with no excerpt from one
    source, or sheets flagged `sheet_stale`).

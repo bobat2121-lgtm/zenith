@@ -134,7 +134,7 @@ _Researched 2026-11-18. Listed on Nasdaq (DPRO), CSE (DPRO) and FSE (3U8). SEC C
 
 ## Always surface (floors)
 - **6-K exhibits 99.1/99.2** (interim financial statements and MD&A): rank with figures, floor 80 on the print day.
-- **Earnings-date or shareholder-call notices:** 70-75 with group_key earnings_dates. Example: "Draganfly to Host Third Quarter 2026 Shareholder Update Call", 2026-11-06.
+- **Earnings-date or shareholder-call notices:** fixed 75, `floor:calendar`, group_key earnings_dates. Example: "Draganfly to Host Third Quarter 2026 Shareholder Update Call", 2026-11-06.
 - **Offering paperwork:** SEC form SUPPL (two were filed 2026-09-28 for the UMAC deal), F-10/F-3 shelf filings and pricing 6-Ks. Floor 70.
 - **Canadian defence awards:** any Canadian Armed Forces or DND award, call-up, CanadaBuys notice, or DDI news naming Draganfly or Astiia. Floor 75, even without a company release.
 - **Drone Dominance results** for Mountain Horse or Global Ordnance entries that include the Draganfly Flex: floor 70. A miss is bad news.

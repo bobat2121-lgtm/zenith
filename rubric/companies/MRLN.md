@@ -107,7 +107,7 @@ _Researched 2026-11-18. Nasdaq Global Market: MRLN. Closed at $0.87 on 2026-11-1
   - Changes to certification strategy, and regulator designations. Examples:
     - "Merlin Announces Plans to Pursue a Civil Certification Strategy for Large Aircraft", 2026-09-09, about 75 and bad news.
     - "Merlin Designated a New Zealand Part 146 Aircraft Design Organization", 2026-08-24, about 70.
-  - The earnings-date notice. Example: "Merlin to Report Third Quarter 2026 Results on November 12, 2026", 2026-10-22, 70-75, `group_key=earnings_dates`.
+  - The earnings-date notice. Example: "Merlin to Report Third Quarter 2026 Results on November 12, 2026", 2026-10-22, fixed 75 (`floor:calendar`), `group_key=earnings_dates`.
   - Quantified MOUs with a named major partner (unit count, aircraft type, term), labelled "non-binding MOU".
 - **Borderline (40-69)**
   - Named-OEM concepts with no contract. Example: Cessna SkyCourier UX with Textron Aviation, September 2026, about 60.
@@ -135,7 +135,7 @@ _Researched 2026-11-18. Nasdaq Global Market: MRLN. Closed at $0.87 on 2026-11-1
 - **USSOCOM, AFSOC or "Automated Crew and Workload" C-130J autonomy news,** including news that does not name Merlin: 70+.
 - **KC-135 Center Console Refresh RFP or award:** 70+. A rival team's win is bad news at the same level.
 - **Runway:** a going-concern statement, or a change in the stated runway (now "into 2029"): 80+.
-- **Earnings or investor-day date notices:** 70, as calendar-card members.
+- **Earnings-date notices:** fixed 75 (`floor:calendar`), as calendar-card members. Investor-day notices take `floor:investor_day` 80.
 
 ## Noise patterns
 These come from news-monitor rows for `merlin` and `edgar_mrln` first seen since 2026-08-20: 63 rows, all notified=1.

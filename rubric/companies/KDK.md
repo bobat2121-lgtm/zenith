@@ -139,7 +139,7 @@ Core rungs and bands apply. Below: KDK examples and the places where a thesis dr
   - Defense awards: [USMC ROGUE-Fires, 2026-02-11](https://breakingdefense.com/2026/02/kodiak-ai-lands-marine-corps-deal-to-add-driverless-tech-to-rogue-fires-platform/). No value was disclosed, so it takes the core no-value default plus the small-base rule.
   - A new OEM platform: International LT, in the Q3 release of 2026-11-05. A binding OEM supply agreement lifts it to Lead.
   - CEO (Don Burnette), CFO (Surajit Datta) or COO (Michael Wiesinger) in or out: core `neo_ceo_cfo` / `neo`.
-  - Earnings-date notice: fixed **72**, `group:earnings_calendar` ([Q3 date notice, 2026-10-15](https://investors.kodiak.ai/news-releases/news-release-details/kodiak-report-third-quarter-2026-financial-results-november-5)).
+  - Earnings-date notice: fixed **75**, `group:earnings_calendar` ([Q3 date notice, 2026-10-15](https://investors.kodiak.ai/news-releases/news-release-details/kodiak-report-third-quarter-2026-financial-results-november-5)).
   - Investor or analyst day: core floor 85, because Kodiak has been listed ≤24 months (until 2027-09-24).
 - **Borderline (40-69):**
   - ARM progress releases at a new percentage (93% on 2026-09-08, 96% on 2026-10-06, 99% on 2026-10-30): 60-68, `group:kdk_arm_progress`. ARM reaching 100% with a driver-out date is `driver_out` and takes the Lead row.
@@ -171,7 +171,7 @@ Core rungs and bands apply. Below: KDK examples and the places where a thesis dr
 **Core floors that commonly fire for KDK** (values in core §6; not restated):
 - `results` (8-K 2.02 and first-record 10-Q/10-K figures).
 - `guidance`.
-- `calendar` (72 fixed).
+- `calendar` (75 fixed).
 - `neo_ceo_cfo`, `neo`.
 - `deficiency` (3.01, NT 10-Q/10-K).
 - `existence` (1.03, 4.02, 2.04, first going concern, delisting determination).
@@ -220,7 +220,7 @@ Context for freshness and `open_items`. A date here is not an item.
 | 2026-12-16 | Northland Growth Conference (virtual; promotional, 0-20) |
 | Any time | Financing (`financing_q2_27`). The CFO said it is not the right time to tap equity markets; equipment or customer-financed hardware and strategic investment are under review |
 | Possible | Nasdaq $1 bid-price notice after 30 consecutive business days below $1 (`nasdaq_bid`). No Item 3.01 8-K was on EDGAR as of 2026-11-18 |
-| About Feb 2027 | Q4 date notice (72, `earnings_calendar`) |
+| About Feb 2027 | Q4 date notice (75, `earnings_calendar`) |
 | About Mar 2027 | FY2026 results and 10-K; watch the going-concern language |
 | Early 2027 | Atlas fleet on public roads ([FreightWaves, 2026-09-29](https://www.freightwaves.com/news/kodiak-ikea-driverless-freight-i-45)) |
 | By 2027-06-01 | $10M second-lien maturity (`second_lien_jun27`) |

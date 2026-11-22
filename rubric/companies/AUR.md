@@ -154,7 +154,7 @@ Core bands apply. This list gives only AUR examples, the rank_high lifts tied to
   - CEO (Urmson), CFO (David Maday) or President (Ossa Fisher) in or out: core people rung, `floor:neo_ceo_cfo` 75 for CEO or CFO, `floor:neo` 70 for the President; +5-10 if abrupt.
   - Uber block sales reported on a SCHEDULE 13D/A with an updated Item 4 disposition, at 1% of outstanding (about 20M shares) or more: 65-75 (core 13D/A Item 4 range, `cash_dilution` lift). Example: [SCHEDULE 13D/A, 2026-09-17](https://www.sec.gov/Archives/edgar/data/1828108/000155278126000494/xslSCHEDULE_13D_X02/primary_doc.xml). It reported 29,369,611 shares (1.5%) sold on 2026-09-15 at $6.205, leaving 157.1M Class A shares (9.2% per the filing).
   - Volvo or PACCAR production-line timing for Aurora-equipped trucks, when the source names Aurora: `proof` 70-80.
-  - Results-date notices: fixed 72, `group:earnings_calendar`, `floor:calendar`. Example: ["Aurora to Host Third Quarter 2026 Business Review Conference Call on October 28, 2026" (2026-10-07)](https://ir.aurora.tech/news-events/press-releases/detail/153/aurora-to-host-third-quarter-2026-business-review-conference-call-on-october-28-2026).
+  - Results-date notices: fixed 75, `group:earnings_calendar`, `floor:calendar`. Example: ["Aurora to Host Third Quarter 2026 Business Review Conference Call on October 28, 2026" (2026-10-07)](https://ir.aurora.tech/news-events/press-releases/detail/153/aurora-to-host-third-quarter-2026-business-review-conference-call-on-october-28-2026).
   - Investor-day notices: `floor:investor_day` 80. Aurora listed in November 2021, so the 85 first-ever or newly-listed tier does not apply. Example: "Aurora to Host Analyst & Investor Day on September 23, 2026" (2026-09-02).
 - **Borderline (40-69)**
   - Late trade-press pieces that add a new management fact, graded on the increment with `reason:new_information` and the 4-21-day timeliness discount. Example: ["Aurora's truck production schedule delayed by supply, quality issues" (Trucking Dive, 2026-11-06)](https://www.truckingdive.com/news/auroras-truck-production-schedule-delayed-by-supply-quality-issues/873378/), which reports wire harnessing moving to an outside supplier: 45-60. Without a new fact it is `late_repost` under core §7.
@@ -187,7 +187,7 @@ Core §6 floors apply. These are AUR identifiers mapped to them, plus the lifts 
 - Hirschbach, Charger or Volvo Autonomous Solutions statements about Aurora truck plans, including when the headline says only "leading carrier":
   - A conversion to binding terms is `floor:lead_order` 90, `resolves:daas_conversion`.
   - A delay or cancellation mirrors the MOU at size, 78-85, with `floor:key_loss` 70.
-- Results-date notice: fixed 72, `group:earnings_calendar`.
+- Results-date notice: fixed 75, `group:earnings_calendar`.
 
 ## Noise patterns
 - **edgar_aur archive burst (core §8, R-0050).**

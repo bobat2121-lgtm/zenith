@@ -127,7 +127,7 @@ Score ranges below apply core v3.0 to UMAC's base. Historical examples are older
   - CEO or CFO in or out: `floor:neo_ceo_cfo` 75. COO, President or CTO: `people` 70-88. Other named executive officers: `floor:neo` 70.
   - Blue UAS listings of new parts (`permission`): 70-90.
   - New production lines with stated capacity (`proof`): 60-85, plus a `capacity_margin` lift.
-  - Earnings-date notices: fixed 72, `floor:calendar`, `group:earnings_calendar`.
+  - Earnings-date notices: fixed 75, `floor:calendar`, `group:earnings_calendar`.
 - **Borderline (40-69)**
   - Auditor change: Salberg & Company to Ernst & Young with no disagreements, 8-K 4.01, 2026-08-12 ([8-K](https://www.sec.gov/Archives/edgar/data/1956955/000168316826006280/umac_8k.htm)). Routine change, 40-55, about 50.
   - CEO warrant:
@@ -148,7 +148,7 @@ Score ranges below apply core v3.0 to UMAC's base. Historical examples are older
   - Rotor Riot hobby content (`reason:promotional`). Stock-move and price-target pieces: below 20, `reason:out_of_scope`.
 
 ## Always surface (floors)
-Core floors apply as written: `results` 80, `guidance` 80, `open_item` 80, `lead_order` 90, `order` 70, `covered_pair` 75, `deal_signed` 75, `neo_ceo_cfo` 75, `neo` 70, `capital_big` 75, `calendar` 72, `deficiency` 70, `key_loss` 70, `existence` 85. Grade 8-K Items 1.01, 2.01 and 3.02, 424B5s, S-3s, 4.01s, Form 4s and Form 144s by the core §5 grid. UMAC adds no per-form floors.
+Core floors apply as written: `results` 80, `guidance` 80, `open_item` 80, `lead_order` 90, `order` 70, `covered_pair` 75, `deal_signed` 75, `neo_ceo_cfo` 75, `neo` 70, `capital_big` 75, `calendar` 75, `deficiency` 70, `key_loss` 70, `existence` 85. Grade 8-K Items 1.01, 2.01 and 3.02, 424B5s, S-3s, 4.01s, Form 4s and Form 144s by the core §5 grid. UMAC adds no per-form floors.
 
 UMAC thresholds behind the core floors:
 - `lead_order`: V ≥ $6.37M.
@@ -224,6 +224,6 @@ Collector and polling notes moved to `sources/UMAC.md` (worker doc). Only the fa
   - Acquisition closings as Lead.
   - The 5%/15% dilution thresholds.
   - Per-form floors for 1.01, 2.01, 3.02, 424B5, 4.01 and Form 4.
-  - The 70 calendar score (now fixed 72).
+  - The 70 calendar score (now fixed 75).
   - The auditor-change 60 (now 50).
 - **Currency.** All amounts are USD (`fx_as_of` 2026-11-18). Draganfly stake amounts are in US$; Draganfly's own revenue base is in C$ on the DPRO sheet. Rotor Lab is Australian, but its consideration is in UMAC shares valued in US$.

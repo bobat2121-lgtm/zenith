@@ -119,7 +119,7 @@ Bands and floors are the core's; this list maps XTRAF's recurring items onto the
 ## Always surface (floors)
 Core floors apply as written; the XTRAF-specific identifiers are:
 - Results releases ("Announces Fiscal 20xx ... Results") and SEDAR+ MD&A figures: `floor:results` 80, figures first.
-- Earnings-date and conference-call notices ("Announces Fiscal ... Conference Call", e.g. 2026-10-13 and 2026-05-26): fixed **72**, `floor:calendar`, `group:earnings_calendar`, `reason:calendar_card`.
+- Earnings-date and conference-call notices ("Announces Fiscal ... Conference Call", e.g. 2026-10-13 and 2026-05-26): fixed **75**, `floor:calendar`, `group:earnings_calendar`, `reason:calendar_card`.
 - Any named paying customer order, expansion or deployment: `floor:small_base` 70.
 - Any prospectus supplement under the 2026-04-15 shelf, bought deal, private placement or Form D under CIK 0001684505: graded by core 4.2.2; first takedown resolves `shelf_takedown` (`floor:open_item` 80 while unexpired).
 - The Q1 FY2027 print resolves `q1_fy27_bookings` and `pending_installs` (`floor:open_item` 80; the results floor already applies).

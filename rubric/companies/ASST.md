@@ -147,7 +147,7 @@ Bands follow the core rubric (Lead 90-100, Digest 70-89, Borderline 40-69, Rejec
   - **Preferred dividend rate change:** 75-85. Example: SATA raised to 13.25%, 8-K filed 2026-11-12: about 78.
   - **CEO or CFO in or out:** 75-88 (`floor:neo_ceo_cfo`). Other NEOs (CSO, CMO, CLO): 70-85.
   - **Acquisition signed or closed:** `deal`, 75-85. Example: Semler acquisition completed 2026-01-16, about 80.
-  - **Results-date or call notice:** fixed 72, `group:earnings_calendar`.
+  - **Results-date or call notice:** fixed 75, `group:earnings_calendar`.
 - **Borderline (40-69)**
   - **Weekly buys under 1% of holdings:** 55-65, `group:treasury_ASST`, and never dropped.
     - 8-K of 2026-11-16: 251 BTC (h = 0.58%) plus about $10.0M gross of SATS ATM sales, about 58.
@@ -168,7 +168,7 @@ Bands follow the core rubric (Lead 90-100, Digest 70-89, Borderline 40-69, Rejec
   - **Promotional items:** summits, True North events, Brink stewardship or donations, keynotes and awards score 0-20, `reason:promotional`.
 
 ## Always surface (floors)
-Core section 6 floors apply as written: `results` 80, `treasury_sale` 85, `neo_ceo_cfo` 75, `neo` 70, `capital_big` 75, `deal_signed` 75, `calendar` 72, `deficiency` 70, `existence` 85, and `open_item` 80 for the ids in the front matter. Sheet-specific lines:
+Core section 6 floors apply as written: `results` 80, `treasury_sale` 85, `neo_ceo_cfo` 75, `neo` 70, `capital_big` 75, `deal_signed` 75, `calendar` 75, `deficiency` 70, `existence` 85, and `open_item` 80 for the ids in the front matter. Sheet-specific lines:
 - **`strive_sec_northland` matches** (owner:2026-11-14, owner-requested watch): floor 70.
   - Open the filing (`read_source: true`).
   - The headline must state where Northland appears (document, exhibit and role, for example agent or underwriter).

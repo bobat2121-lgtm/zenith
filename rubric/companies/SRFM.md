@@ -146,7 +146,7 @@ Core bands apply. The examples below are calibration points; lifts above the cor
   - **Direct offering or GEM draw:** grade by dilution, using the figures above. A $3-10M raise at $0.42 is 5.3-17.6%, which scores 70-88, plus +5 for the `liquidity` lift.
   - **FAA authorization naming SurfOS** (core `regulator` floor 75).
     - Example: "FAA Names OperatorOS as an Authorized System for Electronic Signatures and Recordkeeping" (2026-08-26), about 75.
-  - **Earnings-date notice:** fixed at 72, `group:earnings_calendar`, `floor:calendar`.
+  - **Earnings-date notice:** fixed at 75, `group:earnings_calendar`, `floor:calendar`.
     - Example: "Surf Air Mobility to Announce Third Quarter 2026 Financial Results on November 5, 2026" (2026-10-23).
   - **First OperatorOS contract in a new segment** (enterprise broker, OEM, a larger Part 121/135 fleet, or outside the U.S.): 70 or more. Score by p if valued.
   - **Reverse-split approval to effectiveness:** 80-88. The core 5.03 range of 55-70 is lifted by `nyse_cure`, and the item resolves `srfm_nyse_cure`, so `floor:open_item` applies.
@@ -182,7 +182,7 @@ Core floors (core §6) apply as written. Listed here are only the identifiers th
   - A priced raise with dilution of 10% or more, or a discount of 15% or more: `capital_big` 75. Smaller raises score by core §4.2.2, never below 55 for new primary shares.
   - A final FAA decision naming the company or SurfOS: `regulator` 75.
   - A loss at a sheet key program (EAS town, Wheels Up, Palantir license): `key_loss` 70.
-  - The results-date notice: `calendar` 72, fixed.
+  - The results-date notice: `calendar` 75, fixed.
 - **Sheet lifts:**
   - Reverse-split effectiveness (8-K 5.03) or a regained-compliance notice resolves `srfm_nyse_cure`: floor 80 (`open_item`).
   - Repayment, conversion, extension or refinancing of the High Trail convertible resolves `srfm_high_trail_2027`: floor 80 (`open_item`).

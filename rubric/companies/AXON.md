@@ -143,7 +143,7 @@ Use the core ladder. The lines below give Axon examples and its thesis lifts.
   - **Skydio deal steps: ≥70** (`dfr_skydio` thesis lift).
     - Example: the 8-K of 2026-11-18 (event date 2026-11-13) settles the tender and secondary in cash. This moves Skydio consideration to about 90% cash from about 60%; $127.5M was already paid at the primary closing ([8-K](https://www.sec.gov/Archives/edgar/data/1069183/000162828026074663/axon-20261113.htm)). About 72.
     - The tender settlement resolves `skydio_tender`. The secondary settlement resolves `skydio_secondary`. Both have floor 80.
-  - **Earnings-date notice:** fixed at 72, `group:earnings_calendar`. Example: "Axon to Release Third Quarter 2026 Earnings on November 5, 2026" (2026-10-22).
+  - **Earnings-date notice:** fixed at 75, `group:earnings_calendar`. Example: "Axon to Release Third Quarter 2026 Earnings on November 5, 2026" (2026-10-22).
   - **Named executive officer changes** (CEO Rick Smith; COO and CFO Brittany Bagley; President Josh Isner). CEO or CFO is 75-88; other NEOs 70-85.
 - **Borderline (40-69):**
   - **Named public-agency awards, renewals and Flock-to-Axon switches below $18.1M, or with no stated value.** Score 60-68, `group:axon_awards`, so the merged card surfaces at 70+.
@@ -169,7 +169,7 @@ Use the core ladder. The lines below give Axon examples and its thesis lifts.
   - Board-only 8-K Item 5.02s at about 30-40. Examples: director non-renewals on 2026-03-11 and 2026-04-10; two directors appointed 2026-07-10.
 
 ## Always surface (floors)
-Core floors apply as written: `results` 80, `guidance` 80, `calendar` 72 fixed, `neo_ceo_cfo` 75, `neo` 70, `order` 70, `lead_order` 90, `deal_signed` 75, `key_loss` 70 and `open_item` 80. The lifts below are specific to Axon:
+Core floors apply as written: `results` 80, `guidance` 80, `calendar` 75 fixed, `neo_ceo_cfo` 75, `neo` 70, `order` 70, `lead_order` 90, `deal_signed` 75, `key_loss` 70 and `open_item` 80. The lifts below are specific to Axon:
 - **Skydio transaction steps ≥70.** These are settlements, cash/stock mix and ownership %. Lift: `dfr_skydio`. The tender and secondary settlements resolve their open items (floor 80).
 - **Any award, extension, cancellation or protest on ICE conducted-energy-weapon vehicles ≥70.** Incumbent IDV 70CMSW23D00000003 (T10) has an end date of 2027-08-21 on USAspending after a 2026-08-14 modification. Lift: `ice_cew_followon`.
 - **DHS C-UAS IDIQ task orders naming Dedrone Defense ≥70.** IDIQ 70RDA226D00000001 is Track 1, $1.5B ceiling, ordering 2026-08-01 to 2031-07-31. A task order's obligated value is tested against the tiny line. The ceiling is `ceiling_only`. Lift: `fed_dedrone`.

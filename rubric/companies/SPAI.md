@@ -100,7 +100,7 @@ Bands, floors and rung ranges are in core 3, 4 and 6. Below: SPAI items placed o
   - Covered-to-covered deals with RCAT, ONDS or UMAC: `floor:covered_pair` 75 for each name.
   - CEO Daniyel Erdberg's private sale of 1,000,000 restricted shares at $4.00, plus a $6.00 call on another 1M shares expiring 2028-09-09. Trade 2026-09-09; [Form 4](https://www.sec.gov/Archives/edgar/data/2011208/000149315226042449/xslF345X06/ownership.xml) filed 2026-09-11. A non-10b5-1 CEO sale of ≥10% of holdings is 55-75, plus `liquidity_holders`: about 70. State the terms literally ("private sale at $4.00, not open market").
     - The buyer is Frost Gamma ([13G](https://www.sec.gov/Archives/edgar/data/2011208/000149315226042458/xslSCHEDULE_13G_X02/primary_doc.xml), event 2026-09-09, filed 2026-09-14, 2.0M shares including the option, 9.82%). If the 13G arrives after the Form 4, grade it as an update adding the buyer and the call (45-55). If it is the first record of the trade, grade the trade (about 70).
-  - Earnings or call date notice, if issued: fixed 72, `group:earnings_calendar`.
+  - Earnings or call date notice, if issued: fixed 75, `group:earnings_calendar`.
 - **Borderline (40-69):**
   - Air Force dataset contract completion (2026-10-29), no follow-on or value: about 60.
   - Army exercises and demos with a named program. Example: Project Convergence Capstone 6 completion (2026-07-30): 55-65.

@@ -108,7 +108,7 @@ _Researched 2026-11-18. Nasdaq: GRRR (warrants GRRRW). CIK 0001903145. Cayman Is
 - Government awards worth tens of millions, for example "Wins Major National AI Intelligence Infrastructure Expansion in Taiwan" (2026-09-22: B300 systems, "tens of millions", deployed Q4 2026 to Q4 2027, [IR](https://investors.gorilla-technology.com/gorilla-technology-wins-major-national-ai-intelligence-infrastructure-expansion-in-taiwan/)).
 - A scoped non-binding LOI, for example "Proposed 36 MW Data Centre Acquisition and 100+ MW AI Infrastructure Expansion Plan" (2026-10-09, [IR](https://investors.gorilla-technology.com/gorilla-advances-u-s-market-entry-with-proposed-36-mw-data-centre-acquisition-and-100-mw-ai-infrastructure-expansion-plan/)). The site has about 6MW today and 36MW potential, with about 18 months for the utility upgrade; location, seller and price are undisclosed. Score about 70.
 - Project debt closing or drawdown. A Nasdaq or SEC deficiency notice. A CEO change (Chairman/CEO Jayesh "Jay" Chandan) or CFO change.
-- Earnings-date and call notices go in the calendar card at 70-75, for example the 2026-11-16 Q3 call notice.
+- Earnings-date and call notices go in the calendar card, fixed at 75 (`floor:calendar`), for example the 2026-11-16 Q3 call notice.
 
 **Borderline (40-69)**
 - A credit rating action, for example Fitch's first-time "B-" with a Positive outlook (2026-08-27, [IR](https://investors.gorilla-technology.com/fitch-assigns-gorilla-technology-first-time-b-rating-with-positive-outlook/)): about 60.

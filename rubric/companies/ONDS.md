@@ -199,7 +199,7 @@ These are the `thesis_drivers` ids from the front matter.
 - **Final regulator decisions naming a unit** (`floor:regulator`, 75):
   - Example: EASA certification of BIRD's AMPS/DIRCM missile-protection system on a Bombardier Global 7500, 2026-10-13, about 75 ([IR](https://ir.ondas.com/news/detail/335)).
 - **Delivery and production milestones and their slips:** proof rung, 60-85. Examples: INDO volume deliveries starting (resolves `indo_deliveries`, floor 80); a slip in the ULTRA production target.
-- **Earnings-date notices: fixed 72**, `group:earnings_calendar`, `floor:calendar`, `reason:calendar_card`. Example: "Ondas to Report Third Quarter 2026 Financial Results on November 12, 2026", 2026-10-29 ([IR](https://ir.ondas.com/news/detail/336)).
+- **Earnings-date notices: fixed 75**, `group:earnings_calendar`, `floor:calendar`, `reason:calendar_card`. Example: "Ondas to Report Third Quarter 2026 Financial Results on November 12, 2026", 2026-10-29 ([IR](https://ir.ondas.com/news/detail/336)).
 
 **Borderline (40-69)**
 - **Named-partner integration with no volume, term or money** (core scope rule, 55-65). Example: Regna AI with Palantir, 2026-10-12, about 58. If Regna reports its first customer deployment, that resolves `regna_first_customer` (floor 80).
@@ -270,7 +270,7 @@ Floors are core §6 ids; the sheet adds no new floor values.
   - DZYNE seller lock-up expiry, 45M shares (`dzyne_lockup`).
   - Proposed base roll to $1.1B, pending owner approval.
 - **Q1 2027:** Stemme close, subject to regulators (`stemme_close`).
-- **About late March 2027:** Q4/FY2026 results, which test FY2026 revenue of at least $550M and the FY2027 target of at least $1.1B. The FY2025 print came 2026-03-23 and the 10-K 2026-03-30. Expect a date notice about two weeks before; it scores 72 on the earnings card.
+- **About late March 2027:** Q4/FY2026 results, which test FY2026 revenue of at least $550M and the FY2027 target of at least $1.1B. The FY2025 print came 2026-03-23 and the 10-K 2026-03-30. Expect a date notice about two weeks before; it scores 75 on the earnings card.
 - **Rolling, no dates set:**
   - LUS follow-on task orders.
   - IonStrike production ramp and volume awards.

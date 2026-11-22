@@ -148,7 +148,7 @@ _Sweep note: every core band, floor and noise rule is now applied by reference t
 - **Exol site go-lives or named tenants:** 70-80 (`proof`, `concentration`, `group:sym_exol`, label "related-party JV"; `resolves:exol_sites` for the four planned sites).
   - Example: the Exol Atlanta launch, 2026-04-08 ([exol.com](https://exol.com/resources/exol-launches-u-s-physical-ai-facilities-and-groundbreaking-fulfillment-as-a-service-model-to-expand-access-to-enterprise-grade-automation/)).
   - A first Walmex or SymMicro go-live also scores 70-80 (`deployment_wave_SYM` if several).
-- **Earnings-date notices:** fixed 72, `group:earnings_calendar`, `floor:calendar`.
+- **Earnings-date notices:** fixed 75, `group:earnings_calendar`, `floor:calendar`.
 
 **Borderline (40-69)**
 - **Equity offerings below 5% dilution:** 55-70 (core §4.2.2), plus 5 for a ≥ 15% discount. Example: [8-K 2025-12-08](https://www.sec.gov/Archives/edgar/data/1837240/000119312525311363/d69186d8k.htm).
@@ -175,7 +175,7 @@ _Sweep note: every core band, floor and noise rule is now applied by reference t
 - Price-move pieces (Zenith: 5-15), as `out_of_scope`.
 
 ## Always surface (floors)
-Core §6 floors apply unchanged: results 80, guidance 80, existence 85, neo_ceo_cfo 75, neo 70, deficiency 70, calendar 72, order 70. Only these sheet floors add to them:
+Core §6 floors apply unchanged: results 80, guidance 80, existence 85, neo_ceo_cfo 75, neo 70, deficiency 70, calendar 75, order 70. Only these sheet floors add to them:
 - **8-K Item 1.01 or 1.02 naming Walmart, Walmex or Exol:** at least 85 (`walmart_scope` / `concentration` thesis lift).
   - Item 1.01 or 1.02 with a new customer: score by the new-logo rule, at least 75.
 - **A recall, a replacement program, or a warranty charge of $25M or more:** at least 75 (`execution`).

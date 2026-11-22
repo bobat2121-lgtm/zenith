@@ -1,6 +1,9 @@
 """Zenith — graded research feed for the covered universe.
 
-Reads zenith-core's /v1/feed and posts analyst labels to /v1/feedback.
+Reads zenith-core's /v1/feed and /v1/stats and posts analyst labels to
+/v1/feedback (the only routes the app token may use). A label is recorded
+against the grade on the card, so a cross-ticker card is labelled under its
+own ticker.
 Configure with .streamlit/secrets.toml (ZENITH_API, ZENITH_APP_TOKEN) or the
 same names as environment variables.
 """
@@ -31,6 +34,9 @@ API = setting("ZENITH_API").rstrip("/")
 TOKEN = setting("ZENITH_APP_TOKEN")
 HEADERS = {"authorization": f"Bearer {TOKEN}"}
 LABELS = [("high", "High"), ("medium", "Medium"), ("low", "Low"), ("noise", "Noise")]
+# Directional labels: the score shown should have been lower / higher.
+DIRECTIONAL = [("too_high", "Too high"), ("too_low", "Too low")]
+LABEL_TEXT = dict(LABELS + DIRECTIONAL)
 VIEWS = {
     "For you": {"min_score": 70},
     "Latest": {},
@@ -54,10 +60,21 @@ def get_json(path: str, params: tuple) -> dict:
     return r.json()
 
 
-def post_label(item_id: int, label: str, note: str | None = None) -> None:
-    r = requests.post(f"{API}/v1/feedback", headers=HEADERS, json={"item_id": item_id, "label": label, "note": note or None}, timeout=20)
+def post_label(it: dict, label: str, note: str | None = None) -> None:
+    body = {"item_id": it["item_id"], "label": label, "note": note or None,
+            "ticker": it.get("grade_ticker") or it["ticker"]}
+    if it.get("grade_id") is not None:
+        body["grade_id"] = it["grade_id"]
+    r = requests.post(f"{API}/v1/feedback", headers=HEADERS, json=body, timeout=20)
     r.raise_for_status()
     get_json.clear()
+
+
+def short_date(day: str | None) -> str:
+    try:
+        return datetime.strptime(str(day)[:10], "%Y-%m-%d").strftime("%b %d")
+    except ValueError:
+        return str(day or "")[:10]
 
 
 def ago(iso: str | None) -> str:
@@ -144,9 +161,12 @@ def render_card(it: dict) -> None:
     else:
         badge = '<span class="z-badge pending">grading…</span>'
     also = "".join(f'<span class="z-badge also">also {html.escape(a)}</span>' for a in (it.get("also") or "").split(",") if a)
-    label = f'<span class="z-label">· you: {html.escape(it["label"])}</span>' if it.get("label") else ""
-    head = (f'<b>{html.escape(it["ticker"])}</b> <span class="z-badge src">{source_badge(it["source_key"], it.get("role"))}</span> '
-            f'· {ago(it.get("first_seen"))} {badge} {also} {label}')
+    label = f'<span class="z-label">· you: {html.escape(LABEL_TEXT.get(it["label"], it["label"]))}</span>' if it.get("label") else ""
+    # The event date, when it is older than news-monitor's first sighting.
+    event = f' <span class="z-label">· event {html.escape(short_date(it["event_date"]))}</span>' if it.get("event_date") else ""
+    shown = it.get("grade_ticker") or it["ticker"]
+    head = (f'<b>{html.escape(shown)}</b> <span class="z-badge src">{source_badge(it["source_key"], it.get("role"))}</span> '
+            f'· seen {ago(it.get("first_seen"))}{event} {badge} {also} {label}')
     clean_title = html.escape(" ".join(str(it["title"]).split()))
     title = (f'<a href="{html.escape(it["url"], quote=True)}" target="_blank" rel="noopener noreferrer">{clean_title}</a>'
              if safe_url(it.get("url")) else clean_title)
@@ -154,7 +174,7 @@ def render_card(it: dict) -> None:
     hook = f'<div class="z-hook">Note hook: {html.escape(it["note_hook"])}</div>' if it.get("note_hook") else ""
     avatar_cls = "z-avatar lead" if band == "lead" else "z-avatar"
     st.markdown(
-        f'<div class="z-card"><div class="{avatar_cls}">{html.escape(it["ticker"][:4])}</div><div class="z-body">'
+        f'<div class="z-card"><div class="{avatar_cls}">{html.escape(shown[:4])}</div><div class="z-body">'
         f'<div class="z-head">{head}</div><div class="z-title">{title}</div>{why}{hook}</div></div>',
         unsafe_allow_html=True,
     )
@@ -162,17 +182,20 @@ def render_card(it: dict) -> None:
         with st.expander("Excerpt", expanded=False):
             st.text(it["snippet"])  # third-party text: never rendered as Markdown
     if it.get("band"):
-        cols = st.columns([1, 1, 1, 1, 2])
-        for col, (value, text) in zip(cols, LABELS):
-            if col.button(text, key=f"lbl-{it['item_id']}-{value}", type="primary" if it.get("label") == value else "secondary"):
-                post_label(it["item_id"], value)
-                st.toast(f"Labeled {it['ticker']} as {text}")
+        # Too high / too low compare against the score, so duplicates get only the four.
+        choices = LABELS + (DIRECTIONAL if it.get("score") is not None else [])
+        cols = st.columns([1] * len(choices) + [2])
+        key = f"{it['item_id']}-{shown}"
+        for col, (value, text) in zip(cols, choices):
+            if col.button(text, key=f"lbl-{key}-{value}", type="primary" if it.get("label") == value else "secondary"):
+                post_label(it, value)
+                st.toast(f"Labeled {shown} as {text}")
                 st.rerun()
-        with cols[4].popover("Why it matters"):
-            note = st.text_area("Your note", key=f"note-{it['item_id']}", placeholder="One line on why this matters (or doesn't)")
-            choice = st.radio("Label", [t for _, t in LABELS], horizontal=True, key=f"nl-{it['item_id']}")
-            if st.button("Save", key=f"save-{it['item_id']}"):
-                post_label(it["item_id"], dict((t, v) for v, t in LABELS)[choice], note)
+        with cols[-1].popover("Why it matters"):
+            note = st.text_area("Your note", key=f"note-{key}", placeholder="One line on why this matters (or doesn't)")
+            choice = st.radio("Label", [t for _, t in choices], horizontal=True, key=f"nl-{key}")
+            if st.button("Save", key=f"save-{key}"):
+                post_label(it, dict((t, v) for v, t in choices)[choice], note)
                 st.toast("Saved")
                 st.rerun()
 
@@ -186,7 +209,8 @@ def feed() -> None:
         for t in tickers:
             items += get_json("/v1/feed", tuple(sorted({**params, "ticker": t}.items())))["items"]
         # One item can carry grades for several selected companies: show it once.
-        items = sorted({i["item_id"]: i for i in items}.values(), key=lambda x: x["item_id"], reverse=True)
+        # Same order as the API: recent Leads first, then newest.
+        items = sorted({i["item_id"]: i for i in items}.values(), key=lambda x: (x.get("pinned") or 0, x["item_id"]), reverse=True)
     else:
         items = get_json("/v1/feed", tuple(sorted(params.items())))["items"]
     if not items:

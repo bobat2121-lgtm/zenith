@@ -139,7 +139,7 @@ _Researched 2026-11-18. Nasdaq: MBAI. The ticker changed from CHEK on 2025-12-01
   - The unnamed Fortune 500 operator being named.
 - **Nasdaq notices** (deficiency, delisting, bid price): at least 80.
 - **AGM vote results** (6-K after 2026-12-22): at least 70.
-- **Earnings or interim-date notice:** 70-75, group_key `earnings_dates`.
+- **Earnings or interim-date notice:** fixed 75, `floor:calendar`, group_key `earnings_dates`.
 
 ## Noise patterns
 From news-monitor-db:

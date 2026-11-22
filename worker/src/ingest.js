@@ -5,7 +5,7 @@
 // every scanned row, matched or not.
 import COVERED from "./covered.json";
 import { MATCH } from "./rubric.generated.js";
-import { nowIso, skipReason, isHttpUrl, routeCounterparty } from "./lib.js";
+import { nowIso, skipReason, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups } from "./lib.js";
 
 const BATCH = 400;
 const MAX_BATCHES = 6;
@@ -29,6 +29,23 @@ async function initialCursor(news) {
   return row?.r != null ? row.r - 1 : (max?.r ?? 0);
 }
 
+// Undated or old rows already stored from earlier batches (rowid <= cursor),
+// per source and first_seen, for the groups in this batch.
+const OLD_OR_UNDATED_SQL = "(published IS NULL OR julianday(nm_first_seen) - julianday(published) > 14)";
+async function storedArchiveCounts(db, rows, cursor) {
+  const firstSeen = [...new Set(rows.filter(isArchiveCandidate).map((r) => r.first_seen))];
+  const out = new Map();
+  for (const part of chunk(firstSeen, 80)) {
+    const ph = part.map(() => "?").join(",");
+    const res = await db.prepare(
+      `SELECT source_key, nm_first_seen, COUNT(*) AS n FROM items
+        WHERE nm_first_seen IN (${ph}) AND nm_rowid <= ? AND ${OLD_OR_UNDATED_SQL} GROUP BY source_key, nm_first_seen`,
+    ).bind(...part, cursor).all();
+    for (const x of res.results || []) out.set(archiveGroupKey(x.source_key, x.nm_first_seen), x.n);
+  }
+  return out;
+}
+
 // Ticker, role and skip reason for one news-monitor row.
 export function routeRow(r) {
   const cp = COUNTERPARTY[r.source_key];
@@ -44,7 +61,7 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  let scanned = 0, inserted = 0, skipped = 0;
+  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
@@ -56,11 +73,23 @@ export async function ingest(env) {
     ).bind(cursor, win.hi).all()).results || []).filter((r) => SOURCE_KEYS.has(r.source_key));
     const now = nowIso();
     const stmts = [];
-    for (const r of rows) {
-      const route = routeRow(r);
-      if (!route?.ticker) continue;
+    const routed = rows.map((r) => ({ r, route: routeRow(r) })).filter((x) => x.route?.ticker);
+    // Day-one archive rows (a seed or backfill of undated or old pages): parked,
+    // not queued as fresh news. Earlier rows of the same poll are parked too.
+    const park = archiveSeedGroups(routed.map((x) => x.r), await storedArchiveCounts(db, routed.map((x) => x.r), cursor));
+    const groupRow = new Map(routed.map(({ r }) => [archiveGroupKey(r.source_key, r.first_seen), r]));
+    for (const key of park) {
+      const { source_key: sourceKey, first_seen: firstSeen } = groupRow.get(key);
+      stmts.push(db.prepare(
+        `UPDATE items SET state = 'skipped', skip_reason = 'archive_seed', claim_id = NULL, claimed_until = NULL
+          WHERE source_key = ? AND nm_first_seen = ? AND nm_rowid <= ? AND state = 'pending' AND ${OLD_OR_UNDATED_SQL}`,
+      ).bind(sourceKey, firstSeen, cursor));
+    }
+    const updates = stmts.length;
+    for (const { r, route } of routed) {
+      const archive = park.has(archiveGroupKey(r.source_key, r.first_seen)) && isArchiveCandidate(r);
       // Only http(s) links are ever fetched or shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : skipReason(r) || route.skip;
+      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || route.skip;
       if (reason) skipped++;
       stmts.push(db.prepare(
         `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects)
@@ -72,10 +101,11 @@ export async function ingest(env) {
     stmts.push(setMeta(db, "nm_cursor", win.hi));
     stmts.push(setMeta(db, "last_ingest_at", now));
     const res = await db.batch(stmts);
-    inserted += res.slice(0, n).reduce((k, r) => k + (r.meta?.changes || 0), 0);
+    inserted += res.slice(updates, n).reduce((k, r) => k + (r.meta?.changes || 0), 0);
+    parkedEarlier += res.slice(0, updates).reduce((k, r) => k + (r.meta?.changes || 0), 0);
     scanned += win.n;
     cursor = win.hi;
     if (win.n < BATCH) break;
   }
-  return { cursor, scanned, inserted, skipped_on_arrival: skipped };
+  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier };
 }

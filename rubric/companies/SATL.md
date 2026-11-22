@@ -147,7 +147,7 @@ Scores below are worked through the core ladder and modifiers. Historical exampl
   - **Merlin.01 commissioning complete:** `resolves:merlin01_commissioning`, 80-88. A stated slip of commissioning, launches or service start ranks like the milestone (bad news).
   - **Slingshot III expansion:** "Satellogic Expands Slingshot III Work with IDT and U.S. Office of Naval Research" (six Mark VI over 18 months; on-orbit work in 2027-28), 2026-09-14.
     - Binding named counterparty, no value: 70-74 default, plus the `us_defense` driver, about 74.
-  - **Earnings-date notice:** fixed 72, `group:earnings_calendar`, `floor:calendar`.
+  - **Earnings-date notice:** fixed 75, `group:earnings_calendar`, `floor:calendar`.
   - **Warrant or note events** (by 4.2.2 dilution; a warrant open item gives floor 80):
     - A $6M Tether conversion (5M shares, d ≈ 3.2%): about 60.
     - Any Liberty or January 2027 warrant exercise, amendment or extension: `resolves:` the item, ≥ 80.
@@ -214,7 +214,7 @@ Context and timing only. An item scores on its own facts; listed items carry `op
 - **2027-01-25:** the $8.63 warrants (8,253,454) and the PIPE warrant (2.5M at $20) expire (`warrants_jan2027`). Fair-value gains reflect warrant and earnout liabilities that expire in Q1 2027.
 - **2027-02-10:** the Liberty warrants expire (`liberty_warrants`). Any exercise is a cash and dilution event.
 - **Early 2027:** in-orbit transfer of the $12M satellite to the sovereign defense customer (`sovereign_12m_transfer`).
-- **Mid-to-late March 2027:** Q4/FY2026 results and 10-K. The date notice is 72, `group:earnings_calendar`.
+- **Mid-to-late March 2027:** Q4/FY2026 results and 10-K. The date notice is 75, `group:earnings_calendar`.
 - **H1 2027:** more Merlin launches.
 - **About 2027-05:** renewal of the one-year $18M monitoring contract of 2026-05-26 (`monitoring_18m_renewal`).
 - **By mid-2027:** the ~$37M three-satellite transfers complete (`sovereign_37m_transfers`).

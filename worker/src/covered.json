@@ -1,5 +1,5 @@
 {
-  "generated_from": "news-monitor src/priority.js (lane=covered) and src/counterparty-sources.js",
+  "generated_from": "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js)",
   "tickers": [
     "AGLT",
     "ASST",
@@ -55,6 +55,21 @@
     "aglt_press": "AGLT",
     "bot_press": "BOT",
     "strategy": "MSTR",
+    "axon_nasdaq": "AXON",
+    "evlv_nasdaq": "EVLV",
+    "umac_events": "UMAC",
+    "axon_ir_docs": "AXON",
+    "aur_presentations": "AUR",
+    "pl_pulse": "PL",
+    "mbai_b2i": "MBAI",
+    "grrr_decks": "GRRR",
+    "spai_decks": "SPAI",
+    "serv_blog": "SERV",
+    "serv_case_studies": "SERV",
+    "serv_diligent": "SERV",
+    "kdk_newsroom": "KDK",
+    "bot_news": "BOT",
+    "bot_portfolio": "BOT",
     "edgar_rcat": "RCAT",
     "edgar_dpro": "DPRO",
     "edgar_onds": "ONDS",
@@ -73,9 +88,47 @@
     "edgar_srfm": "SRFM",
     "edgar_mbai": "MBAI",
     "edgar_aglt": "AGLT",
-    "edgar_bot": "BOT"
+    "edgar_bot": "BOT",
+    "edgar_pusa": "PUSA",
+    "edgar_mstr": "MSTR",
+    "edgar_asst": "ASST",
+    "edgar_umac": "UMAC",
+    "ondas_decks": "ONDS",
+    "redcat_decks": "RCAT",
+    "planet_decks": "PL",
+    "surfair_decks": "SRFM",
+    "strive_decks": "ASST",
+    "powerus_decks": "PUSA",
+    "draganfly_decks": "DPRO",
+    "mbody_decks": "MBAI",
+    "gorilla_decks": "GRRR",
+    "satl_press": "SATL",
+    "symbotic_news": "SYM",
+    "pusa_press": "PUSA",
+    "palladyne_wp": "PDYN",
+    "xtractone_news": "XTRAF",
+    "merlin_news": "MRLN",
+    "draganfly_wp": "DPRO"
   },
   "counterparty": {
+    "volvo_autonomous": {
+      "role": "relationship",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "exol_press": {
+      "role": "relationship",
+      "affects": [
+        "SYM"
+      ]
+    },
+    "canada_dnd_drones": {
+      "role": "program",
+      "affects": [
+        "DPRO"
+      ]
+    },
     "aglt_rel": {
       "role": "relationship",
       "affects": [
@@ -718,11 +771,271 @@
         "DPRO"
       ]
     },
+    "fedreg_av_trucking": {
+      "role": "program",
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
+    "nhtsa_sgo_ads": {
+      "role": "program",
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
+    "safetyact_awards": {
+      "role": "program",
+      "affects": [
+        "EVLV",
+        "XTRAF",
+        "AXON"
+      ]
+    },
+    "dronedominance_lists": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "DPRO",
+        "PUSA",
+        "UMAC",
+        "ONDS"
+      ]
+    },
+    "wargov_contracts_matched": {
+      "role": "customer",
+      "affects": [
+        "RCAT",
+        "ONDS",
+        "PDYN",
+        "KDK",
+        "SPAI",
+        "AXON",
+        "PL",
+        "SATL",
+        "PUSA",
+        "DPRO",
+        "UMAC",
+        "MRLN",
+        "AGLT"
+      ]
+    },
+    "fpds_onds": {
+      "role": "customer",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "fpds_spai": {
+      "role": "customer",
+      "affects": [
+        "SPAI"
+      ]
+    },
+    "fpds_pdyn": {
+      "role": "customer",
+      "affects": [
+        "PDYN"
+      ]
+    },
+    "usaspending_pusa": {
+      "role": "customer",
+      "affects": [
+        "PUSA"
+      ]
+    },
+    "usaspending_pl": {
+      "role": "customer",
+      "affects": [
+        "PL"
+      ]
+    },
+    "usaspending_satl": {
+      "role": "customer",
+      "affects": [
+        "SATL"
+      ]
+    },
+    "usaspending_axon": {
+      "role": "customer",
+      "affects": [
+        "AXON"
+      ]
+    },
+    "legistar_oakland_axon": {
+      "role": "customer",
+      "affects": [
+        "AXON"
+      ]
+    },
+    "regulations_eas_srfm": {
+      "role": "program",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "fmv_planet": {
+      "role": "customer",
+      "affects": [
+        "PL"
+      ]
+    },
+    "xtech_announcements": {
+      "role": "program",
+      "affects": [
+        "PDYN"
+      ]
+    },
+    "walmart_sym": {
+      "role": "customer",
+      "affects": [
+        "SYM"
+      ]
+    },
     "joby": {
       "role": "rival",
       "affects": [
         "MRLN",
         "SRFM"
+      ]
+    },
+    "dronedominance": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "DPRO",
+        "PUSA",
+        "UMAC"
+      ]
+    },
+    "atlas": {
+      "role": "customer",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "daimler_newsroom": {
+      "role": "rival",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "volvo": {
+      "role": "relationship",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "aumovio": {
+      "role": "relationship",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "paccar_nasdaq": {
+      "role": "relationship",
+      "affects": [
+        "AUR"
+      ]
+    },
+    "uber": {
+      "role": "relationship",
+      "affects": [
+        "AUR",
+        "SERV"
+      ]
+    },
+    "doordash": {
+      "role": "customer",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "richtech": {
+      "role": "rival",
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "skydio": {
+      "role": "relationship",
+      "affects": [
+        "AXON"
+      ]
+    },
+    "motorola": {
+      "role": "rival",
+      "affects": [
+        "AXON"
+      ]
+    },
+    "flock": {
+      "role": "rival",
+      "affects": [
+        "AXON"
+      ]
+    },
+    "opengate": {
+      "role": "rival",
+      "affects": [
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "zeroeyes": {
+      "role": "rival",
+      "affects": [
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "reliable": {
+      "role": "rival",
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "shieldai": {
+      "role": "rival",
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "avav": {
+      "role": "rival",
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "beta": {
+      "role": "relationship",
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "yotta": {
+      "role": "customer",
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "neutradc": {
+      "role": "customer",
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "xti": {
+      "role": "relationship",
+      "affects": [
+        "UMAC"
+      ]
+    },
+    "xtend": {
+      "role": "relationship",
+      "affects": [
+        "UMAC"
       ]
     }
   }

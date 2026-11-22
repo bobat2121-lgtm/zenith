@@ -153,7 +153,7 @@ The rung, status, floors and modifiers follow core §3–6. Scores below are wor
   - "Planet Opens State-of-the-Art Satellite Manufacturing in Berlin", up to 60 satellites a year, 2026-09-22: about 70.
   - Completion or slip of the first Berlin-built Pelican: floor 80, `resolves:berlin_first_pelican`, until 2027-01-31.
 - **Own acquisition,** signed or closed: 75–88.
-- **Earnings-date notice:** fixed at 72, `group:earnings_calendar`. Example: the 2026-11-10 release.
+- **Earnings-date notice:** fixed at 75, `group:earnings_calendar`. Example: the 2026-11-10 release.
 
 **Borderline (40–69)**
 - "Planet Signs 7-Figure Agreement with European Defense and Intelligence Customer", one year, unnamed, 2026-09-03 ([IR](https://investors.planet.com/news/news-details/2026/Planet-Signs-7-Figure-Agreement-with-European-Defense-and-Intelligence-Customer/default.aspx)). The counterparty is unnamed and the value is not provably above tiny: about 65.
@@ -184,14 +184,14 @@ The rung, status, floors and modifiers follow core §3–6. Scores below are wor
   - Codes A, M, F, G and J are not items.
 
 ## Always surface (floors)
-Core §6 floors apply as written. Cite them by id: `results` 80, `guidance` 80, `calendar` 72, `neo_ceo_cfo` 75, `neo` 70, `order` 70, `capital_big` 75, `deal_signed` 75, `key_loss` 70, `open_item` 80. Do not restate core bands here. PL-specific lines:
+Core §6 floors apply as written. Cite them by id: `results` 80, `guidance` 80, `calendar` 75, `neo_ceo_cfo` 75, `neo` 70, `order` 70, `capital_big` 75, `deal_signed` 75, `key_loss` 70, `open_item` 80. Do not restate core bands here. PL-specific lines:
 - **Key accounts (core §9.2 and `key_loss`):**
   - The accounts: SKY Perfect JSAT; German BMI, BKG or Bundeswehr; the Swedish Armed Forces or FMV; NRO EOCL; NGA (Luno, GMS); the U.S. Navy; Google Suncatcher.
   - A binding purchase, renewal, expansion, pause, cancellation or budget vote by one of them on Planet's category counts, even when only the customer announces it.
   - A binding order ≥ tiny scores floor 70 (`order`). A loss or cancellation scores floor 70 (`key_loss`).
   - A co-mention without an action is not an item.
 - **Launch failure or anomaly** on a vehicle carrying Pelican or Tanager: floor 75. This is a sheet thesis lift on `constellation_cadence`. Loss of two or more Pelicans or a Tanager is in the Lead ladder.
-- **Earnings-date notice:** fixed at 72, `group:earnings_calendar`.
+- **Earnings-date notice:** fixed at 75, `group:earnings_calendar`.
 
 ## Noise patterns
 From 2026-08-20 to 2026-11-18 the news-monitor feed holds 15 `planet` releases and 42 `edgar_pl` rows, all notified=1.
