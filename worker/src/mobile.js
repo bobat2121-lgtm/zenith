@@ -102,7 +102,10 @@ export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
 const SECURITY = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
-  "referrer-policy": "no-referrer",
+  // same-origin, not no-referrer: under no-referrer a native form POST carries
+  // "Origin: null", which the same-origin check below would refuse. Item links
+  // to other sites still get no referrer.
+  "referrer-policy": "same-origin",
   "x-frame-options": "DENY",
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
 };
@@ -243,10 +246,12 @@ function messagePage(text, status) {
   return htmlResponse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Zenith</title></head><body><p>${esc(text)}</p><p><a href="/m">Back</a></p></body></html>`, n, status);
 }
 
-// A cookie-authenticated (Access) POST must come from this origin.
-function sameOrigin(request, url) {
+// A cookie-authenticated (Access) POST must come from this origin. "Origin: null"
+// (an opaque origin, or a page served with a no-referrer policy) proves nothing,
+// so it falls back to Sec-Fetch-Site like a missing header.
+export function sameOrigin(request, url) {
   const origin = request.headers.get("origin");
-  if (origin) return origin === url.origin;
+  if (origin && origin !== "null") return origin === url.origin;
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 

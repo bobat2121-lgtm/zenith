@@ -169,3 +169,25 @@ test("filters: days, ticker and unlabelled", async () => {
   assert.ok((await get("")).includes("Labelled high"));
   assert.equal(esc(`a"<'&`), "a&quot;&lt;&#39;&amp;");
 });
+
+test("an Access session's native form POST works: Origin null falls back to Sec-Fetch-Site", async () => {
+  clearJwksCache();
+  const { db, lead } = await pageSetup();
+  const f = await certsFetch();
+  const jwt = await sign(keys.a.kp, "kid-a", goodClaims());
+  const seen = [];
+  const deps = { fetchImpl: f, feedback: async (b) => { seen.push(b); return new Response("{}", { status: 200 }); } };
+  const page = await mobile(req("/m", { headers: { "cf-access-jwt-assertion": jwt } }), env0(db), new URL("https://zenith.example.com/m"), deps);
+  assert.equal(page.headers.get("referrer-policy"), "same-origin", "same-origin form posts carry the real Origin");
+  const url = new URL("https://zenith.example.com/m/feedback");
+  const post = (headers) => mobile(req("/m/feedback", {
+    method: "POST", headers: { "cf-access-jwt-assertion": jwt, "content-type": "application/x-www-form-urlencoded", ...headers },
+    body: new URLSearchParams({ item_id: String(lead), label: "high" }),
+  }), env0(db), url, deps);
+  const ok = await post({ origin: "null", "sec-fetch-site": "same-origin" });
+  assert.equal(ok.status, 303, "a no-JS label from the page itself is saved");
+  assert.equal((await post({ origin: "null", "sec-fetch-site": "cross-site" })).status, 403);
+  assert.equal((await post({ origin: "null" })).status, 403, "Origin null alone proves nothing");
+  assert.equal((await post({ origin: "https://evil.example", "sec-fetch-site": "same-origin" })).status, 403, "a real foreign Origin wins");
+  assert.equal(seen.length, 1);
+});
