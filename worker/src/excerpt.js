@@ -6,7 +6,20 @@
 // The excerpt keeps the lead and then the sentences that carry figures, rather
 // than the first 2,500 characters. SEC filings start at their first Item
 // heading and add the Ex-99.1 exhibit (the release) when the filing has one.
+//
+// Feed text (roadmap T8): when news-monitor kept the item's own text from its
+// feed (items.body), ingest builds the excerpt from it (excerpt_status 'feed')
+// and the page is never fetched. A teaser (a WordPress "[…]" summary, a news
+// snippet) is not enough: the page is fetched as before.
+//
+// PDFs (roadmap T9): a covered source's deck, shareholder letter or stats sheet
+// is read with pdf-text.js (excerpt_status 'pdf', or 'pdf_unreadable' when it
+// holds no readable text): a PDF URL, a PDF a deck feed names (excerpt_source,
+// set by ingest), a page that redirects to a PDF, or a deck page that links its
+// PDF. Downloads are bounded (the head of the file and, past the bound, its
+// tail), at most PDF_PER_TICK a tick, parsed one at a time.
 import { nowIso, isHttpUrl } from "./lib.js";
+import { pdfText } from "./pdf-text.js";
 
 const PER_TICK = 18;
 const SEC_PER_TICK = 5;           // up to 3 sec.gov fetches each (filing, index, exhibit)
@@ -21,6 +34,12 @@ const MIN_BODY_CHARS = 200;
 const MAX_TRIES = 4;
 const FORBIDDEN_TRIES = 2;        // a 403 is tried twice, 20 minutes apart
 const RETRY_MINUTES = [20, 120, 720];
+const FEED_MIN_CHARS = 400;           // shorter feed text is a teaser: fetch the page
+const PDF_MAX_BYTES = 8_000_000;      // the head of a PDF that is read
+const PDF_TAIL_BYTES = 2_000_000;     // and, past the bound, its tail (fonts, page tree)
+const PDF_PER_TICK = 2;               // PDF downloads per enrich call
+const PDF_TIMEOUT_MS = 20_000;
+const PDF_WAIT_MINUTES = 5;           // a PDF over the tick's budget waits, without a try
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', mdash: "—", ndash: "–", hellip: "…", reg: "®", trade: "™", copy: "©" };
 // ix:header is the hidden XBRL block at the top of inline-XBRL SEC filings.
@@ -229,6 +248,86 @@ export function excerptFrom(text, title, heading = "") {
   return pickText(start >= 0 ? cutTail(text.slice(start)) : String(text).trim());
 }
 
+// --- Feed text ------------------------------------------------------------------
+// A summary that stops short: "[…]", a trailing ellipsis, "Read more".
+const TEASER_RE = /(?:\[\s*(?:…|\.\.\.|&hellip;)\s*\]|…|\.\.\.|\bread more\b[^\n]{0,30}|\bcontinue reading\b[^\n]{0,60})\s*$/i;
+// WordPress's footer on every feed item, full text or teaser.
+const WP_FOOTER_RE = /\n?The post [^\n]{1,400} appeared first on [^\n]{1,200}\s*$/;
+const normalize = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const DATE_LINE_RE = /^(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s+)?(?:\d{1,2}\/\d{1,2}\/\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\d{4}-\d{2}-\d{2})(?:\s*-?\s*\d{1,2}:\d{2}(?:\s*[ap]\.?m\.?)?)?$/i;
+
+// Lines some feeds put above the release: the title again, "Content Import",
+// a date, a one-word category ("General").
+function dropFeedChrome(text, title) {
+  const lines = text.split("\n");
+  const t = normalize(title);
+  let k = 0;
+  for (; k < Math.min(lines.length - 1, 8); k++) {
+    const line = lines[k].trim();
+    const n = normalize(line);
+    const chrome = !n || (t && n.startsWith(t) && n.length <= t.length + 60) || /^content import$/i.test(line) || DATE_LINE_RE.test(line) ||
+      (line.length <= 25 && !/[.!?:]$/.test(line) && line.split(/\s+/).length <= 2 && !/\d/.test(line));
+    if (!chrome) break;
+  }
+  return lines.slice(k).join("\n");
+}
+
+// The excerpt for an item whose feed carried its text, or null when the text
+// is missing or only a teaser (the page is fetched instead).
+export function feedExcerpt(body, title) {
+  const text = String(body || "").trim().replace(WP_FOOTER_RE, "").trim();
+  if (text.length < FEED_MIN_CHARS || TEASER_RE.test(text.slice(-300))) return null;
+  const excerpt = pickText(cutTail(dropFeedChrome(text, title)));
+  return excerpt.length >= MIN_BODY_CHARS ? excerpt : null;
+}
+
+// The first PDF a feed's text links, kept by news-monitor as "label (url)":
+// a presentations feed often carries nothing else.
+export function pdfLinkIn(body) {
+  const m = /\((https?:\/\/[^\s()]+?\.pdf(?:[?#][^\s()]*)?)\)/i.exec(String(body || ""));
+  return m && isHttpUrl(m[1]) ? m[1] : null;
+}
+
+// --- PDF text -------------------------------------------------------------------
+// Legal and boilerplate sections of a deck or letter: a page is cut at a line
+// that opens one, and a page whose opening is legal prose is dropped whole.
+const PDF_SECTION_RE = /^(?:(?:Legal\s+)?Disclaimers?|Important\s+(?:Notice|Information)|(?:Use\s+of\s+)?Non-GAAP\s+(?:Financial\s+)?(?:Measures?|Information|Reconciliations?)|Industry\s+and\s+Market\s+Data|Trademarks?)\b.{0,40}$/i;
+const LEGAL_OPENING_RE = /forward[- ]looking\s+(?:statements|information)|safe\s+harbor|Private\s+Securities\s+Litigation\s+Reform\s+Act|projected\s+financial\s+information|(?:is|does)\s+not\s+(?:an\s+offer|constitute\s+an\s+offer)/i;
+
+// Lines that carry no reading: page and footnote numbers, and chart axes or
+// bar labels (numbers with no word of three letters).
+const PDF_NOISE = (l) => l.length < 3 || /^\(?\d{1,3}[.)]?$/.test(l) ||
+  (!/\p{L}{3,}/u.test(l) && (l.match(/\d[\d,.]*/g) || []).length > 3);
+const PDF_LEAD_CHARS = 400;
+
+// Lead and figures of a PDF's pages. Running headers and footers (a line on at
+// least three pages) and noise lines are dropped first; the lead is shorter
+// than a release's, so more of the budget goes to the slides' figures.
+export function pdfExcerpt(pages) {
+  const list = (pages || []).map((p) => String(p || ""));
+  const seen = new Map();
+  for (const page of list) {
+    for (const line of new Set(page.split("\n").map((l) => l.trim()).filter(Boolean))) seen.set(line, (seen.get(line) || 0) + 1);
+  }
+  const repeated = (line) => list.length >= 3 && (seen.get(line) || 0) >= Math.max(3, list.length * 0.3);
+  const kept = [];
+  for (const page of list) {
+    // "1. Text" footnotes and list items read as "1) Text", so "1." is not a sentence.
+    const lines = page.split("\n").map((l) => l.trim()).filter((l) => l && !PDF_NOISE(l) && !repeated(l))
+      .map((l) => l.replace(/^(\d{1,2})\.\s+/, "$1) "));
+    let cut = lines.length;
+    for (let k = 0; k < lines.length; k++) {
+      if (lines[k].length <= 120 && (HARD_TAIL_RE.test(lines[k]) || PDF_SECTION_RE.test(lines[k]))) { cut = k; break; }
+    }
+    const text = lines.slice(0, cut).join("\n").trim();
+    if (!text || LEGAL_OPENING_RE.test(text.slice(0, 400))) continue;
+    kept.push(text);
+  }
+  // The lead is the first page (the cover), at most PDF_LEAD_CHARS.
+  const lead = Math.min(PDF_LEAD_CHARS, (kept[0]?.length || 0) + 1);
+  return pickText(kept.join("\n"), EXCERPT_CHARS, lead);
+}
+
 // --- SEC filings -------------------------------------------------------------
 const ITEM_RE = /(?:^|\n)[ \t\u00a0]*(?:ITEM|Item)[ \t\u00a0]+\d{1,2}(?:\.\d{1,2})?[A-Z]?\b/g;
 // A table-of-contents entry: an Item heading whose stretch to the next
@@ -403,36 +502,125 @@ async function secPace() {
   }
 }
 
-// One page: { status: "ok", html } or { status: http_<code> | skipped_* | error* }.
-async function fetchPage(url, ua) {
-  if (/\.(pdf|xlsx?|docx?|zip)$/i.test(new URL(url).pathname)) return { status: "skipped_binary" };
-  if (isSecUrl(new URL(url))) await secPace();
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort("timeout"), 9000); // starts when this fetch starts
-  try {
-    const r = await fetch(url, { headers: { "user-agent": ua, accept: "text/html,application/xhtml+xml,*/*" }, redirect: "follow", signal: ctl.signal });
-    if (!r.ok) return { status: `http_${r.status}` };
-    const type = r.headers.get("content-type") || "";
-    if (!/html|xml|text/i.test(type)) return { status: "skipped_content_type" };
-    const reader = r.body.getReader();
-    const chunks = []; let size = 0;
-    while (size < MAX_BYTES) {
+// Up to limit bytes of a body; more = the body went on past them.
+async function readBody(body, limit) {
+  const chunks = [];
+  let size = 0, more = false;
+  if (body) {
+    const reader = body.getReader();
+    while (size < limit) {
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value); size += value.length;
     }
+    if (size >= limit) more = true;
     try { await reader.cancel(); } catch {}
-    const buf = new Uint8Array(size);
-    let off = 0;
-    for (const c of chunks) { buf.set(c, off); off += c.length; }
+  }
+  const buf = new Uint8Array(Math.min(size, limit));
+  let off = 0;
+  for (const c of chunks) {
+    if (off >= buf.length) break;
+    const part = c.subarray(0, buf.length - off);
+    buf.set(part, off); off += part.length;
+  }
+  return { buf, more };
+}
+
+const PDF_PATH_RE = /\.pdf$/i;
+const isPdfBytes = (buf) => new TextDecoder("latin1").decode(buf.subarray(0, 1024)).includes("%PDF-");
+
+// The last PDF_TAIL_BYTES of a file too large to read whole, or null when the
+// server does not serve byte ranges.
+async function fetchTail(url, ua, signal) {
+  try {
+    const r = await fetch(url, { headers: { "user-agent": ua, accept: "application/pdf", range: `bytes=-${PDF_TAIL_BYTES}` }, redirect: "follow", signal });
+    if (r.status !== 206) { try { await r.body?.cancel(); } catch {} return null; }
+    return (await readBody(r.body, PDF_TAIL_BYTES)).buf;
+  } catch { return null; }
+}
+
+// One page: { status: "ok", html, finalUrl } or { status: http_<code> | skipped_* | error* }.
+// With opts.pdf a PDF response is read too, as { status: "ok", pdf: [head, tail?],
+// finalUrl }, while opts.budget has a download left (else "deferred_pdf").
+async function fetchPage(url, ua, opts = {}) {
+  const path = new URL(url).pathname;
+  if (/\.(xlsx?|docx?|zip|pptx?)$/i.test(path) || (PDF_PATH_RE.test(path) && !opts.pdf)) return { status: "skipped_binary" };
+  if (isSecUrl(new URL(url))) await secPace();
+  const ctl = new AbortController();
+  // starts when this fetch starts
+  const timer = setTimeout(() => ctl.abort("timeout"), opts.pdf ? PDF_TIMEOUT_MS : 9000);
+  try {
+    const accept = opts.pdf ? "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8" : "text/html,application/xhtml+xml,*/*";
+    const r = await fetch(url, { headers: { "user-agent": ua, accept }, redirect: "follow", signal: ctl.signal });
+    if (!r.ok) return { status: `http_${r.status}` };
+    const type = r.headers.get("content-type") || "";
+    const finalUrl = r.url || url;
+    const pdfLike = /application\/(?:x-)?pdf/i.test(type) ||
+      (/octet-stream|binary|download/i.test(type) && (PDF_PATH_RE.test(path) || PDF_PATH_RE.test(new URL(finalUrl).pathname)));
+    if (pdfLike) {
+      if (!opts.pdf) { try { await r.body?.cancel(); } catch {} return { status: "skipped_binary" }; }
+      if (opts.budget && opts.budget.left <= 0) { try { await r.body?.cancel(); } catch {} return { status: "deferred_pdf" }; }
+      if (opts.budget) opts.budget.left--;
+      const { buf, more } = await readBody(r.body, PDF_MAX_BYTES);
+      if (!isPdfBytes(buf)) return { status: "skipped_content_type" };
+      const tail = more ? await fetchTail(finalUrl, ua, ctl.signal) : null;
+      return { status: "ok", pdf: tail ? [buf, tail] : [buf], finalUrl };
+    }
+    if (!/html|xml|text/i.test(type)) { try { await r.body?.cancel(); } catch {} return { status: "skipped_content_type" }; }
+    const { buf } = await readBody(r.body, MAX_BYTES);
     const head = new TextDecoder("latin1").decode(buf.subarray(0, 4096));
-    return { status: "ok", html: decode(buf, charsetOf(type, head)) };
+    return { status: "ok", html: decode(buf, charsetOf(type, head)), finalUrl };
   } catch (e) {
     return { status: String(e).includes("timeout") ? "error_timeout" : "error" };
   } finally {
     clearTimeout(timer);
   }
 }
+
+// PDFs are parsed one at a time in this isolate (memory), whatever the fetch
+// concurrency.
+let pdfQueue = Promise.resolve();
+function parsePdf(segments) {
+  const run = pdfQueue.then(() => pdfText(segments));
+  pdfQueue = run.catch(() => {});
+  return run;
+}
+
+async function pdfResult(doc, source) {
+  let read;
+  try { read = await parsePdf(doc.pdf); } catch { read = { status: "error", pages: [] }; }
+  const excerpt = read.status === "ok" ? pdfExcerpt(read.pages) : "";
+  return excerpt.length >= MIN_BODY_CHARS ? { status: "pdf", excerpt, source } : { status: "pdf_unreadable", source };
+}
+
+// Titles of documents a covered company posts as PDFs.
+const DOC_TITLE_RE = /\b(?:presentations?|deck|slides?|letter|stats?\s+sheets?|fact\s*sheet|investor\s+day|analyst\s+day|annual\s+report|transcript)\b/i;
+
+// The PDF a deck page links for this item: one whose URL carries the item's
+// numeric id as a path segment (Equisolve's /presentations/detail/4849/ and
+// /db/575/4849/pdf/), else the only PDF on the page of a document's own title.
+export function deckPdfLink(html, baseUrl, item) {
+  const links = [];
+  for (const m of String(html || "").slice(0, MAX_BYTES).matchAll(/href\s*=\s*["']([^"'<>\s]+?\.pdf(?:[?#][^"'<>\s]*)?)["']/gi)) {
+    try {
+      const u = new URL(m[1].replace(/&amp;/g, "&"), baseUrl);
+      if (u.protocol === "https:" || u.protocol === "http:") links.push(u.href);
+    } catch { /* not a URL */ }
+  }
+  const unique = [...new Set(links)];
+  if (!unique.length) return null;
+  let ids = [];
+  try { ids = new URL(item.url).pathname.split("/").filter((seg) => /^\d{3,9}$/.test(seg) && !/^(?:19|20)\d\d$/.test(seg)); } catch { ids = []; }
+  for (const id of ids) {
+    const hit = unique.find((u) => new URL(u).pathname.split("/").includes(id));
+    if (hit) return hit;
+  }
+  return unique.length === 1 && DOC_TITLE_RE.test(item.title || "") ? unique[0] : null;
+}
+
+const redirectedAway = (finalUrl, url) => {
+  try { return new URL(finalUrl).pathname.replace(/\/$/, "") !== url.pathname.replace(/\/$/, ""); } catch { return false; }
+};
 
 async function fetchSecExcerpt(env, item) {
   const ua = `zenith-core ${env.CONTACT_EMAIL}`;
@@ -468,24 +656,46 @@ async function fetchSecExcerpt(env, item) {
   return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
 }
 
-export async function fetchExcerpt(env, item) {
+const PAGE_UA = "zenith-core/1.0 (research feed)";
+
+// ctx.pdfBudget ({ left }) is shared by every fetch of one enrich call.
+// Counterparty items (they carry a role) never have their PDFs read.
+export async function fetchExcerpt(env, item, ctx = {}) {
   if (!isHttpUrl(item.url)) return { status: "skipped_bad_url" };
   const url = new URL(item.url);
   if (isSecUrl(url)) {
     if (!env.CONTACT_EMAIL) return { status: "skipped_sec_needs_contact" };
     return fetchSecExcerpt(env, item);
   }
-  const page = await fetchPage(excerptUrl(url.toString()), "zenith-core/1.0 (research feed)");
+  const covered = !item.role;
+  const budget = ctx.pdfBudget || { left: PDF_PER_TICK };
+  // A PDF the item's feed named (a Q4 presentations feed links the deck).
+  if (covered && item.excerpt_source && isHttpUrl(item.excerpt_source)) {
+    const doc = await fetchPage(item.excerpt_source, PAGE_UA, { pdf: true, budget });
+    if (doc.status === "ok" && doc.pdf) return pdfResult(doc, item.excerpt_source);
+    if (doc.status !== "ok") return { status: doc.status };
+  }
+  const page = await fetchPage(excerptUrl(url.toString()), PAGE_UA, { pdf: covered, budget });
   if (page.status !== "ok") return { status: page.status };
+  if (page.pdf) return pdfResult(page, page.finalUrl !== url.href ? page.finalUrl : null);
+  // A deck's page (or the listing it redirects to) that links the deck's PDF.
+  if (covered && (DOC_TITLE_RE.test(item.title || "") || redirectedAway(page.finalUrl, url))) {
+    const link = deckPdfLink(page.html, page.finalUrl || url.href, item);
+    if (link) {
+      const doc = await fetchPage(link, PAGE_UA, { pdf: true, budget });
+      if (doc.status === "ok" && doc.pdf) return pdfResult(doc, link);
+      if (doc.status === "deferred_pdf") return doc;
+    }
+  }
   const excerpt = excerptFrom(htmlToText(page.html), item.title, firstHeading(page.html));
   return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
 }
 
-async function fetchAll(env, rows, concurrency) {
+async function fetchAll(env, rows, concurrency, ctx = { pdfBudget: { left: PDF_PER_TICK } }) {
   const results = [];
   for (let i = 0; i < rows.length; i += concurrency) {
     const part = rows.slice(i, i + concurrency);
-    results.push(...await Promise.all(part.map((item) => fetchExcerpt(env, item).then((r) => ({ item, ...r })))));
+    results.push(...await Promise.all(part.map((item) => fetchExcerpt(env, item, ctx).then((r) => ({ item, ...r })))));
   }
   return results;
 }
@@ -494,9 +704,19 @@ async function fetchAll(env, rows, concurrency) {
 // Without a contact address a sec.gov item is not a try: it waits, so setting
 // CONTACT_EMAIL later still fills it in.
 const NO_CONTACT_WAIT_MINUTES = 720;
-function resultStatement(env, { item, status, excerpt }, now) {
+function resultStatement(env, { item, status, excerpt, source }, now) {
   if (status === "skipped_sec_needs_contact") {
     return env.DB.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").bind(nowIso(Date.now() + NO_CONTACT_WAIT_MINUTES * 60_000), item.id);
+  }
+  // Over this tick's PDF budget: read on a later tick, without spending a try.
+  if (status === "deferred_pdf") {
+    return env.DB.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").bind(nowIso(Date.now() + PDF_WAIT_MINUTES * 60_000), item.id);
+  }
+  // A PDF's text, or one with none: final. excerpt_source names the PDF when
+  // it is not the item's own URL.
+  if (status === "pdf" || status === "pdf_unreadable") {
+    return env.DB.prepare("UPDATE items SET excerpt = ?, excerpt_status = ?, excerpt_tries = ?, excerpt_at = ?, excerpt_source = COALESCE(?, excerpt_source) WHERE id = ?")
+      .bind(excerpt || null, status, (item.excerpt_tries || 0) + 1, now, source || null, item.id);
   }
   const tries = (item.excerpt_tries || 0) + 1;
   // A 403 gets one later retry: CDN bot checks in front of IR sites (Q4's
@@ -526,7 +746,7 @@ export async function enrich(env) {
   const now = nowIso();
   const contact = env.CONTACT_EMAIL ? 1 : 0;
   const pick = (secOnly, limit) => env.DB.prepare(
-    `SELECT id, url, title, excerpt_tries FROM items
+    `SELECT id, url, title, excerpt_tries, role, excerpt_source FROM items
       WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
       ORDER BY nm_first_seen DESC LIMIT ?3`,
   ).bind(now, contact, limit).all().then((r) => r.results || []);
@@ -538,8 +758,9 @@ export async function enrich(env) {
   ];
   const stmts = results.map((r) => resultStatement(env, r, now));
   if (stmts.length) await env.DB.batch(stmts);
-  const ok = results.filter((r) => r.status === "ok").length;
-  return { tried: results.length, ok, retry: results.filter((r) => RETRYABLE(r.status)).length, sec_deferred: secBusy, at: now };
+  const count = (status) => results.filter((r) => r.status === status).length;
+  return { tried: results.length, ok: count("ok"), pdf: count("pdf"), pdf_unreadable: count("pdf_unreadable"), pdf_deferred: count("deferred_pdf"),
+    retry: results.filter((r) => RETRYABLE(r.status)).length, sec_deferred: secBusy, at: now };
 }
 
 // Last reads that ended in a refusal or an outage, worth one more pass.

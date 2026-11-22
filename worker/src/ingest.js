@@ -3,9 +3,17 @@
 // news-monitor-db (binding NEWS, read-only by convention: this module only
 // SELECTs from it) into zenith-db by rowid cursor. The cursor advances over
 // every scanned row, matched or not.
+//
+// Feed text (roadmap T8): news-monitor keeps the text a covered or counterparty
+// feed carries in items.body. Ingest turns it into the item's excerpt (lead and
+// figures, excerpt_status 'feed'), so enrich never fetches that page; a covered
+// item whose feed text only links a PDF gets the link as excerpt_source, and
+// enrich reads the PDF. A news-monitor-db without the column is detected and
+// read as before: ingest never fails over it.
 import COVERED from "./covered.json";
 import { MATCH } from "./rubric.generated.js";
 import { nowIso, skipReason, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups } from "./lib.js";
+import { feedExcerpt, pdfLinkIn } from "./excerpt.js";
 
 const BATCH = 400;
 const MAX_BATCHES = 6;
@@ -14,6 +22,49 @@ const COUNTERPARTY = COVERED.counterparty || {};
 // Filtered in code, not with SQL IN (...): D1 allows at most 100 bound
 // parameters per query and there are ~150 source keys.
 const SOURCE_KEYS = new Set([...Object.keys(COVERED.sources), ...Object.keys(COUNTERPARTY)]);
+
+// Whether news-monitor-db has items.body, per NEWS binding in this isolate: a
+// yes is kept, a no is checked again after BODY_RECHECK_MS (the column arrives
+// with a news-monitor deploy). An error other than a missing column is not an
+// answer; that run reads without the column.
+const BODY_RECHECK_MS = 30 * 60_000;
+const bodyColumn = new WeakMap();
+const missingBody = (e) => /no such column|has no column named/i.test(String(e?.message || e)) && /\bbody\b/i.test(String(e?.message || e));
+export async function newsHasBody(news, nowMs = Date.now()) {
+  const known = bodyColumn.get(news);
+  if (known?.has) return true;
+  if (known && nowMs - known.at < BODY_RECHECK_MS) return false;
+  try {
+    await news.prepare("SELECT body FROM items WHERE rowid = 0").first();
+    bodyColumn.set(news, { has: true, at: nowMs });
+    return true;
+  } catch (e) {
+    if (missingBody(e)) bodyColumn.set(news, { has: false, at: nowMs });
+    return false;
+  }
+}
+
+const ROW_COLS = "rowid AS nm_rowid, source_key, url, title, published, category, first_seen, notified";
+async function newsRows(news, from, to) {
+  const select = (cols) => news.prepare(`SELECT ${cols} FROM items WHERE rowid > ? AND rowid <= ? ORDER BY rowid`).bind(from, to).all();
+  if (await newsHasBody(news)) {
+    try { return (await select(`${ROW_COLS}, body`)).results || []; }
+    catch (e) {
+      if (!missingBody(e)) throw e;
+      bodyColumn.set(news, { has: false, at: Date.now() });
+    }
+  }
+  return (await select(ROW_COLS)).results || [];
+}
+
+// The excerpt fields an item starts with: the feed's own text as its excerpt,
+// or (covered items only) the PDF the feed text links, for enrich to read.
+export function feedFields(r, route, now) {
+  if (!r.body || typeof r.body !== "string") return { excerpt: null, status: null, at: null, source: null };
+  const excerpt = feedExcerpt(r.body, r.title);
+  if (excerpt) return { excerpt, status: "feed", at: now, source: null };
+  return { excerpt: null, status: null, at: null, source: route.role ? null : pdfLinkIn(r.body) };
+}
 
 async function getMeta(db, key) {
   const row = await db.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
@@ -61,16 +112,13 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0;
+  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
       .bind(cursor, BATCH).first();
     if (!win || win.hi == null) break;
-    const rows = ((await news.prepare(
-      `SELECT rowid AS nm_rowid, source_key, url, title, published, category, first_seen, notified
-         FROM items WHERE rowid > ? AND rowid <= ? ORDER BY rowid`,
-    ).bind(cursor, win.hi).all()).results || []).filter((r) => SOURCE_KEYS.has(r.source_key));
+    const rows = (await newsRows(news, cursor, win.hi)).filter((r) => SOURCE_KEYS.has(r.source_key));
     const now = nowIso();
     const stmts = [];
     const routed = rows.map((r) => ({ r, route: routeRow(r) })).filter((x) => x.route?.ticker);
@@ -91,11 +139,15 @@ export async function ingest(env) {
       // Only http(s) links are ever fetched or shown in the feed.
       const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || route.skip;
       if (reason) skipped++;
+      const feed = feedFields(r, route, now);
+      if (feed.status) fromFeed++;
       stmts.push(db.prepare(
-        `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects,
+           excerpt, excerpt_status, excerpt_at, excerpt_source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(r.nm_rowid, r.source_key, route.ticker, r.url, r.title || "(untitled)", r.published, r.category,
-        r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason || null, route.role, route.affects));
+        r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason || null, route.role, route.affects,
+        feed.excerpt, feed.status, feed.at, feed.source));
     }
     const n = stmts.length;
     stmts.push(setMeta(db, "nm_cursor", win.hi));
@@ -107,5 +159,5 @@ export async function ingest(env) {
     cursor = win.hi;
     if (win.n < BATCH) break;
   }
-  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier };
+  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed };
 }
