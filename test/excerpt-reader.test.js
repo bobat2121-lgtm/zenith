@@ -148,3 +148,57 @@ test("an exhibit-less filing keeps its own text", () => {
   assert.ok(secExcerpt(text, "").startsWith("Item 5.02"));
   assert.ok(secExcerpt(text, "").includes("$450,000"));
 });
+
+// Review fixes: tails are cut only at boilerplate, and only after an anchor.
+const ACME_LEAD = "Acme Corp. Agrees to Acquire Beta Systems\nAUSTIN, Texas, Nov. 12, 2026 -- Acme Corp. (Nasdaq: ACME) today announced a definitive agreement to acquire Beta Systems, a maker of counter-drone sensors, expanding its defense portfolio and adding a production site in Ohio for the coming years of growth.\n\"Beta brings us the sensor stack our customers keep asking for,\" said Jane Roe, chief executive officer of Acme, in a statement today.";
+
+test("a release's own 'About the Transaction' section is kept; the company boilerplate is cut", () => {
+  const text = [ACME_LEAD, "About the Transaction",
+    "Acme will pay $48.5 million in cash and 3.2 million shares, about $72 million in total.",
+    "Beta's 2026 revenue was $21.4 million, up 38% year over year.",
+    "About Beta Systems", "Beta Systems was founded in Dayton and had revenue of $21.4 million in 2026.",
+    "About Acme Corp.", "Acme makes drones for defense customers around the world.",
+    "Forward-Looking Statements", "This release contains forward-looking statements about $500 million of synergies."].join("\n");
+  const e = excerptFrom(text, "Acme Corp. Agrees to Acquire Beta Systems");
+  assert.ok(e.includes("$48.5 million in cash"), e);
+  assert.ok(e.includes("$21.4 million, up 38%"));
+  assert.ok(e.includes("Beta Systems was founded"), "a section with figures is not boilerplate");
+  assert.ok(!e.includes("Acme makes drones"), "the issuer boilerplate is cut");
+  assert.ok(!e.includes("synergies"));
+  for (const heading of ["About the Offering", "About the Agreement", "About the Contract", "About Us", "Contact", "Contacts"]) {
+    const t = `${ACME_LEAD}\n${heading}\nThe tail line after the heading.`;
+    assert.equal(cutTail(t), t.trim(), heading);
+  }
+  for (const heading of ["About the Company", "About Acme Corp.", "Media Contacts", "Investor Relations Contact:", "Contact:", "Cautionary Note Regarding Forward-Looking Statements", "Safe Harbor Statement"]) {
+    assert.equal(cutTail(`${ACME_LEAD}\n${heading}\nThe tail line after the heading.`), ACME_LEAD, heading);
+  }
+});
+
+test("without an anchor the page is not cut at menu lines (no chrome-only 'ok' excerpts)", () => {
+  const menu = ["NASDAQ: ACME $12.34 +0.21 (1.7%)", "Home", "Products", "Solutions", "Industries", "Careers", "Resources", "Investors", "Stock Information",
+    "SEC Filings", "Governance", "Partners", "Customer Stories", "Press Kit", "Brand Assets", "Leadership", "Board of Directors", "Events and Presentations",
+    "Analyst Coverage", "Email Alerts", "Annual Reports", "Quarterly Results", "Corporate Responsibility", "About Us", "Contact", "Contacts:", "News Details"];
+  const article = "Acme posts its numbers for the September quarter\nAcme reported third quarter revenue of $36.5 million, up 25% from a year ago, and raised its full-year guidance to $140 million.";
+  const text = [...menu, article].join("\n");
+  assert.ok(text.indexOf("About Us") > 300 && text.indexOf("Contacts:") > 300, "the menu lines sit past the lead");
+  const e = excerptFrom(text, "Acme Q3 2026 Results", "News Details");
+  assert.ok(e.includes("revenue of $36.5 million"), e);
+  assert.ok(e.includes("$140 million"));
+});
+
+test("SEC Item headings: a one-sentence 8-K item is kept; a 10-Q contents page with statement lines is skipped", () => {
+  const terse = "Item 2.02 Results of Operations and Financial Condition.\nOn November 12, 2026, Acme Corp. issued a press release announcing its third quarter 2026 results.\nItem 9.01 Financial Statements and Exhibits.\n(d) Exhibits.\n99.1 Press release dated November 12, 2026.";
+  assert.ok(secBody(terse).startsWith("Item 2.02 Results of Operations"), secBody(terse).slice(0, 40));
+  const crossRef = "Item 1.01 Entry into a Material Definitive Agreement.\nSee Item 2.03 below.\nItem 2.03 Creation of a Direct Financial Obligation.\nOn November 12, 2026, Acme entered into a $25 million term loan.";
+  assert.ok(secBody(crossRef).startsWith("Item 1.01"), secBody(crossRef).slice(0, 40));
+  const tenQ = ["PART I. FINANCIAL INFORMATION", "Item 1. Financial Statements 3", "Condensed Consolidated Balance Sheets 3",
+    "Condensed Consolidated Statements of Operations 4", "Condensed Consolidated Statements of Comprehensive Loss 5",
+    "Condensed Consolidated Statements of Stockholders' Equity 6", "Condensed Consolidated Statements of Cash Flows 7",
+    "Notes to Condensed Consolidated Financial Statements (Unaudited) 8", "Item 2. Management's Discussion and Analysis of Financial Condition 20",
+    "Item 3. Quantitative and Qualitative Disclosures About Market Risk 31", "Item 4. Controls and Procedures 31", "PART II. OTHER INFORMATION",
+    "Item 1. Legal Proceedings 33", "Item 1A. Risk Factors 33", "Item 6. Exhibits 35", "PART I", "Item 1. Financial Statements",
+    "Total assets were $412.5 million at quarter end, an increase from the prior period.", "Item 2. Management's Discussion and Analysis",
+    "Revenue increased 25% to $36.5 million."].join("\n");
+  assert.ok(tenQ.indexOf("Item 2. Management") - tenQ.indexOf("Item 1. Financial Statements 3") > 160, "the contents entry for Item 1 is long");
+  assert.ok(secBody(tenQ).startsWith("Item 1. Financial Statements\nTotal assets"), secBody(tenQ).slice(0, 60));
+});

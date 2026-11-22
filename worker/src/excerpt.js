@@ -174,17 +174,48 @@ export function pickText(text, budget = EXCERPT_CHARS, lead = LEAD_CHARS) {
   return out.slice(0, budget).trim();
 }
 
-// Where a release's news ends: About-the-company, forward-looking statements,
-// contacts or signatures, on a line of their own (never inside the lead).
-const TAIL_RE = /\n[ \t\u00a0]*(?:About\s+(?:the\s+)?[A-Z][\w&.,'’()-]*(?:[ \t]+[A-Z0-9(][\w&.,'’()-]*){0,6}|(?:Cautionary|Special)\s+(?:Note|Statement)[^\n]{0,70}|(?:Note\s+Regarding\s+)?Forward[- ]Looking\s+(?:Statements?|Information)[^\n]{0,40}|Safe\s+Harbor[^\n]{0,40}|SIGNATURES?|(?:Media|Investor|Press)(?:\s+Relations)?\s+(?:Contacts?|Inquiries)|Contacts?)[ \t\u00a0]*:?[ \t\u00a0]*(?=\n|$)/g;
+// Where a release's news ends, on a line of its own past the lead:
+// - always at forward-looking statements, a cautionary note, safe harbor,
+//   signatures, or a contacts heading ("Media Contacts", "Contact:");
+// - at an "About <Name>" heading only when it starts boilerplate: never
+//   "About Us" (a menu line) or a section of the release itself ("About the
+//   Transaction", "About the Offering"; "About the Company" is boilerplate),
+//   and only when no money or percentage figure follows before the next
+//   marker (company boilerplate carries none; a deal section does).
+const HARD_TAIL_RE = /^(?:(?:Cautionary|Special)\s+(?:Note|Statement)s?\b.{0,70}|(?:Note\s+Regarding\s+)?Forward[- ]Looking\s+(?:Statements?|Information)\b.{0,40}|Safe\s+Harbor\b.{0,40}|SIGNATURES?|(?:Media|Investors?|Press)(?:\s+(?:and|&)\s+(?:Media|Investors?|Press))?(?:\s+Relations)?\s+(?:Contacts?|Inquiries)\s*:?|Contacts?\s*:)$/;
+const ABOUT_RE = /^About\s+(the\s+)?([A-Z][\w&.,'’()-]*(?:\s+[A-Z0-9(][\w&.,'’()-]*){0,6})\s*:?$/;
+const RELEASE_SECTION = /^(?:Transactions?|Offering|Agreements?|Contracts?|Acquisitions?|Merger|(?:Business\s+)?Combination|Programm?e?s?|Awards?|Orders?|Deals?|Partnership|Collaboration|Facility|Financing|Investment|Placement|Notes?|Loans?|Conference\s+Call|Call|Webcast|Event|Study|Trial|Project|Results|Quarter|Guidance|Outlook)\b/i;
+function aboutBoilerplate(line) {
+  const m = ABOUT_RE.exec(line);
+  if (!m) return false;
+  if (/^Us\b/.test(m[2])) return false;
+  if (m[1] && !/^Company\b/i.test(m[2])) return false;
+  return !RELEASE_SECTION.test(m[2]);
+}
 export function cutTail(text, minKeep = 300) {
-  for (const m of String(text).matchAll(TAIL_RE)) if (m.index >= minKeep) return text.slice(0, m.index).trim();
-  return String(text).trim();
+  const t = String(text);
+  const marks = [];
+  let at = 0;
+  for (const line of t.split("\n")) {
+    const s = line.replace(/\s+/g, " ").trim();
+    if (at >= minKeep && s && s.length <= 120) {
+      if (HARD_TAIL_RE.test(s)) marks.push({ at, hard: true });
+      else if (aboutBoilerplate(s)) marks.push({ at, hard: false });
+    }
+    at += line.length + 1;
+  }
+  for (let k = 0; k < marks.length; k++) {
+    const section = t.slice(marks[k].at, k + 1 < marks.length ? marks[k + 1].at : t.length);
+    if (marks[k].hard || (!MONEY_RE.test(section) && !PCT_RE.test(section))) return t.slice(0, marks[k].at).trim();
+  }
+  return t.trim();
 }
 
 // Starts the excerpt where the article starts: the <h1> if it is a real
 // headline, else the first occurrence of the title's opening words, else the
-// top of the text. Then keeps the lead and the figures (pickText).
+// top of the text. Then keeps the lead and the figures (pickText). The tail
+// is cut only after an anchor: without one the text opens with page chrome,
+// whose menu lines can look like a release's tail.
 export function excerptFrom(text, title, heading = "") {
   const anchors = [usableHeading(heading) ? heading : "", title].filter(Boolean);
   let start = -1;
@@ -195,12 +226,26 @@ export function excerptFrom(text, title, heading = "") {
     const m = re.exec(text);
     if (m) { start = m.index; break; }
   }
-  return pickText(cutTail(text.slice(Math.max(0, start))));
+  return pickText(start >= 0 ? cutTail(text.slice(start)) : String(text).trim());
 }
 
 // --- SEC filings -------------------------------------------------------------
 const ITEM_RE = /(?:^|\n)[ \t\u00a0]*(?:ITEM|Item)[ \t\u00a0]+\d{1,2}(?:\.\d{1,2})?[A-Z]?\b/g;
-const TOC_GAP = 160;   // table-of-contents entries sit closer together than this
+// A table-of-contents entry: an Item heading whose stretch to the next
+// heading is short and holds no prose, only titles and page numbers (a 10-Q
+// lists its statements under Item 1). A short real item, such as an 8-K's
+// one-sentence Item 2.02, has a sentence and is kept.
+const TOC_SPAN = 700;
+function isProse(line) {
+  const s = line.trim();
+  const words = s.split(/\s+/).filter(Boolean).length;
+  return words >= 15 || (words >= 3 && /[.!?]["'’”)]?$/.test(s));
+}
+function isTocEntry(segment) {
+  if (segment.length >= TOC_SPAN) return false;
+  const [head, ...rest] = segment.split("\n");
+  return head.split(/\s+/).filter(Boolean).length < 15 && !rest.some(isProse);
+}
 
 // The filing's own text: from the first Item heading that starts real content
 // (skipping a 10-Q/10-K table of contents) to the signature block. Filings
@@ -210,7 +255,7 @@ export function secBody(text) {
   const heads = [...t.matchAll(ITEM_RE)].slice(0, 80).map((m) => m.index + (t[m.index] === "\n" ? 1 : 0));
   let start = -1;
   for (let i = 0; i < heads.length; i++) {
-    if (i === heads.length - 1 || heads[i + 1] - heads[i] >= TOC_GAP) { start = heads[i]; break; }
+    if (!isTocEntry(t.slice(heads[i], i + 1 < heads.length ? heads[i + 1] : t.length))) { start = heads[i]; break; }
   }
   if (start === -1 && heads.length) start = heads[0];
   if (start === -1) {
