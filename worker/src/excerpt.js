@@ -1,20 +1,30 @@
-// Fetches the opening text of new items so the grader reads the release, not
-// just the headline. Runs on the cron after ingest, a few items per tick.
+// Fetches the text of new items so the grader reads the release, not just the
+// headline. Runs on the cron after ingest, a few items per tick.
 // Transient failures (429, 5xx, timeouts) and SEC items without a configured
 // contact email are retried with backoff; other outcomes are final.
+//
+// The excerpt keeps the lead and then the sentences that carry figures, rather
+// than the first 2,500 characters. SEC filings start at their first Item
+// heading and add the Ex-99.1 exhibit (the release) when the filing has one.
 import { nowIso, isHttpUrl } from "./lib.js";
 
 const PER_TICK = 18;
+const SEC_PER_TICK = 5;           // up to 3 sec.gov fetches each (filing, index, exhibit)
 const CONCURRENCY = 6;            // Workers allows 6 simultaneous outbound connections
+const SEC_CONCURRENCY = 2;        // stays well under sec.gov's 10 requests a second
 const MAX_BYTES = 600_000;
 const MAX_TEXT_INPUT = 300_000;   // cap what the HTML-to-text pass ever sees
 const EXCERPT_CHARS = 2500;
+const LEAD_CHARS = 700;           // the opening kept verbatim before figure sentences
+const SEC_BODY_CHARS = 800;       // the filing's own item text when an exhibit follows
 const MIN_BODY_CHARS = 200;
 const MAX_TRIES = 4;
+const FORBIDDEN_TRIES = 2;        // a 403 is tried twice, 20 minutes apart
 const RETRY_MINUTES = [20, 120, 720];
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', mdash: "—", ndash: "–", hellip: "…", reg: "®", trade: "™", copy: "©" };
-const DROP_BLOCKS = ["script", "style", "noscript", "svg", "nav", "footer", "iframe", "head", "aside", "template"];
+// ix:header is the hidden XBRL block at the top of inline-XBRL SEC filings.
+const DROP_BLOCKS = ["script", "style", "noscript", "svg", "nav", "footer", "iframe", "head", "aside", "template", "ix:header"];
 
 // Removes <tag ...>...</tag> blocks with indexOf scans (linear time; no
 // backtracking regex). Unclosed blocks are removed to the end of the input.
@@ -66,7 +76,8 @@ export function htmlToText(html) {
     .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/table)\b[^>]*>/gi, "\n")
     .replace(/<[^>]*>/g, " ")
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
-    .replace(/[ \t\f\v\r]+/g, " ")
+    .replace(/[ \t\f\v\r\u00a0]+/g, " ")
+    .replace(/ ?\n ?/g, "\n")
     .replace(/\n\s*\n+/g, "\n")
     .trim();
 }
@@ -77,10 +88,105 @@ export function firstHeading(html) {
   return m ? htmlToText(m[1]) : "";
 }
 
-// Starts the excerpt where the article starts: the <h1> if present, else the
-// first occurrence of the headline's opening words, else the top of the text.
+// Page chrome that some IR sites put in the <h1> ("News Details", "Press
+// Release"): never an anchor for the article.
+const GENERIC_HEADING = /^(?:(?:news|press|media|investors?|company|corporate)(?:\s*(?:&|and)\s*events)?(?:\s+(?:releases?|details?|room|center|centre|news|updates?))?|(?:release|article|story)\s+details?|newsroom|investor relations)$/i;
+export function usableHeading(heading) {
+  const h = String(heading || "").replace(/\s+/g, " ").trim();
+  return Boolean(h) && !GENERIC_HEADING.test(h) && h.split(" ").length >= 3;
+}
+
+// --- Picking the text ----------------------------------------------------------
+const ABBREV = /(?:\b(?:Inc|Corp|Co|Ltd|Mr|Mrs|Ms|Dr|No|Nos|vs|approx|St|Jr|Sr|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|U\.S|U\.K|e\.g|i\.e|etc)|\b[A-Z])\.$/;
+
+// Sentences (and lines) with their offsets in text.
+export function splitSentences(text) {
+  const out = [];
+  let start = 0;
+  const push = (a, b) => { const s = text.slice(a, b).trim(); if (s) out.push({ start: a, end: b, text: s }); };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\n") { push(start, i); start = i + 1; continue; }
+    if ((c === "." || c === "!" || c === "?") && /\s/.test(text[i + 1] || " ")) {
+      if (c === "." && ABBREV.test(text.slice(Math.max(start, i - 8), i + 1))) continue;
+      push(start, i + 1);
+      start = i + 1;
+    }
+  }
+  push(start, text.length);
+  return out;
+}
+
+const MONEY_RE = /(?:US\$|C\$|A\$|NT\$|\$|€|£|¥)\s?\d|\b\d[\d,]*(?:\.\d+)?\s?(?:million|billion|thousand|trillion|mn|bn)\b|\b\d[\d,]*(?:\.\d+)?\s?[MB]\b/i;
+const PCT_RE = /\d(?:[\d,.]*\d)?\s?(?:%|percent\b|per cent\b|bps\b|basis points\b)/i;
+const DATE_RE = /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?/gi;
+const NUM_RE = /\b\d[\d,]*(?:\.\d+)?\b/g;
+
+// How strongly a sentence carries figures: money 3, percentages 2, other
+// quantities 1 each (at most 2); dates, times and years do not count.
+export function figureScore(sentence) {
+  let score = 0;
+  if (MONEY_RE.test(sentence)) score += 3;
+  if (PCT_RE.test(sentence)) score += 2;
+  const nums = (sentence.replace(DATE_RE, " ").match(NUM_RE) || []).filter((n) => !/^(?:19|20)\d\d$/.test(n));
+  return score + Math.min(2, nums.length);
+}
+
+// Keeps the opening (about lead characters, whole sentences), then the
+// sentences with the most figures, in document order, within budget. Text that
+// fits the budget is returned whole. Skipped stretches are marked " … ".
+export function pickText(text, budget = EXCERPT_CHARS, lead = LEAD_CHARS) {
+  const t = String(text || "").trim();
+  if (t.length <= budget) return t;
+  const sents = splitSentences(t);
+  const chosen = new Set();
+  let used = 0, k = 0;
+  for (; k < sents.length; k++) {
+    const len = sents[k].text.length + 1;
+    if (used > 0 && used + len > lead) break;
+    chosen.add(k); used += len;
+  }
+  const ranked = [];
+  for (let j = k; j < sents.length; j++) {
+    const score = figureScore(sents[j].text);
+    if (score > 0) ranked.push({ j, score, len: sents[j].text.length + 3 });   // + a " … " gap
+  }
+  ranked.sort((a, b) => b.score - a.score || a.j - b.j);
+  for (const r of ranked) {
+    if (r.len > budget / 2 || used + r.len > budget) continue;   // flattened tables read badly
+    chosen.add(r.j); used += r.len;
+  }
+  // Little to keep: carry on with the text in order.
+  if (used < budget * 0.6) {
+    for (let j = k; j < sents.length && used < budget; j++) {
+      if (chosen.has(j)) continue;
+      const len = sents[j].text.length + 3;
+      if (used + len > budget) break;
+      chosen.add(j); used += len;
+    }
+  }
+  let out = "", prev = -1;
+  for (const j of [...chosen].sort((a, b) => a - b)) {
+    if (prev >= 0) out += j === prev + 1 ? (t.slice(sents[prev].end, sents[j].start).includes("\n") ? "\n" : " ") : " … ";
+    out += sents[j].text;
+    prev = j;
+  }
+  return out.slice(0, budget).trim();
+}
+
+// Where a release's news ends: About-the-company, forward-looking statements,
+// contacts or signatures, on a line of their own (never inside the lead).
+const TAIL_RE = /\n[ \t\u00a0]*(?:About\s+(?:the\s+)?[A-Z][\w&.,'’()-]*(?:[ \t]+[A-Z0-9(][\w&.,'’()-]*){0,6}|(?:Cautionary|Special)\s+(?:Note|Statement)[^\n]{0,70}|(?:Note\s+Regarding\s+)?Forward[- ]Looking\s+(?:Statements?|Information)[^\n]{0,40}|Safe\s+Harbor[^\n]{0,40}|SIGNATURES?|(?:Media|Investor|Press)(?:\s+Relations)?\s+(?:Contacts?|Inquiries)|Contacts?)[ \t\u00a0]*:?[ \t\u00a0]*(?=\n|$)/g;
+export function cutTail(text, minKeep = 300) {
+  for (const m of String(text).matchAll(TAIL_RE)) if (m.index >= minKeep) return text.slice(0, m.index).trim();
+  return String(text).trim();
+}
+
+// Starts the excerpt where the article starts: the <h1> if it is a real
+// headline, else the first occurrence of the title's opening words, else the
+// top of the text. Then keeps the lead and the figures (pickText).
 export function excerptFrom(text, title, heading = "") {
-  const anchors = [heading, title].filter(Boolean);
+  const anchors = [usableHeading(heading) ? heading : "", title].filter(Boolean);
   let start = -1;
   for (const a of anchors) {
     const words = String(a).replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length > 2).slice(0, 4);
@@ -89,7 +195,135 @@ export function excerptFrom(text, title, heading = "") {
     const m = re.exec(text);
     if (m) { start = m.index; break; }
   }
-  return text.slice(Math.max(0, start), Math.max(0, start) + EXCERPT_CHARS).trim();
+  return pickText(cutTail(text.slice(Math.max(0, start))));
+}
+
+// --- SEC filings -------------------------------------------------------------
+const ITEM_RE = /(?:^|\n)[ \t\u00a0]*(?:ITEM|Item)[ \t\u00a0]+\d{1,2}(?:\.\d{1,2})?[A-Z]?\b/g;
+const TOC_GAP = 160;   // table-of-contents entries sit closer together than this
+
+// The filing's own text: from the first Item heading that starts real content
+// (skipping a 10-Q/10-K table of contents) to the signature block. Filings
+// without Item headings (6-K) start after the cover's check boxes.
+export function secBody(text) {
+  const t = String(text || "");
+  const heads = [...t.matchAll(ITEM_RE)].slice(0, 80).map((m) => m.index + (t[m.index] === "\n" ? 1 : 0));
+  let start = -1;
+  for (let i = 0; i < heads.length; i++) {
+    if (i === heads.length - 1 || heads[i + 1] - heads[i] >= TOC_GAP) { start = heads[i]; break; }
+  }
+  if (start === -1 && heads.length) start = heads[0];
+  if (start === -1) {
+    let end = 0;
+    for (const m of t.slice(0, 6000).matchAll(/Form 40-F[^\n]*|Rule 101\(b\)\(\d\)[^\n]*/g)) end = m.index + m[0].length;
+    start = end;
+  }
+  let body = t.slice(start);
+  const sigs = [...body.matchAll(/\n[ \t\u00a0]*SIGNATURES?\b/g)];
+  if (sigs.length) body = body.slice(0, sigs[sigs.length - 1].index);
+  return body.trim();
+}
+
+// https://www.sec.gov/Archives/edgar/data/<cik>/<accession>/ for a filing URL.
+function filingFolder(u) {
+  const m = /^\/Archives\/edgar\/data\/(\d+)\/(\d{18})\//.exec(u.pathname);
+  return m ? { prefix: `/Archives/edgar/data/${m[1]}/${m[2]}/`, accession: m[2] } : null;
+}
+export function filingIndexUrl(url) {
+  const u = new URL(url);
+  const f = filingFolder(u);
+  if (!f) return null;
+  const a = f.accession;
+  return `https://www.sec.gov${f.prefix}${a.slice(0, 10)}-${a.slice(10, 12)}-${a.slice(12)}-index.htm`;
+}
+
+// A link inside the same filing folder on www.sec.gov (inline-XBRL viewer
+// links "/ix?doc=/Archives/..." point at the document itself).
+function sameFiling(href, base) {
+  let u;
+  try { u = new URL(href.replace(/^\/ix\?doc=/, ""), base); } catch { return null; }
+  const f = filingFolder(new URL(base));
+  if (!f || !/^(www\.)?sec\.gov$/i.test(u.hostname) || !u.pathname.startsWith(f.prefix) || u.pathname === new URL(base).pathname) return null;
+  if (/\.(pdf|jpe?g|png|gif|xlsx?|zip|xml|xsd)$/i.test(u.pathname)) return null;
+  u.protocol = "https:"; u.hostname = "www.sec.gov"; u.hash = "";
+  return u.toString();
+}
+
+const EX991_FILE = /(?:^|[^a-z0-9])(?:d?ex|exh|exhibit)[-_ ]?99[-_.]?0?1(?![0-9])/i;
+const EX99_FILE = /(?:^|[^a-z0-9])(?:d?ex|exh|exhibit)[-_ ]?99(?![0-9])/i;
+const ANCHOR_RE = /<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>/gi;
+
+// The Ex-99.1 link in a filing's own exhibit index (8-K and 10-Q documents
+// link their exhibits), by file name, else by a table row that says 99.1.
+export function findExhibitLink(html, baseUrl) {
+  const h = String(html || "").slice(0, MAX_BYTES);
+  let byName99 = null;
+  for (const m of h.matchAll(ANCHOR_RE)) {
+    const url = sameFiling(m[1], baseUrl);
+    if (!url) continue;
+    const file = new URL(url).pathname.split("/").pop();
+    if (EX991_FILE.test(file)) return url;
+    if (!byName99 && EX99_FILE.test(file)) byName99 = url;
+  }
+  for (const row of h.split(/<tr\b/i).slice(1, 400)) {
+    const cell = row.split(/<\/tr>/i)[0];
+    if (!/(?:^|[^\d.])99\.0?1(?![\d])/.test(htmlToText(cell))) continue;
+    for (const m of cell.matchAll(ANCHOR_RE)) {
+      const url = sameFiling(m[1], baseUrl);
+      if (url) return url;
+    }
+  }
+  return byName99;
+}
+
+// The EX-99.1 (else first EX-99.x) document in an EDGAR filing index page.
+export function exhibitFromIndex(html, indexUrl) {
+  let first99 = null;
+  for (const row of String(html || "").split(/<tr\b/i).slice(1, 400)) {
+    const cells = [...row.split(/<\/tr>/i)[0].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((c) => c[1]);
+    const type = cells.map((c) => htmlToText(c).toUpperCase()).find((c) => /^EX-99(?:\.\d{1,2})?$/.test(c));
+    if (!type) continue;
+    const link = cells.join(" ").match(/href\s*=\s*["']([^"']+)["']/i);
+    const url = link ? sameFiling(link[1], indexUrl) : null;
+    if (!url) continue;
+    if (/^EX-99\.0?1$/.test(type)) return url;
+    first99 ||= url;
+  }
+  return first99;
+}
+
+// The primary document (first row) of an EDGAR filing index page.
+export function primaryFromIndex(html, indexUrl) {
+  for (const row of String(html || "").split(/<tr\b/i).slice(1, 50)) {
+    const link = row.split(/<\/tr>/i)[0].match(/href\s*=\s*["']([^"']+\.(?:htm|html|txt))["']/i);
+    const url = link ? sameFiling(link[1], indexUrl) : null;
+    if (url) return url;
+  }
+  return null;
+}
+
+// Filing text first (its Item lines say what was filed), then the release.
+export function secExcerpt(bodyText, exhibitText) {
+  const body = secBody(bodyText);
+  const ex = cutTail(String(exhibitText || ""));
+  if (ex.length < MIN_BODY_CHARS) return pickText(body);
+  const head = pickText(body, SEC_BODY_CHARS, 400);
+  const label = "EX-99.1: ";
+  return `${head}\n${label}${pickText(ex, EXCERPT_CHARS - head.length - label.length - 1)}`.trim();
+}
+
+// --- Fetching ----------------------------------------------------------------
+// Pages that load their release body from another URL with JavaScript.
+export function excerptUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return raw; }
+  // Unusual Machines' release page is a shell that loads the text from the
+  // company's public B2i library (the key is published in the page's script).
+  const id = u.searchParams.get("i");
+  if (/^(www\.)?unusualmachines\.com$/i.test(u.hostname) && u.pathname.replace(/\/$/, "") === "/press-release" && /^\d+$/.test(id || "")) {
+    return `https://www.b2i.us/b2i/LibraryView.asp?b=2958&api=Qk2Te5Pj8&id=${id}`;
+  }
+  return raw;
 }
 
 function charsetOf(contentType, head) {
@@ -104,18 +338,15 @@ function decode(buf, label) {
 }
 
 const RETRYABLE = (status) => status === "skipped_sec_needs_contact" || status === "http_429" || /^http_5\d\d$/.test(status) || status.startsWith("error");
+const isSecUrl = (u) => /(^|\.)sec\.gov$/i.test(u.hostname);
 
-async function fetchExcerpt(env, item) {
-  if (!isHttpUrl(item.url)) return { status: "skipped_bad_url" };
-  const url = new URL(item.url);
-  if (/\.(pdf|xlsx?|docx?|zip)$/i.test(url.pathname)) return { status: "skipped_binary" };
-  const isSec = /(^|\.)sec\.gov$/i.test(url.hostname);
-  if (isSec && !env.CONTACT_EMAIL) return { status: "skipped_sec_needs_contact" };
-  const ua = isSec ? `zenith-core ${env.CONTACT_EMAIL}` : "zenith-core/1.0 (research feed)";
+// One page: { status: "ok", html } or { status: http_<code> | skipped_* | error* }.
+async function fetchPage(url, ua) {
+  if (/\.(pdf|xlsx?|docx?|zip)$/i.test(new URL(url).pathname)) return { status: "skipped_binary" };
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort("timeout"), 9000); // starts when this fetch starts
   try {
-    const r = await fetch(url.toString(), { headers: { "user-agent": ua, accept: "text/html,application/xhtml+xml,*/*" }, redirect: "follow", signal: ctl.signal });
+    const r = await fetch(url, { headers: { "user-agent": ua, accept: "text/html,application/xhtml+xml,*/*" }, redirect: "follow", signal: ctl.signal });
     if (!r.ok) return { status: `http_${r.status}` };
     const type = r.headers.get("content-type") || "";
     if (!/html|xml|text/i.test(type)) return { status: "skipped_content_type" };
@@ -131,9 +362,7 @@ async function fetchExcerpt(env, item) {
     let off = 0;
     for (const c of chunks) { buf.set(c, off); off += c.length; }
     const head = new TextDecoder("latin1").decode(buf.subarray(0, 4096));
-    const html = decode(buf, charsetOf(type, head));
-    const excerpt = excerptFrom(htmlToText(html), item.title, firstHeading(html));
-    return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
+    return { status: "ok", html: decode(buf, charsetOf(type, head)) };
   } catch (e) {
     return { status: String(e).includes("timeout") ? "error_timeout" : "error" };
   } finally {
@@ -141,30 +370,150 @@ async function fetchExcerpt(env, item) {
   }
 }
 
-export async function enrich(env) {
-  const now = nowIso();
-  const rows = (await env.DB.prepare(
-    `SELECT id, url, title, excerpt_tries FROM items
-      WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND (excerpt_next_at IS NULL OR excerpt_next_at <= ?)
-      ORDER BY nm_first_seen DESC LIMIT ?`,
-  ).bind(now, PER_TICK).all()).results || [];
+async function fetchSecExcerpt(env, item) {
+  const ua = `zenith-core ${env.CONTACT_EMAIL}`;
+  let docUrl = item.url;
+  let page = await fetchPage(docUrl, ua);
+  if (page.status !== "ok") return { status: page.status };
+  let indexHtml = null;
+  if (/-index\.html?$/i.test(new URL(docUrl).pathname)) {
+    indexHtml = page.html;
+    const primary = primaryFromIndex(indexHtml, docUrl);
+    if (primary) {
+      const p = await fetchPage(primary, ua);
+      if (p.status === "ok") { page = p; docUrl = primary; }
+    }
+  }
+  const text = htmlToText(page.html);
+  let exUrl = findExhibitLink(page.html, docUrl);
+  // 6-Ks often name Exhibit 99.1 without linking it: the filing index has it.
+  if (!exUrl && /\b(?:Exhibit|EX-)\s*99\b/i.test(text)) {
+    if (!indexHtml) {
+      const idxUrl = filingIndexUrl(docUrl);
+      const idx = idxUrl ? await fetchPage(idxUrl, ua) : null;
+      if (idx?.status === "ok") indexHtml = idx.html;
+    }
+    if (indexHtml) exUrl = exhibitFromIndex(indexHtml, filingIndexUrl(docUrl) || docUrl);
+  }
+  let exText = "";
+  if (exUrl) {
+    const ex = await fetchPage(exUrl, ua);
+    if (ex.status === "ok") exText = htmlToText(ex.html);
+  }
+  const excerpt = secExcerpt(text, exText);
+  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
+}
+
+export async function fetchExcerpt(env, item) {
+  if (!isHttpUrl(item.url)) return { status: "skipped_bad_url" };
+  const url = new URL(item.url);
+  if (isSecUrl(url)) {
+    if (!env.CONTACT_EMAIL) return { status: "skipped_sec_needs_contact" };
+    return fetchSecExcerpt(env, item);
+  }
+  const page = await fetchPage(excerptUrl(url.toString()), "zenith-core/1.0 (research feed)");
+  if (page.status !== "ok") return { status: page.status };
+  const excerpt = excerptFrom(htmlToText(page.html), item.title, firstHeading(page.html));
+  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
+}
+
+async function fetchAll(env, rows, concurrency) {
   const results = [];
-  for (let i = 0; i < rows.length; i += CONCURRENCY) {
-    const part = rows.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < rows.length; i += concurrency) {
+    const part = rows.slice(i, i + concurrency);
     results.push(...await Promise.all(part.map((item) => fetchExcerpt(env, item).then((r) => ({ item, ...r })))));
   }
-  const stmts = results.map(({ item, status, excerpt }) => {
-    const tries = (item.excerpt_tries || 0) + 1;
-    if (RETRYABLE(status) && tries < MAX_TRIES) {
-      // Leave excerpt_status NULL so it is picked up again after the backoff.
-      const wait = RETRY_MINUTES[Math.min(tries - 1, RETRY_MINUTES.length - 1)];
-      return env.DB.prepare("UPDATE items SET excerpt_tries = ?, excerpt_next_at = ? WHERE id = ?")
-        .bind(tries, nowIso(Date.now() + wait * 60_000), item.id);
-    }
-    return env.DB.prepare("UPDATE items SET excerpt = ?, excerpt_status = ?, excerpt_tries = ? WHERE id = ?")
-      .bind(excerpt || null, status, tries, item.id);
-  });
+  return results;
+}
+
+// The update for one fetch: retry later (excerpt_status stays NULL), or final.
+// Without a contact address a sec.gov item is not a try: it waits, so setting
+// CONTACT_EMAIL later still fills it in.
+const NO_CONTACT_WAIT_MINUTES = 720;
+function resultStatement(env, { item, status, excerpt }, now) {
+  if (status === "skipped_sec_needs_contact") {
+    return env.DB.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").bind(nowIso(Date.now() + NO_CONTACT_WAIT_MINUTES * 60_000), item.id);
+  }
+  const tries = (item.excerpt_tries || 0) + 1;
+  // A 403 gets one later retry: CDN bot checks in front of IR sites (Q4's
+  // Cloudflare, seen on SRFM, PL and ASST) refuse a request now and then.
+  if ((RETRYABLE(status) && tries < MAX_TRIES) || (status === "http_403" && tries < FORBIDDEN_TRIES)) {
+    const wait = RETRY_MINUTES[Math.min(tries - 1, RETRY_MINUTES.length - 1)];
+    return env.DB.prepare("UPDATE items SET excerpt_tries = ?, excerpt_next_at = ? WHERE id = ?")
+      .bind(tries, nowIso(Date.now() + wait * 60_000), item.id);
+  }
+  return env.DB.prepare("UPDATE items SET excerpt = ?, excerpt_status = ?, excerpt_tries = ?, excerpt_at = ? WHERE id = ?")
+    .bind(excerpt || null, status, tries, now, item.id);
+}
+
+const SEC_URL_SQL = "(url LIKE 'https://www.sec.gov/%' OR url LIKE 'https://sec.gov/%' OR url LIKE 'http://www.sec.gov/%')";
+
+export async function enrich(env) {
+  const now = nowIso();
+  const due = `excerpt_status IS NULL AND state IN ('pending','claimed') AND (excerpt_next_at IS NULL OR excerpt_next_at <= ?)`;
+  const pick = (secOnly, limit) => env.DB.prepare(
+    `SELECT id, url, title, excerpt_tries FROM items WHERE ${due} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
+      ORDER BY nm_first_seen DESC LIMIT ?`,
+  ).bind(now, limit).all().then((r) => r.results || []);
+  const results = [
+    ...await fetchAll(env, await pick(false, PER_TICK - SEC_PER_TICK), CONCURRENCY),
+    ...await fetchAll(env, await pick(true, SEC_PER_TICK), SEC_CONCURRENCY),
+  ];
+  const stmts = results.map((r) => resultStatement(env, r, now));
   if (stmts.length) await env.DB.batch(stmts);
   const ok = results.filter((r) => r.status === "ok").length;
   return { tried: results.length, ok, retry: results.filter((r) => RETRYABLE(r.status)).length, at: now };
+}
+
+// Admin (POST /v1/admin/requeue {mode:"sec_excerpts"}): re-reads sec.gov items
+// that were never read with this reader (excerpt_at is NULL), graded ones
+// included, and requeues each one it could read so it is graded on the filing
+// text. Bounded per call; call again until remaining is 0. Needs CONTACT_EMAIL.
+//   limit (1-10, default 8), since (first_seen lower bound), include_duplicates, dry_run
+export async function refreshSecExcerpts(env, body = {}) {
+  if (!env.CONTACT_EMAIL) {
+    return { mode: "sec_excerpts", error: "CONTACT_EMAIL is not set: sec.gov requires a contact address in the User-Agent, so filings cannot be read yet" };
+  }
+  const now = nowIso();
+  const limit = Math.max(1, Math.min(10, Number(body.limit) || 8));
+  const since = body.since ? String(body.since) : "1970-01-01";
+  const where = `${SEC_URL_SQL.replaceAll("url", "i.url")} AND i.excerpt_at IS NULL AND i.nm_first_seen >= ?1
+      AND (i.state IN ('pending','graded') OR (i.state = 'claimed' AND i.claimed_until < ?2))
+      AND (?3 = 1 OR g.band IS NULL OR g.band != 'duplicate')`;
+  const binds = [since, now, body.include_duplicates ? 1 : 0];
+  const count = async () => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM items i LEFT JOIN grades g ON g.id = i.grade_id WHERE ${where}`).bind(...binds).first())?.n || 0;
+  const rows = (await env.DB.prepare(
+    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries FROM items i LEFT JOIN grades g ON g.id = i.grade_id
+      WHERE ${where} ORDER BY i.nm_first_seen DESC LIMIT ?4`,
+  ).bind(...binds, limit).all()).results || [];
+  if (body.dry_run) return { mode: "sec_excerpts", dry_run: true, remaining: await count(), next: rows.map((r) => ({ item_id: r.id, state: r.state, title: r.title })) };
+  // Final statuses written before this reader ran (excerpt_at NULL) are cleared,
+  // with their tries: those attempts had no contact address or the old reader.
+  // Later failures either stay retryable (status NULL) or set excerpt_at, so
+  // this never resets an attempt made here.
+  const cleared = await env.DB.prepare(
+    `UPDATE items SET excerpt_status = NULL, excerpt_tries = 0, excerpt_next_at = NULL
+      WHERE ${SEC_URL_SQL} AND excerpt_at IS NULL AND excerpt_status IS NOT NULL`,
+  ).run();
+  const ids = new Set(rows.map((r) => r.id));
+  const fresh = (await env.DB.prepare(
+    `SELECT id, excerpt_tries FROM items WHERE id IN (${rows.map(() => "?").join(",") || "NULL"})`,
+  ).bind(...ids).all()).results || [];
+  const tries = new Map(fresh.map((r) => [r.id, r.excerpt_tries]));
+  const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY);
+  const stmts = [], items = [];
+  for (const r of results) {
+    stmts.push(resultStatement(env, r, now));
+    const requeue = r.status === "ok" && r.item.state !== "pending";
+    if (requeue) {
+      stmts.push(env.DB.prepare("UPDATE items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=0 WHERE id = ? AND state IN ('graded','claimed')").bind(r.item.id));
+    }
+    items.push({ item_id: r.item.id, status: r.status, requeued: requeue });
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  return {
+    mode: "sec_excerpts", cleared: cleared.meta?.changes || 0, processed: results.length, ok: results.filter((r) => r.status === "ok").length,
+    requeued: items.filter((i) => i.requeued).length, retry: results.filter((r) => RETRYABLE(r.status)).length,
+    remaining: await count(), items,
+  };
 }
