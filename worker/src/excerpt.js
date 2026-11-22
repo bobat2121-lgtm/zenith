@@ -527,7 +527,13 @@ async function readBody(body, limit) {
 }
 
 const PDF_PATH_RE = /\.pdf$/i;
-const isPdfBytes = (buf) => new TextDecoder("latin1").decode(buf.subarray(0, 1024)).includes("%PDF-");
+// "%PDF-" in the first kilobyte (some files open with a few junk bytes).
+const isPdfBytes = (buf) => {
+  for (let i = 0, n = Math.min(buf.length - 4, 1024); i < n; i++) {
+    if (buf[i] === 0x25 && buf[i + 1] === 0x50 && buf[i + 2] === 0x44 && buf[i + 3] === 0x46 && buf[i + 4] === 0x2d) return true;
+  }
+  return false;
+};
 
 // The last PDF_TAIL_BYTES of a file too large to read whole, or null when the
 // server does not serve byte ranges.
