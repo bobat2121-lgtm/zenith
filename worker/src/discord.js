@@ -42,16 +42,42 @@ export async function discordSend(webhook, payload, { messageId = null, fetchImp
   if (!messageId) {
     try { id = String((await r.json())?.id || "") || null; } catch { id = null; }
   }
-  return { ok: true, status: r.status, id };
+  // Discord's per-webhook bucket: requests left, and seconds until it refills.
+  const remaining = r.headers.get("x-ratelimit-remaining");
+  const resetAfter = Number(r.headers.get("x-ratelimit-reset-after"));
+  return {
+    ok: true, status: r.status, id,
+    remaining: remaining == null || remaining === "" || !Number.isFinite(Number(remaining)) ? null : Number(remaining),
+    resetAfter: Number.isFinite(resetAfter) ? resetAfter : null,
+  };
 }
 
-// Posts several messages in order; stops at the first failure.
-export async function discordSendAll(webhook, contents, opts = {}) {
+export const PACE_MS = 450;          // between parts when Discord sends no bucket headers (5 per 2 s)
+const MAX_WAIT_MS = 10_000;          // longest single wait for the bucket to refill
+const MAX_429_RETRIES = 3;           // per part
+const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Posts several messages in order, paced to the webhook's rate limit (about 5
+// requests per 2 s): it waits for the bucket to refill when Discord says none
+// are left (or PACE_MS without bucket headers), and on a 429 waits retry_after
+// (capped) and resends the same part. It stops at the first other failure.
+// onSent(ids) runs after each part, so the caller can record progress and a
+// later attempt can resume from the first unsent part.
+export async function discordSendAll(webhook, contents, { sleep = sleepFor, onSent = null, ...opts } = {}) {
   const ids = [];
-  for (const content of contents) {
-    const res = await discordSend(webhook, { content }, opts);
+  for (let i = 0; i < contents.length; i++) {
+    let res;
+    for (let tries = 0; ; tries++) {
+      res = await discordSend(webhook, { content: contents[i] }, opts);
+      if (res.status !== 429 || tries >= MAX_429_RETRIES) break;
+      await sleep(Math.min(MAX_WAIT_MS, Math.max(250, Math.ceil(Number(res.retryAfter) * 1000) || 1000)));
+    }
     if (!res.ok) return { ok: false, ids, error: res.error, status: res.status };
     ids.push(res.id);
+    if (onSent) await onSent([...ids]);
+    if (i === contents.length - 1) break;
+    if (res.remaining === 0) await sleep(Math.min(MAX_WAIT_MS, Math.max(100, Math.ceil((res.resetAfter ?? 2) * 1000))));
+    else if (res.remaining == null) await sleep(PACE_MS);
   }
   return { ok: true, ids };
 }

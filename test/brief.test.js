@@ -4,6 +4,7 @@ import { D1, addItem, addGrade, fakeFetch } from "./helpers/d1.js";
 import { buildBrief, renderBrief, runSlot, runReportSlots, catchUpReports, lastBriefEnd, pickToLabel,
   buildCalibration, renderCalibration, verdict, slotsAt, previousBriefAt } from "../worker/src/brief.js";
 import { etToUtc } from "../worker/src/et.js";
+import { discordSendAll } from "../worker/src/discord.js";
 
 const HOOK = "https://discord.com/api/webhooks/1/brief";
 const OPS = "https://discord.com/api/webhooks/2/ops";
@@ -227,4 +228,104 @@ test("the brief lists only tickers still in coverage", async () => {
   assert.deepEqual(b.leads_digests.map((g) => g.ticker), ["SYM", "PL"]);
   const text = renderBrief(b, { now: AM });
   assert.ok(text.every((m) => !/^__[A-Z]+__$/m.test(m.split("\n").at(-1))), "a ticker header never ends a message");
+});
+
+// A busy window: 24 graded items and 12 waiting ones, long enough for 6+ messages.
+async function busySetup() {
+  const db = new D1();
+  const t = (min) => iso(AM - min * 60_000);
+  const long = (s) => `${s} ${"with a long descriptive headline about the contract award and its terms ".repeat(3)}`.slice(0, 200);
+  for (let k = 0; k < 24; k++) {
+    const id = await addItem(db, { ticker: ["SYM", "GRRR", "PL"][k % 3], title: long(`Item ${k}`), nm_first_seen: t(600 - k) });
+    await addGrade(db, id, { score: 95 - k, why: long(`Why ${k}: revenue $${k + 10}M`), graded_at: t(500 - k) });
+  }
+  for (let k = 0; k < 12; k++) await addItem(db, { ticker: "GRRR", title: long(`Waiting ${k}`), nm_first_seen: t(60 + k) });
+  return { db, env: { DB: db, DISCORD_BRIEF_WEBHOOK: HOOK } };
+}
+
+// Discord's per-webhook bucket (5 requests per 2 s) on a fake clock that only
+// moves when the sender sleeps. With headers, it also reports the bucket.
+function limitedDiscord({ headers = false, failAt = null } = {}) {
+  let t = 0, n = 0;
+  const accepted = [], sleeps = [];
+  const sleep = async (ms) => { sleeps.push(ms); t += ms; };
+  const f = fakeFetch((call, k) => {
+    if (failAt && failAt(k)) return { status: 500, text: "boom" };
+    const recent = accepted.filter((x) => x > t - 2000);
+    if (recent.length >= 5) return { status: 429, json: { retry_after: (recent[0] + 2000 - t) / 1000, global: false } };
+    accepted.push(t);
+    const h = headers ? { "x-ratelimit-remaining": String(4 - recent.length), "x-ratelimit-reset-after": String(((recent[0] ?? t) + 2000 - t) / 1000) } : {};
+    return { json: { id: `b${++n}` }, headers: h };
+  });
+  return { f, sleep, sleeps, accepted };
+}
+
+test("a long brief is paced to the webhook's rate limit and goes out whole", async () => {
+  for (const headers of [false, true]) {
+    const { env } = await busySetup();
+    const d = limitedDiscord({ headers });
+    const r = await runSlot(env, COVERED, slotsAt(AM)[0], { now: AM, fetchImpl: d.f, sleep: d.sleep });
+    assert.equal(r.status, "sent", `headers=${headers}`);
+    assert.ok(r.of >= 6, `a 6+ message brief (${r.of})`);
+    assert.equal(r.messages, r.of);
+    assert.equal(d.f.calls.length, r.of, "paced, so no 429s");
+    const sent = d.f.calls.map((c) => c.body.content).join("\n");
+    assert.match(sent, /\*\*Health\*\*/);
+    assert.match(sent, /\*\*Label these\*\*/);
+  }
+});
+
+test("a 429 waits retry_after and resends the same message", async () => {
+  let n = 0;
+  const f = fakeFetch((c, k) => (k === 3 ? { status: 429, json: { retry_after: 1.5 } } : { json: { id: `x${++n}` } }));
+  const sleeps = [];
+  const res = await discordSendAll(HOOK, ["one", "two", "three", "four"], { fetchImpl: f, sleep: async (ms) => { sleeps.push(ms); } });
+  assert.deepEqual(res, { ok: true, ids: ["x1", "x2", "x3", "x4"] });
+  assert.deepEqual(f.calls.map((c) => c.body.content), ["one", "two", "three", "three", "four"]);
+  assert.ok(sleeps.includes(1500));
+});
+
+test("a brief cut off part-way is marked partial and the catch-up sends only the rest", async () => {
+  const { env } = await busySetup();
+  const d = limitedDiscord({ failAt: (k) => k === 3 });
+  const slot = slotsAt(AM)[0];
+  const r1 = await runSlot(env, COVERED, slot, { now: AM, fetchImpl: d.f, sleep: d.sleep });
+  assert.deepEqual([r1.status, r1.messages], ["partial", 2]);
+  const row = await env.DB.prepare("SELECT * FROM reports WHERE slot = ?").bind(slot.key).first();
+  const contents = JSON.parse(row.contents);
+  assert.equal(JSON.parse(row.message_ids).length, 2);
+  assert.equal(await lastBriefEnd(env.DB, AM + 3_600_000, { slotAt: AM }), iso(etToUtc("2026-11-23", 17, 30)), "a partial brief does not move the next window");
+
+  const ok = limitedDiscord();
+  const r2 = await catchUpReports(env, COVERED, { now: AM + 15 * 60_000, fetchImpl: ok.f, sleep: ok.sleep });
+  assert.deepEqual(r2.map((x) => [x.status, x.resumed, x.messages]), [["sent", 2, contents.length]]);
+  assert.deepEqual(ok.f.calls.map((c) => c.body.content), contents.slice(2), "the start is not repeated, the tail is sent");
+  const done = await env.DB.prepare("SELECT * FROM reports WHERE slot = ?").bind(slot.key).first();
+  assert.equal(JSON.parse(done.message_ids).length, contents.length);
+  assert.equal(done.window_to, iso(AM), "the window is the first attempt's");
+  assert.deepEqual(await catchUpReports(env, COVERED, { now: AM + 20 * 60_000, fetchImpl: ok.f, sleep: ok.sleep }), []);
+});
+
+test("a send a crashed run left part-way resumes from the ids it recorded", async () => {
+  const { env } = await busySetup();
+  const slot = slotsAt(AM)[0];
+  const d = limitedDiscord({ failAt: (k) => k === 4 });
+  await runSlot(env, COVERED, slot, { now: AM, fetchImpl: d.f, sleep: d.sleep });
+  // As if the run died after its third message: still 'sending', ids recorded.
+  await env.DB.prepare("UPDATE reports SET status = 'sending', updated_at = ? WHERE slot = ?").bind(iso(AM - 3_600_000), slot.key).run();
+  const ok = limitedDiscord();
+  const [r] = await catchUpReports(env, COVERED, { now: AM + 20 * 60_000, fetchImpl: ok.f, sleep: ok.sleep });
+  assert.deepEqual([r.status, r.resumed], ["sent", 3]);
+});
+
+test("with no brief sent in 48 h, a catch-up or late brief still starts at the previous slot", async () => {
+  const { env } = await briefSetup();
+  const e = { ...env, DISCORD_BRIEF_WEBHOOK: HOOK };
+  const prevSlot = iso(etToUtc("2026-11-23", 17, 30));
+  assert.equal(await lastBriefEnd(e.DB, AM + 10 * 60_000, { slotAt: AM }), prevSlot);
+  assert.equal(await lastBriefEnd(e.DB, AM + 60 * 60_000, { slotAt: AM }), prevSlot);
+  const [r] = await catchUpReports(e, COVERED, { now: AM + 70 * 60_000, fetchImpl: discord() });
+  assert.equal(r.status, "sent");
+  const row = await e.DB.prepare("SELECT window_from, window_to FROM reports WHERE slot = 'brief_am:2026-11-24'").first();
+  assert.deepEqual([row.window_from, row.window_to], [prevSlot, iso(AM + 70 * 60_000)], "overnight grades are in the window");
 });

@@ -33,9 +33,11 @@ CREATE TABLE IF NOT EXISTS reports (
   kind        TEXT NOT NULL,                        -- brief_am | brief_pm | calibration
   window_from TEXT,
   window_to   TEXT,
-  status      TEXT NOT NULL CHECK (status IN ('sending','sent','failed')),
+  -- partial = some messages went out; a retry sends only the rest
+  status      TEXT NOT NULL CHECK (status IN ('sending','sent','partial','failed')),
   attempts    INTEGER NOT NULL DEFAULT 0,
-  message_ids TEXT,                                 -- JSON array of Discord message ids
+  contents    TEXT,                                 -- JSON array of the rendered messages, fixed at the first attempt
+  message_ids TEXT,                                 -- JSON array of Discord message ids, one per message sent so far
   error       TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL

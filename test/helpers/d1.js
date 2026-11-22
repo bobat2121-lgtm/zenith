@@ -94,7 +94,7 @@ export function fakeFetch(handler) {
     const call = { url: String(url), method: init.method || "GET", body: init.body ? JSON.parse(init.body) : null, headers: init.headers || {} };
     calls.push(call);
     const out = (await handler(call, calls.length)) || { status: 200, json: {} };
-    return new Response(out.text ?? JSON.stringify(out.json ?? {}), { status: out.status ?? 200, headers: { "content-type": "application/json" } });
+    return new Response(out.text ?? JSON.stringify(out.json ?? {}), { status: out.status ?? 200, headers: { "content-type": "application/json", ...(out.headers || {}) } });
   };
   fn.calls = calls;
   return fn;

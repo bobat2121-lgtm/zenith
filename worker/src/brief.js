@@ -55,12 +55,13 @@ export function previousBriefAt(ms) {
 }
 
 // Where the next brief starts: the end of the last brief sent (within 48 h),
-// else the previous brief slot.
-export async function lastBriefEnd(db, now) {
+// else the brief slot before this one. slotAt is the scheduled slot's time, so a
+// catch-up or late run still starts at the previous slot, not at its own.
+export async function lastBriefEnd(db, now, { slotAt = now } = {}) {
   const row = await db.prepare(
     "SELECT MAX(window_to) AS t FROM reports WHERE kind IN ('brief_am','brief_pm') AND status = 'sent' AND window_to >= ? AND window_to <= ?",
   ).bind(nowIso(now - 2 * DAY_MS), nowIso(now)).first();
-  return row?.t || nowIso(previousBriefAt(now));
+  return row?.t || nowIso(previousBriefAt(slotAt));
 }
 
 // --- Brief ----------------------------------------------------------------------
@@ -308,42 +309,64 @@ export function renderCalibration(c) {
 
 // --- Slots ------------------------------------------------------------------------
 
+// Claims a slot (first run, a retry of a failed or partial send, or a send a
+// crashed run left 'sending' for 15 minutes). Returns the claimed row or null.
 async function claimReport(db, slot, now) {
   const nowS = nowIso(now);
   const r = await db.prepare(
     `INSERT INTO reports (slot, kind, status, attempts, created_at, updated_at) VALUES (?1, ?2, 'sending', 1, ?3, ?3)
      ON CONFLICT(slot) DO UPDATE SET status = 'sending', attempts = reports.attempts + 1, updated_at = excluded.updated_at
-      WHERE (reports.status = 'failed' AND reports.attempts < ?4) OR (reports.status = 'sending' AND reports.updated_at < ?5)`,
+      WHERE (reports.status IN ('failed','partial') AND reports.attempts < ?4) OR (reports.status = 'sending' AND reports.updated_at < ?5)`,
   ).bind(slot.key, slot.kind, nowS, MAX_REPORT_ATTEMPTS, nowIso(now - STALE_SENDING_MIN * MIN)).run();
-  return r.meta.changes > 0;
+  if (!(r.meta.changes > 0)) return null;
+  return db.prepare("SELECT * FROM reports WHERE slot = ?").bind(slot.key).first();
 }
 
-export async function runSlot(env, covered, slot, { now = Date.now(), fetchImpl = globalThis.fetch } = {}) {
+const jsonArray = (s) => { try { const v = JSON.parse(s || "null"); return Array.isArray(v) ? v : null; } catch { return null; } };
+
+// Renders the slot's messages once and stores them with the window, then sends
+// them paced to Discord's rate limit, recording each message id as it goes. A
+// retry of a partial (or crashed) send resumes at the first unsent message, so
+// the start is never repeated and the tail is never dropped.
+export async function runSlot(env, covered, slot, { now = Date.now(), fetchImpl = globalThis.fetch, sleep } = {}) {
   const hook = env[slot.hook];
   if (!hook) return { slot: slot.key, status: "off" };
   const db = env.DB;
-  if (!(await claimReport(db, slot, now))) return { slot: slot.key, status: "already" };
-  let windowFrom = null;
-  const windowTo = nowIso(now);
+  const claimed = await claimReport(db, slot, now);
+  if (!claimed) return { slot: slot.key, status: "already" };
+  let contents = jsonArray(claimed.contents);
+  let sent = contents?.length ? jsonArray(claimed.message_ids) || [] : [];
   try {
-    let contents;
-    if (slot.kind === "calibration") {
-      contents = renderCalibration(await buildCalibration(db, { now }));
-    } else {
-      windowFrom = await lastBriefEnd(db, now);
-      contents = renderBrief(await buildBrief(env, covered, { from: windowFrom, to: windowTo, now, kind: slot.kind }),
-        { publicUrl: env.ZENITH_PUBLIC_URL || "", now });
+    if (!contents?.length) {
+      let windowFrom = null;
+      const windowTo = nowIso(now);
+      if (slot.kind === "calibration") {
+        contents = renderCalibration(await buildCalibration(db, { now }));
+      } else {
+        windowFrom = await lastBriefEnd(db, now, { slotAt: slot.at ?? now });
+        contents = renderBrief(await buildBrief(env, covered, { from: windowFrom, to: windowTo, now, kind: slot.kind }),
+          { publicUrl: env.ZENITH_PUBLIC_URL || "", now });
+      }
+      await db.prepare("UPDATE reports SET contents=?, message_ids='[]', window_from=?, window_to=?, updated_at=? WHERE slot=?")
+        .bind(JSON.stringify(contents), windowFrom, windowTo, nowIso(), slot.key).run();
     }
-    const res = await discordSendAll(hook, contents, { fetchImpl });
-    // A brief that went out in part is not re-sent (that would repeat the start).
-    const status = res.ok || res.ids.length ? "sent" : "failed";
-    await db.prepare("UPDATE reports SET status=?, window_from=?, window_to=?, message_ids=?, error=?, updated_at=? WHERE slot=?")
-      .bind(status, windowFrom, windowTo, JSON.stringify(res.ids), res.ok ? null : String(res.error || "").slice(0, 300), nowIso(), slot.key).run();
-    return { slot: slot.key, status, messages: res.ids.length, error: res.ok ? undefined : res.error };
+    const resumed = sent.length;
+    const res = await discordSendAll(hook, contents.slice(resumed), {
+      fetchImpl, sleep,
+      onSent: (ids) => db.prepare("UPDATE reports SET message_ids=?, updated_at=? WHERE slot=?")
+        .bind(JSON.stringify([...sent, ...ids]), nowIso(), slot.key).run(),
+    });
+    sent = [...sent, ...res.ids];
+    const status = res.ok ? "sent" : sent.length ? "partial" : "failed";
+    await db.prepare("UPDATE reports SET status=?, message_ids=?, error=?, updated_at=? WHERE slot=?")
+      .bind(status, JSON.stringify(sent), res.ok ? null : String(res.error || "").slice(0, 300), nowIso(), slot.key).run();
+    return { slot: slot.key, status, messages: sent.length, of: contents.length, ...(resumed ? { resumed } : {}), ...(res.ok ? {} : { error: res.error }) };
   } catch (e) {
-    await db.prepare("UPDATE reports SET status='failed', error=?, updated_at=? WHERE slot=?")
-      .bind(String(e?.message || e).slice(0, 300), nowIso(), slot.key).run();
-    return { slot: slot.key, status: "failed", error: String(e?.message || e) };
+    // Retries resume from the stored messages and ids whatever this status says.
+    const status = sent.length ? "partial" : "failed";
+    await db.prepare("UPDATE reports SET status=?, error=?, updated_at=? WHERE slot=?")
+      .bind(status, String(e?.message || e).slice(0, 300), nowIso(), slot.key).run();
+    return { slot: slot.key, status, error: String(e?.message || e) };
   }
 }
 
@@ -354,9 +377,9 @@ export async function runReportSlots(env, covered, scheduledTime, opts = {}) {
   return out.length ? out : [{ status: "not_a_slot", et: fmtEt(scheduledTime) }];
 }
 
-// 5-minute tick: a slot whose cron did not deliver within 10 minutes is retried
-// for up to 3 hours.
-export async function catchUpReports(env, covered, { now = Date.now(), fetchImpl = globalThis.fetch } = {}) {
+// 5-minute tick: a slot whose cron did not deliver within 10 minutes (or went
+// out in part) is retried for up to 3 hours.
+export async function catchUpReports(env, covered, { now = Date.now(), fetchImpl = globalThis.fetch, sleep } = {}) {
   const et = etParts(now);
   const out = [];
   for (const s of SLOTS) {
@@ -367,7 +390,7 @@ export async function catchUpReports(env, covered, { now = Date.now(), fetchImpl
     const slot = { ...s, date: et.date, key: `${s.kind}:${et.date}`, at };
     const row = await env.DB.prepare("SELECT status FROM reports WHERE slot = ?").bind(slot.key).first();
     if (row?.status === "sent") continue;
-    out.push(await runSlot(env, covered, slot, { now, fetchImpl }));
+    out.push(await runSlot(env, covered, slot, { now, fetchImpl, sleep }));
   }
   return out;
 }
