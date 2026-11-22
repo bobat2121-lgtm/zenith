@@ -65,11 +65,61 @@ const MISMATCH_OK = ["reason:off_entity", "reason:out_of_scope", "reason:source_
 export const REASONS = ["material", "primary_source", "new_information", "calendar_card", "below_materiality", "stale",
   "late_repost", "already_covered", "duplicate", "insufficient_evidence", "source_quality", "off_entity", "out_of_scope", "promotional"];
 
+// --- Floors (core.md section 6) -----------------------------------------------
+// Reads the floor table from the bundled core.md, so the API enforces exactly
+// the floors the grader reads: { id: { floor, fixed, undisclosed } }.
+//   fixed:       "75 fixed" (the score is the floor, not a minimum)
+//   undisclosed: the lower floor that applies while the value V is undisclosed
+export function parseFloors(coreMd) {
+  const text = String(coreMd || "").replace(/\r\n/g, "\n");
+  const start = text.search(/^## 6\.[^\n]*floors/im);
+  if (start === -1) return {};
+  const rest = text.slice(start + 1);
+  const end = rest.search(/^## /m);
+  const section = end === -1 ? rest : rest.slice(0, end);
+  const floors = {};
+  for (const m of section.matchAll(/^\|\s*`([a-z0-9_]+)`\s*\|([^\n]*)\|\s*(\d{1,3})\s*(fixed)?\s*\|\s*$/gm)) {
+    const undisclosed = /\((\d{1,3}) while V is undisclosed\)/i.exec(m[2]);
+    floors[m[1]] = { floor: Number(m[3]), fixed: Boolean(m[4]), undisclosed: undisclosed ? Number(undisclosed[1]) : null };
+  }
+  return floors;
+}
+
+// Floors never rescue these (core.md section 6), and a late first sighting is
+// capped at 79 instead (section 8), so no floor is enforced for them.
+const NO_FLOOR_REASONS = ["stale", "off_entity", "duplicate", "already_covered", "late_repost"];
+const NO_FLOOR_FLAGS = ["late_first_sighting", "archive_burst"];
+// floor:investor_day needs the company's own words (core.md section 6).
+export const INVESTOR_DAY_RE = /\b(?:investor|analyst)s?['’]?[\s-]+days?\b/i;
+// core.md section 5: unread SEC grades cap at 55 unless a floor applies by identifier.
+export const SEC_UNREAD_CAP = 55;
+const SEC_UNREAD_CONFIDENCE = 0.4;
+
+export function isSecItem(item) {
+  if (String(item?.source_key || "").startsWith("edgar_")) return true;
+  try { return /(^|\.)sec\.gov$/i.test(new URL(item?.url).hostname); } catch { return false; }
+}
+
+// Days between the event's published date and news-monitor's first sighting
+// (never the grading time), or null when either date is missing.
+export function sightingAgeDays(published, firstSeen) {
+  const pub = Date.parse(published || "");
+  const seen = Date.parse(firstSeen || "");
+  if (!Number.isFinite(pub) || !Number.isFinite(seen)) return null;
+  return Math.max(0, Math.round(((seen - pub) / 86_400_000) * 10) / 10);
+}
+// core.md section 8: late_first_sighting means the event was more than 21 days
+// old when first seen.
+export const LATE_SIGHTING_DAYS = 21;
+
 // Validates one grade (core rubric v3 output contract) against the item it
 // grades. Returns { ok: true, grade } or { ok: false, error }.
 //   alsoTicker: set for "123#TICKER" covered-to-covered grades.
 //   covered:    the covered ticker list.
-export function normalizeGrade(raw, item, alsoTicker = null, covered = null) {
+//   floors:     parseFloors(core.md); enables floor enforcement.
+// item carries id and ticker, and (for the timing, floor and SEC checks) title,
+// source_key, url, published and first_seen when known.
+export function normalizeGrade(raw, item, alsoTicker = null, covered = null, floors = null) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "grade must be an object" };
   if (!item) return { ok: false, error: "unknown item_id" };
   // "<id>#<the item's own ticker>" is the item's primary grade.
@@ -102,12 +152,57 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null) {
   }
   const why = clip(raw.why, 400);
   if (!why) return { ok: false, error: "why is required" };
+  const reason = reasons[0].slice(7);
+
+  // Timeliness runs from news-monitor's first sighting, never the grading time
+  // (core.md 4.5): a late_first_sighting flag needs the event to have been
+  // more than 21 days old when news-monitor first saw it.
+  const age = sightingAgeDays(item.published, item.first_seen);
+  if (flags.includes("late_first_sighting") && age != null && age <= LATE_SIGHTING_DAYS && !flags.includes("event_predates_publication")) {
+    return { ok: false, error: `late_first_sighting does not apply: item ${item.id} was first seen ${age} day(s) after its published date (published ${item.published}, first_seen ${item.first_seen}). Timeliness is measured from first sighting, not from grading time (core.md 4.5); regrade without the late penalty. Only if the event itself predates this record's publication by more than 21 days, keep the flag, add event_predates_publication and give the event date in why.` };
+  }
+
+  // floor:investor_day only when the company calls it an investor or analyst day.
+  if (flags.includes("floor:investor_day") && !INVESTOR_DAY_RE.test(String(item.title || ""))) {
+    return { ok: false, error: `floor:investor_day applies only when the company calls the event an investor or analyst day, and the title of item ${item.id} names neither. Grade a webcast, Q&A or presentation notice on its own terms (often reason:promotional) and drop the flag.` };
+  }
+
+  // Flagged floors are minimums (core.md section 6); unknown ids are ignored.
+  let floor = null, fixedFloor = false, floorId = null;
+  if (floors && !isDuplicate && !NO_FLOOR_REASONS.includes(reason) && !flags.some((f) => NO_FLOOR_FLAGS.includes(f))) {
+    for (const f of flags) {
+      if (!f.startsWith("floor:")) continue;
+      const def = floors[f.slice(6)];
+      if (!def) continue;
+      const value = def.undisclosed != null && num(raw.magnitude_usd) == null ? def.undisclosed : def.floor;
+      if (floor == null || value > floor) { floor = value; fixedFloor = def.fixed; floorId = f.slice(6); }
+      else if (value === floor && !def.fixed) fixedFloor = false;
+    }
+    if (floor != null && score < floor) {
+      return { ok: false, error: `score ${score} is below floor:${floorId} (${floor}${fixedFloor ? " fixed" : ""}, core.md section 6). Score at least the floor, or drop the flag if the floor does not apply.` };
+    }
+    if (floor != null && fixedFloor && score !== floor) {
+      return { ok: false, error: `floor:${floorId} is fixed at ${floor} (core.md section 6); score it ${floor}.` };
+    }
+  }
+
+  // Unread SEC filings: cap 55 unless a floor applies by identifier, then the
+  // floor itself; flag no_figures and confidence <= 0.4 (core.md section 5).
+  const unreadSec = !isDuplicate && !raw.read_source && isSecItem(item);
+  if (unreadSec) {
+    const cap = Math.max(SEC_UNREAD_CAP, floor ?? 0);
+    if (score > cap) { flags.push(`sec_unread_capped_from_${score}`); score = cap; }
+    if (!flags.includes("no_figures")) flags.push("no_figures");
+  }
+
   const band = isDuplicate ? "duplicate" : bandFor(score);
   if (rawBand && rawBand !== band) flags.push(`band_corrected_from_${rawBand}`);
   const dupFlag = flags.find((f) => f.startsWith("dup_of:"));
   let confidence = num(raw.confidence);
-  // core.md section 10: confidence <= 0.5 when the source was not read.
-  if (!raw.read_source && confidence != null && confidence > 0.5) { confidence = 0.5; flags.push("confidence_capped"); }
+  // core.md section 10: confidence <= 0.5 when the source was not read
+  // (<= 0.4 for an unread SEC filing, section 5).
+  const confCap = unreadSec ? SEC_UNREAD_CONFIDENCE : 0.5;
+  if (!raw.read_source && confidence != null && confidence > confCap) { confidence = confCap; flags.push("confidence_capped"); }
   return {
     ok: true,
     grade: {
@@ -152,6 +247,42 @@ export function skipReason(row) {
   const seen = Date.parse(row.first_seen);
   if (!Number.isFinite(pub) || !Number.isFinite(seen)) return null;
   return seen - pub > STALE_DAYS * 86_400_000 ? "stale_on_arrival" : null;
+}
+
+// Day-one archive rows (core.md section 8, archive bursts): a row with no
+// published date, or one published more than STALE_DAYS before news-monitor
+// first saw it. ARCHIVE_SEED_MIN or more of them from one source sharing one
+// first_seen are a seed or backfill of old pages, parked as 'archive_seed'.
+export const ARCHIVE_SEED_MIN = 5;
+export function isArchiveCandidate(row) {
+  if (!row.published) return true;
+  const pub = Date.parse(row.published);
+  const seen = Date.parse(row.first_seen);
+  if (!Number.isFinite(pub)) return true;
+  return Number.isFinite(seen) && seen - pub > STALE_DAYS * 86_400_000;
+}
+export const archiveGroupKey = (sourceKey, firstSeen) => `${sourceKey}\u0000${firstSeen}`;
+// rows: this batch's rows; stored: Map(groupKey -> archive candidates already in
+// zenith-db). Returns the set of group keys to park.
+export function archiveSeedGroups(rows, stored = new Map()) {
+  const counts = new Map();
+  for (const r of rows) {
+    if (!isArchiveCandidate(r)) continue;
+    const k = archiveGroupKey(r.source_key, r.first_seen);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  const park = new Set();
+  for (const [k, n] of counts) if (n + (stored.get(k) || 0) >= ARCHIVE_SEED_MIN) park.add(k);
+  return park;
+}
+
+// The event date to show next to a feed item: its published day, when that is
+// more than a day before news-monitor first saw it (else null).
+export function olderEventDate(published, firstSeen) {
+  const pub = Date.parse(published || "");
+  const seen = Date.parse(firstSeen || "");
+  if (!Number.isFinite(pub) || !Number.isFinite(seen) || seen - pub <= 86_400_000) return null;
+  return new Date(pub).toISOString().slice(0, 10);
 }
 
 // --- Counterparty sources ---------------------------------------------------

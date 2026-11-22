@@ -6,8 +6,8 @@
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
-import { enrich } from "./excerpt.js";
-import { json, roleFor, nowIso, normalizeGrade, parseItemRef, chunk, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { enrich, refreshSecExcerpts } from "./excerpt.js";
+import { json, roleFor, nowIso, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -26,6 +26,9 @@ const ALLOW = {
 async function readJson(request) {
   try { return await request.json(); } catch { return null; }
 }
+
+// core.md section 6, read from the bundled rubric: the floors normalizeGrade enforces.
+const FLOORS = parseFloors(CORE);
 
 const ITEM_COLS = `i.id AS item_id, i.ticker, i.source_key, i.title, i.url, i.published, i.category,
   i.nm_first_seen AS first_seen, i.nm_notified, i.state, i.skip_reason, i.attempts, i.role, i.affects`;
@@ -51,6 +54,8 @@ async function claim(env, body) {
   const items = (await env.DB.prepare(
     `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
   ).bind(claimId).all()).results || [];
+  // Timeliness is measured from first sighting, never from grading time.
+  for (const it of items) it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
   await env.DB.prepare(
     `INSERT INTO runs (id, started_at, last_seen_at, claimed, rubric_version, model) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at, claimed=runs.claimed+excluded.claimed`,
@@ -71,7 +76,8 @@ async function submitGrades(env, body, role) {
   for (const part of chunk(ids)) {
     const ph = part.map(() => "?").join(",");
     for (const r of (await env.DB.prepare(
-      `SELECT i.id, i.ticker, i.state, i.claim_id, g.run_id AS primary_run FROM items i LEFT JOIN grades g ON g.id = i.grade_id WHERE i.id IN (${ph})`,
+      `SELECT i.id, i.ticker, i.state, i.claim_id, i.title, i.source_key, i.url, i.published, i.nm_first_seen AS first_seen, g.run_id AS primary_run
+         FROM items i LEFT JOIN grades g ON g.id = i.grade_id WHERE i.id IN (${ph})`,
     ).bind(...part).all()).results || []) items.set(r.id, r);
     if (runId) {
       for (const r of (await env.DB.prepare(`SELECT item_id, ticker FROM grades WHERE run_id = ? AND item_id IN (${ph})`).bind(runId, ...part).all()).results || []) {
@@ -87,7 +93,7 @@ async function submitGrades(env, body, role) {
   for (const raw of body.grades) {
     const ref = parseItemRef(raw?.item_id);
     const item = ref ? items.get(ref.id) : undefined;
-    const res = normalizeGrade(raw, item, ref?.alsoTicker || null, COVERED.tickers);
+    const res = normalizeGrade(raw, item, ref?.alsoTicker || null, COVERED.tickers, FLOORS);
     if (!res.ok) { rejected.push({ item_id: raw?.item_id ?? null, error: res.error }); continue; }
     const g = res.grade;
     const key = `${item.id}|${g.ticker}`;
