@@ -392,12 +392,15 @@ const isSecUrl = (u) => /(^|\.)sec\.gov$/i.test(u.hostname);
 const SEC_GAP_MS = 150;
 const SEC_LEASE_KEY = "sec_refresh_until";
 const SEC_LEASE_MS = 120_000;
+// The gap runs from the previous request's actual start: a waiter that wakes
+// late, or alongside another, checks again before it goes.
 let secNextStart = 0;
 async function secPace() {
-  const now = Date.now();
-  const at = Math.max(now, secNextStart);
-  secNextStart = at + SEC_GAP_MS;
-  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+  for (;;) {
+    const now = Date.now();
+    if (now >= secNextStart) { secNextStart = now + SEC_GAP_MS; return; }
+    await new Promise((resolve) => setTimeout(resolve, secNextStart - now));
+  }
 }
 
 // One page: { status: "ok", html } or { status: http_<code> | skipped_* | error* }.
