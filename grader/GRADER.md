@@ -53,9 +53,11 @@ the analyst has to fix the environment. Do not retry in a loop.
      source. Grade it only through core.md section 9 ("Counterparty sources"); add
      `"<item_id>#<TICKER>"` grades for other tickers in `affects` that it also passes.
    - **Sources:** each claimed item may carry the text of its release or filing
-     (`EXCERPT (ok)`): the lead and the sentences with figures, and for an SEC filing
-     its Item text plus the Ex-99.1 release. That excerpt is the captured source text;
-     set `read_source: true` when the facts you graded on are in it.
+     (`EXCERPT (ok)`, or `EXCERPT (feed)` when it came from the company's own feed,
+     `EXCERPT (pdf)` when it was read from the deck, letter or stats sheet): the lead
+     and the sentences with figures, and for an SEC filing its Item text plus the
+     Ex-99.1 release. That excerpt is the captured source text; set
+     `read_source: true` when the facts you graded on are in it.
    - **Open the source before a 70+ grade without figures.** If a results, guidance,
      order or investor-day item would score 70 or more and its excerpt has no figures
      (or there is no excerpt), open the item's URL with WebFetch before grading,
