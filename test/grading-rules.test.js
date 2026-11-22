@@ -2,7 +2,7 @@
 // flag (core.md sections 4.5, 5, 6 and 8), as normalizeGrade enforces them.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeGrade, parseFloors, sightingAgeDays, isSecItem, olderEventDate, archiveSeedGroups, isArchiveCandidate } from "../worker/src/lib.js";
+import { normalizeGrade, parseFloors, sightingAgeDays, isSecItem, olderEventDate, archiveSeedGroups, isArchiveCandidate, LABELS } from "../worker/src/lib.js";
 import { CORE } from "../worker/src/rubric.generated.js";
 
 const FLOORS = parseFloors(CORE);
@@ -109,6 +109,10 @@ test("unread SEC grades cap at 55 unless a floor applies by identifier", () => {
   assert.equal(normalizeGrade(grade({ score: 82, read_source: true }), mbai, null, null, FLOORS).grade.score, 82);
   // Duplicates are untouched.
   assert.equal(normalizeGrade({ score: null, band: "duplicate", why: "Same as release", read_source: false, flags: ["reason:duplicate", "dup_of:20"] }, mbai, null, null, FLOORS).grade.score, null);
+});
+
+test("labels include the directional too_high and too_low", () => {
+  assert.deepEqual(LABELS, ["high", "medium", "low", "noise", "too_high", "too_low"]);
 });
 
 test("feed shows the event date only when it is over a day older than first sighting", () => {

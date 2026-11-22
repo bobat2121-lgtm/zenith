@@ -1,7 +1,7 @@
 // zenith-core — graded research feed for the covered universe.
 //   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts
 //   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers], GET /v1/labels, GET /v1/recent
-//   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/rubric
+//   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue (and grade without a claim)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS } from "./rubric.generated.js";
@@ -12,9 +12,9 @@ import { json, roleFor, nowIso, normalizeGrade, parseItemRef, chunk, parseFloors
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
   "POST /v1/grades": ["grader", "admin"],
-  "GET /v1/labels": ["grader", "app", "admin"],
-  "GET /v1/recent": ["grader", "app", "admin"],
-  "GET /v1/rubric": ["grader", "app", "admin"],
+  "GET /v1/labels": ["grader", "admin"],
+  "GET /v1/recent": ["grader", "admin"],
+  "GET /v1/rubric": ["grader", "admin"],
   "GET /v1/feed": ["app", "admin"],
   "POST /v1/feedback": ["app", "admin"],
   "GET /v1/stats": ["grader", "app", "admin"],
@@ -131,71 +131,122 @@ async function submitGrades(env, body, role) {
   return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted });
 }
 
+// The grade an item shows under a ticker: the primary grade for the item's own
+// ticker, else the latest grade for that ticker from the same grading pass as
+// the primary grade (so retracted cross-ticker grades drop out).
+const SHOWN_GRADE = `(SELECT MAX(gt.id) FROM grades gt WHERE gt.item_id = i.id AND gt.ticker = ?
+         AND (gt.ticker = i.ticker OR gt.run_id IS (SELECT run_id FROM grades WHERE id = i.grade_id)))`;
+
+// Lead items first seen in the last PIN_LEAD_HOURS come first, then newest.
+const PIN_LEAD_HOURS = 72;
+
 async function feed(env, url) {
   const q = url.searchParams;
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 50));
   const where = [], binds = [];
   const ticker = (q.get("ticker") || "").toUpperCase();
-  // With a ticker filter, show that ticker's grade (from the same grading pass
-  // as the item's primary grade, so retracted cross-ticker grades drop out).
-  const gradeJoin = ticker
-    ? `LEFT JOIN grades g ON g.id = (SELECT MAX(gt.id) FROM grades gt WHERE gt.item_id = i.id AND gt.ticker = ?
-         AND (gt.ticker = i.ticker OR gt.run_id IS (SELECT run_id FROM grades WHERE id = i.grade_id)))`
-    : "LEFT JOIN grades g ON g.id = i.grade_id";
+  const gradeJoin = ticker ? `LEFT JOIN grades g ON g.id = ${SHOWN_GRADE}` : "LEFT JOIN grades g ON g.id = i.grade_id";
   const joinBinds = ticker ? [ticker] : [];
+  // order=newest (or pin_lead_hours=0) turns Lead pinning off.
+  const pinParam = Number(q.get("pin_lead_hours") ?? PIN_LEAD_HOURS);
+  const pinHours = q.get("order") === "newest" ? 0 : Math.max(0, Math.min(24 * 30, Number.isFinite(pinParam) ? pinParam : PIN_LEAD_HOURS));
+  const pinSince = nowIso(Date.now() - pinHours * 3_600_000);
+  // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
+  const PINNED = pinHours > 0 ? "(CASE WHEN g.band = 'lead' AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)" : "0";
+  const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
   const before = Number(q.get("before_id"));
-  if (Number.isInteger(before) && before > 0) { where.push("i.id < ?"); binds.push(before); }
+  if (Number.isInteger(before) && before > 0) {
+    // Later pages continue the newest-first list; pinned Leads were on page one.
+    where.push("i.id < ?"); binds.push(before);
+    if (pinHours > 0) { where.push(`NOT ${PINNED}`); binds.push(pinSince); }
+  }
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
   const minScore = Number(q.get("min_score"));
   if (q.get("min_score") !== null && Number.isFinite(minScore)) { where.push("g.score >= ?"); binds.push(minScore); }
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
-  if (q.get("unlabeled") === "1") where.push("NOT EXISTS (SELECT 1 FROM feedback f WHERE f.item_id = i.id)");
+  // Labels belong to the grade shown: the item under the ticker it is shown for.
+  const LABEL_OF = "f.item_id = i.id AND f.ticker = COALESCE(g.ticker, i.ticker)";
+  if (q.get("unlabeled") === "1") where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
   const sql = `SELECT ${ITEM_COLS}, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score, g.band, g.rung,
       g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct, g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source,
-      g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of,
+      g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned,
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
         WHERE gx.item_id = i.id AND g.id IS NOT NULL AND gx.ticker != g.ticker AND gx.run_id IS g.run_id) AS also,
-      (SELECT label FROM feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label,
-      (SELECT note FROM feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label_note
+      (SELECT label FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label,
+      (SELECT note FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label_note
     FROM items i ${gradeJoin}
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
-    ORDER BY i.id DESC LIMIT ?`;
-  const rows = (await env.DB.prepare(sql).bind(...joinBinds, ...binds, limit).all()).results || [];
+    ORDER BY pinned DESC, i.id DESC LIMIT ?`;
+  const rows = (await env.DB.prepare(sql).bind(...pinBinds, ...joinBinds, ...binds, limit).all()).results || [];
   for (const r of rows) {
     r.thesis_drivers = r.thesis_drivers ? JSON.parse(r.thesis_drivers) : [];
     r.flags = r.flags ? JSON.parse(r.flags) : [];
+    r.pinned = r.pinned ? 1 : 0;
+    // The event date, when it is older than news-monitor's first sighting.
+    r.event_date = olderEventDate(r.published, r.first_seen);
   }
-  return json({ items: rows, next_before_id: rows.length === limit ? rows[rows.length - 1].item_id : null });
+  let next = null;
+  if (rows.length === limit) {
+    const unpinned = rows.filter((r) => !r.pinned);
+    // A page of pinned Leads only: the newest-first list starts from the top.
+    next = unpinned.length ? unpinned[unpinned.length - 1].item_id : Number.MAX_SAFE_INTEGER;
+  }
+  return json({ items: rows, next_before_id: next });
 }
 
+// Records a label against the grade being shown: grade_id, or ticker (that
+// ticker's grade of the item, as the feed shows it), else the primary grade.
 async function feedback(env, body) {
   const itemId = Number(body?.item_id);
   const label = String(body?.label || "").toLowerCase();
   if (!Number.isInteger(itemId)) return json({ error: "item_id required" }, 400);
   if (!LABELS.includes(label)) return json({ error: `label must be one of ${LABELS.join(", ")}` }, 400);
-  const item = await env.DB.prepare("SELECT id, grade_id FROM items WHERE id = ?").bind(itemId).first();
+  const item = await env.DB.prepare("SELECT id, ticker, grade_id FROM items WHERE id = ?").bind(itemId).first();
   if (!item) return json({ error: "unknown item" }, 404);
+  const ticker = body?.ticker ? String(body.ticker).toUpperCase() : null;
+  let grade = null;
+  if (body?.grade_id != null && body.grade_id !== "") {
+    const gradeId = Number(body.grade_id);
+    if (!Number.isInteger(gradeId)) return json({ error: "grade_id must be an integer" }, 400);
+    grade = await env.DB.prepare("SELECT id, ticker, score FROM grades WHERE id = ? AND item_id = ?").bind(gradeId, itemId).first();
+    if (!grade) return json({ error: `grade ${gradeId} is not a grade of item ${itemId}` }, 404);
+    if (ticker && grade.ticker !== ticker) return json({ error: `grade ${gradeId} is for ${grade.ticker}, not ${ticker}` }, 400);
+  } else if (ticker && ticker !== item.ticker) {
+    grade = await env.DB.prepare(`SELECT g.id, g.ticker, g.score FROM items i JOIN grades g ON g.id = ${SHOWN_GRADE} WHERE i.id = ?`)
+      .bind(ticker, itemId).first();
+    if (!grade) return json({ error: `item ${itemId} has no ${ticker} grade` }, 404);
+  } else if (item.grade_id != null) {
+    grade = await env.DB.prepare("SELECT id, ticker, score FROM grades WHERE id = ?").bind(item.grade_id).first();
+  }
+  // "Too high" / "too low" compare against a score, so they need one.
+  if ((label === "too_high" || label === "too_low") && grade?.score == null) {
+    return json({ error: `${label} needs a scored grade to compare against` }, 400);
+  }
+  const labelTicker = grade?.ticker ?? item.ticker;
   const note = body?.note ? String(body.note).slice(0, 1000) : null;
-  const res = await env.DB.prepare("INSERT INTO feedback (item_id, label, note, grade_id, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(itemId, label, note, item.grade_id, nowIso()).run();
-  return json({ ok: true, feedback_id: res.meta.last_row_id });
+  const res = await env.DB.prepare("INSERT INTO feedback (item_id, label, note, grade_id, ticker, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(itemId, label, note, grade?.id ?? null, labelTicker, nowIso()).run();
+  return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: grade?.id ?? null, ticker: labelTicker });
 }
 
-// Latest label per item only (a corrected label supersedes the earlier one),
-// with the grade shown when labelled and the item's current grade.
+// Latest label per item and ticker (a corrected label supersedes the earlier
+// one), with the grade shown when labelled and that ticker's current grade.
 async function labels(env, url) {
   const since = url.searchParams.get("since") || "1970-01-01";
   const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit")) || 200));
   const rows = (await env.DB.prepare(
-    `SELECT f.id AS feedback_id, f.label, f.note, f.created_at, i.id AS item_id, i.ticker, i.title, i.url, i.source_key,
+    `SELECT f.id AS feedback_id, f.label, f.note, f.created_at, i.id AS item_id, COALESCE(f.ticker, i.ticker) AS ticker,
+            i.ticker AS item_ticker, i.title, i.url, i.source_key,
             g.score AS graded_score, g.band AS graded_band, g.why AS graded_why,
             cg.score AS current_score, cg.band AS current_band
        FROM feedback f JOIN items i ON i.id = f.item_id
-       LEFT JOIN grades g ON g.id = f.grade_id LEFT JOIN grades cg ON cg.id = i.grade_id
-      WHERE f.id IN (SELECT MAX(id) FROM feedback GROUP BY item_id) AND f.created_at >= ?
+       LEFT JOIN grades g ON g.id = f.grade_id
+       LEFT JOIN grades cg ON cg.id = CASE WHEN f.ticker IS NULL OR f.ticker = i.ticker THEN i.grade_id
+                                           ELSE (SELECT MAX(x.id) FROM grades x WHERE x.item_id = i.id AND x.ticker = f.ticker) END
+      WHERE f.id IN (SELECT MAX(id) FROM feedback GROUP BY item_id, ticker) AND f.created_at >= ?
       ORDER BY f.id DESC LIMIT ?`,
   ).bind(since, limit).all()).results || [];
   return json({ labels: rows });
@@ -243,6 +294,64 @@ function rubric(url) {
   return json({ rubric_version: RUBRIC_VERSION, core: CORE, tickers: Object.keys(COMPANIES).sort(), has_peers: Boolean(PEERS) });
 }
 
+// Admin requeue (POST /v1/admin/requeue), one of:
+//   { item_ids: [..] }  those items go back to pending.
+//   { mode: "late_flags", graded_on: "2026-11-19" | graded_from, graded_to, dry_run }
+//     Primary grades in that window flagged late_first_sighting or reason:stale
+//     whose item news-monitor first saw within 21 days of its published date:
+//     the grading clock, not the sighting, made them late (core.md 4.5).
+//     late_first_sighting also requeues undated items; archive bursts are kept.
+//   { mode: "sec_excerpts", limit, since, include_duplicates, dry_run }
+//     Clears and refetches sec.gov excerpts (graded items included), then
+//     requeues the items it read. Needs CONTACT_EMAIL; call until remaining is 0.
+const LATE_FLAG_BACKFILL_DAY = "2026-11-19";
+
+async function requeueIds(env, ids) {
+  let requeued = 0;
+  for (const part of chunk(ids)) {
+    const ph = part.map(() => "?").join(",");
+    const r = await env.DB.prepare(`UPDATE items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=0 WHERE id IN (${ph})`).bind(...part).run();
+    requeued += r.meta.changes;
+  }
+  return requeued;
+}
+
+async function requeueLateFlags(env, body) {
+  const day = String(body?.graded_on || LATE_FLAG_BACKFILL_DAY).slice(0, 10);
+  const dayEnd = Date.parse(`${day}T00:00:00Z`) + 86_400_000;
+  const from = body?.graded_from ? String(body.graded_from) : day;
+  const to = body?.graded_to ? String(body.graded_to) : Number.isFinite(dayEnd) ? nowIso(dayEnd) : "";
+  if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to))) return json({ error: "graded_on (YYYY-MM-DD), graded_from and graded_to must be dates" }, 400);
+  const rows = (await env.DB.prepare(
+    `SELECT i.id AS item_id, i.ticker, i.title, i.published, i.nm_first_seen AS first_seen, g.score, g.band, g.flags, g.graded_at
+       FROM items i JOIN grades g ON g.id = i.grade_id
+      WHERE i.state = 'graded' AND g.graded_at >= ? AND g.graded_at < ?
+        AND (g.flags LIKE '%"late_first_sighting"%' OR g.flags LIKE '%"reason:stale"%')
+        AND g.flags NOT LIKE '%"archive_burst"%'
+      ORDER BY i.id LIMIT 1000`,
+  ).bind(from, to).all()).results || [];
+  const picked = rows.filter((r) => {
+    const age = sightingAgeDays(r.published, r.first_seen);
+    if (age == null) return r.flags.includes('"late_first_sighting"');
+    return age <= 21;
+  }).map((r) => ({ item_id: r.item_id, ticker: r.ticker, score: r.score, band: r.band, seen_after_days: sightingAgeDays(r.published, r.first_seen),
+    flags: JSON.parse(r.flags).filter((f) => f === "late_first_sighting" || f === "reason:stale"), title: r.title }));
+  const requeued = body?.dry_run ? 0 : await requeueIds(env, picked.map((r) => r.item_id));
+  return json({ mode: "late_flags", graded_from: from, graded_to: to, matched: picked.length, considered: rows.length, requeued, dry_run: Boolean(body?.dry_run), items: picked.slice(0, 200) });
+}
+
+async function requeue(env, body) {
+  if (body?.mode === "late_flags") return requeueLateFlags(env, body);
+  if (body?.mode === "sec_excerpts") {
+    const r = await refreshSecExcerpts(env, body);
+    return json(r, r.error ? 409 : 200);
+  }
+  if (body?.mode) return json({ error: "mode must be late_flags or sec_excerpts (or pass item_ids)" }, 400);
+  const ids = (body?.item_ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
+  if (!ids.length) return json({ error: "item_ids required" }, 400);
+  return json({ requeued: await requeueIds(env, ids) });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -264,18 +373,7 @@ export default {
       case "GET /v1/stats": return stats(env);
       case "POST /v1/admin/ingest": return json(await ingest(env));
       case "POST /v1/admin/enrich": return json(await enrich(env));
-      case "POST /v1/admin/requeue": {
-        const body = await readJson(request);
-        const ids = (body?.item_ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
-        if (!ids.length) return json({ error: "item_ids required" }, 400);
-        let requeued = 0;
-        for (const part of chunk(ids)) {
-          const ph = part.map(() => "?").join(",");
-          const r = await env.DB.prepare(`UPDATE items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=0 WHERE id IN (${ph})`).bind(...part).run();
-          requeued += r.meta.changes;
-        }
-        return json({ requeued });
-      }
+      case "POST /v1/admin/requeue": return requeue(env, await readJson(request));
     }
     return json({ error: "not found" }, 404);
   },

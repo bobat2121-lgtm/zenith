@@ -6,7 +6,9 @@ export const BANDS = [
   { band: "borderline", min: 40 },
   { band: "reject", min: 0 },
 ];
-export const LABELS = ["high", "medium", "low", "noise"];
+// Analyst labels: absolute ranges (high/medium/low/noise) and directional ones
+// (too_high/too_low: the score shown when labelled should have been lower/higher).
+export const LABELS = ["high", "medium", "low", "noise", "too_high", "too_low"];
 export const MAX_CLAIM = 60;
 export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;
