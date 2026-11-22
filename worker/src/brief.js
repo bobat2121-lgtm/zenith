@@ -13,8 +13,12 @@ import { discordSendAll, escapeMd, clip, link, figures, bandName, splitMessages 
 import { CALENDAR, CALENDAR_VERSION } from "./calendar.generated.js";
 import { briefCatalysts, gradedNotices, upcoming } from "./calendar.js";
 
-export const REPORT_CRONS = ["0 11,12 * * *", "30 21,22 * * *", "0 12,13 * * 1"];
-export const isReportCron = (cron) => REPORT_CRONS.includes(String(cron || "").trim());
+// Cloudflare numbers weekdays 1 = Sunday to 7 = Saturday, so the Monday cron uses
+// the day name, which means Monday in every cron dialect.
+export const REPORT_CRONS = ["0 11,12 * * *", "30 21,22 * * *", "0 12,13 * * mon"];
+const normCron = (c) => String(c || "").trim().toLowerCase().replace(/\s+/g, " ");
+const CRON_ALIASES = { "0 12,13 * * 2": "0 12,13 * * mon" }; // the same trigger if Cloudflare reports it numerically
+export const isReportCron = (cron) => REPORT_CRONS.includes(CRON_ALIASES[normCron(cron)] || normCron(cron));
 export const SLOTS = [
   { kind: "brief_am", hour: 7, minute: 0, hook: "DISCORD_BRIEF_WEBHOOK" },
   { kind: "brief_pm", hour: 17, minute: 30, hook: "DISCORD_BRIEF_WEBHOOK" },

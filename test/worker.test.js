@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { D1, addItem, addGrade, fakeFetch } from "./helpers/d1.js";
 import { loadWorker } from "./helpers/worker.js";
-import { etToUtc } from "../worker/src/et.js";
-import { isReportCron, REPORT_CRONS } from "../worker/src/brief.js";
+import { etToUtc, etParts, addDays } from "../worker/src/et.js";
+import { isReportCron, REPORT_CRONS, SLOTS, slotsAt } from "../worker/src/brief.js";
 import { readFileSync } from "node:fs";
 
 const worker = await loadWorker();
@@ -94,4 +94,45 @@ test("every report cron in wrangler.toml is recognised, and the 5-minute cron is
   for (const c of REPORT_CRONS) assert.ok(crons.includes(c), `${c} in wrangler.toml`);
   assert.equal(isReportCron("*/5 * * * *"), false);
   assert.equal(crons.filter(isReportCron).length, REPORT_CRONS.length);
+});
+
+// Cloudflare cron semantics: weekdays run 1 = Sunday to 7 = Saturday, or names.
+const CF_DAYS = { sun: 1, mon: 2, tue: 3, wed: 4, thu: 5, fri: 6, sat: 7 };
+function cfFires(cron, ms) {
+  const [min, hour, dom, mon, dow] = cron.trim().split(/\s+/);
+  const d = new Date(ms);
+  const field = (f, v, names) => f === "*" || f.split(",").some((part) => {
+    if (part.startsWith("*/")) return v % Number(part.slice(2)) === 0;
+    const [a, b] = part.split("-").map((x) => names?.[x.toLowerCase()] ?? Number(x));
+    return b == null ? v === a : v >= a && v <= b;
+  });
+  return field(min, d.getUTCMinutes()) && field(hour, d.getUTCHours()) && field(dom, d.getUTCDate())
+    && field(mon, d.getUTCMonth() + 1) && field(dow, d.getUTCDay() + 1, CF_DAYS);
+}
+
+test("each report slot has a dedicated cron firing at its ET time, on the right weekday, in EST and EDT", () => {
+  const toml = readFileSync(new URL("../worker/wrangler.toml", import.meta.url), "utf8");
+  const reportCrons = JSON.parse(/^crons\s*=\s*(\[.*\])/m.exec(toml)[1]).filter(isReportCron);
+  assert.equal(cfFires("0 17 * * 1", Date.UTC(2026, 10, 22, 17, 0)), true, "Cloudflare's own example: 1 is Sunday");
+  for (const start of ["2026-11-23", "2026-06-29"]) { // a winter (EST) and a summer (EDT) week, Monday first
+    for (let k = 0; k < 7; k++) {
+      const date = addDays(start, k);
+      const weekday = etParts(etToUtc(date, 12, 0)).weekday;
+      for (const s of SLOTS) {
+        if (s.weekday != null && s.weekday !== weekday) continue;
+        const at = etToUtc(date, s.hour, s.minute);
+        assert.ok(reportCrons.some((c) => cfFires(c, at)), `${s.kind} on ${date}: a cron fires at ${new Date(at).toISOString()}`);
+        assert.ok(slotsAt(at).some((x) => x.kind === s.kind), `${s.kind} on ${date} is that firing's slot`);
+      }
+    }
+  }
+  const calibration = REPORT_CRONS.find((c) => /\* \* \S+$/.test(c) && !/\* \* \*$/.test(c));
+  for (let h = 0; h < 14 * 24; h++) {
+    const t = Date.UTC(2026, 10, 22, 0, 0) + h * 3_600_000;
+    if (cfFires(calibration, t)) assert.equal(etParts(t).weekday, 1, `${calibration} fires only on Mondays ET (${new Date(t).toISOString()})`);
+  }
+  assert.equal(isReportCron("0 12,13 * * MON"), true);
+  assert.equal(isReportCron(" 30  21,22 * * * "), true, "spacing does not matter");
+  assert.equal(isReportCron("*/5 * * * *"), false);
+  assert.equal(isReportCron("0 12,13 * * 2"), true, "the same trigger in numeric form");
 });

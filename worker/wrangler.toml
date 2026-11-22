@@ -9,9 +9,10 @@ workers_dev = true
 # Reports fire at both the EST and the EDT candidate UTC time; src/brief.js keeps
 # the one that is the slot's America/New_York wall time:
 #   07:00 ET brief = 11:00 / 12:00 UTC, 17:30 ET brief = 21:30 / 22:30 UTC,
-#   Monday 08:00 ET calibration report = 12:00 / 13:00 UTC.
+#   Monday 08:00 ET calibration report = 12:00 / 13:00 UTC on Mondays. Cloudflare
+#   numbers weekdays 1 = Sunday to 7 = Saturday, so that cron names the day ("mon").
 [triggers]
-crons = ["*/5 * * * *", "0 11,12 * * *", "30 21,22 * * *", "0 12,13 * * 1"]
+crons = ["*/5 * * * *", "0 11,12 * * *", "30 21,22 * * *", "0 12,13 * * mon"]
 
 # zenith-db: items, grades, feedback (labels), runs.
 [[d1_databases]]
