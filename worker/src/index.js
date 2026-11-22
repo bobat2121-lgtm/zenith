@@ -8,6 +8,9 @@ import { RUBRIC_VERSION, CORE, COMPANIES, PEERS } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
 import { enrich } from "./excerpt.js";
 import { json, roleFor, nowIso, normalizeGrade, parseItemRef, chunk, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { deliveryTick } from "./delivery.js";
+import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
+import { mobile } from "./mobile.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -18,6 +21,9 @@ const ALLOW = {
   "GET /v1/feed": ["app", "admin"],
   "POST /v1/feedback": ["app", "admin"],
   "GET /v1/stats": ["grader", "app", "admin"],
+  "GET /v1/brief": ["app", "admin"],
+  "GET /v1/calendar": ["grader", "app", "admin"],
+  "GET /v1/calibration": ["grader", "app", "admin"],
   "POST /v1/admin/ingest": ["admin"],
   "POST /v1/admin/enrich": ["admin"],
   "POST /v1/admin/requeue": ["admin"],
@@ -241,6 +247,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true, service: "zenith-core", rubric_version: RUBRIC_VERSION });
+    if (url.pathname === "/m" || url.pathname.startsWith("/m/")) {
+      return mobile(request, env, url, { feedback: (body) => feedback(env, body), tickers: COVERED.tickers });
+    }
     const routeKey = `${request.method} ${url.pathname.startsWith("/v1/rubric") ? "/v1/rubric" : url.pathname}`;
     const allowed = ALLOW[routeKey];
     if (!allowed) return json({ error: "not found" }, 404);
@@ -256,6 +265,9 @@ export default {
       case "GET /v1/feed": return feed(env, url);
       case "POST /v1/feedback": return feedback(env, await readJson(request));
       case "GET /v1/stats": return stats(env);
+      case "GET /v1/brief": return briefRoute(env, COVERED, url);
+      case "GET /v1/calendar": return calendarRoute(env, url);
+      case "GET /v1/calibration": return calibrationRoute(env);
       case "POST /v1/admin/ingest": return json(await ingest(env));
       case "POST /v1/admin/enrich": return json(await enrich(env));
       case "POST /v1/admin/requeue": {
@@ -273,10 +285,16 @@ export default {
     }
     return json({ error: "not found" }, 404);
   },
-  async scheduled(_event, env, ctx) {
+  async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
+      // Brief and calibration crons (both EST and EDT candidates; brief.js keeps the right one).
+      if (isReportCron(event.cron)) {
+        try { console.log("reports", JSON.stringify(await runReportSlots(env, COVERED, event.scheduledTime))); } catch (e) { console.error("reports failed", e?.stack || e); }
+        return;
+      }
       try { console.log("ingest", JSON.stringify(await ingest(env))); } catch (e) { console.error("ingest failed", e?.stack || e); }
       try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
+      try { console.log("delivery", JSON.stringify(await deliveryTick(env, COVERED))); } catch (e) { console.error("delivery failed", e?.stack || e); }
     })());
   },
 };

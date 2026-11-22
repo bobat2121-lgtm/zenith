@@ -3,10 +3,15 @@ main = "src/index.js"
 compatibility_date = "2026-07-09"
 workers_dev = true
 
-# Ingest covered-lane items from news-monitor every 5 minutes. Grading happens
-# in the hourly Claude routine (rubric served by this Worker).
+# Ingest covered-lane items from news-monitor every 5 minutes (then Lead push,
+# grader heartbeat and report catch-up). Grading happens in the hourly Claude
+# routine (rubric served by this Worker).
+# Reports fire at both the EST and the EDT candidate UTC time; src/brief.js keeps
+# the one that is the slot's America/New_York wall time:
+#   07:00 ET brief = 11:00 / 12:00 UTC, 17:30 ET brief = 21:30 / 22:30 UTC,
+#   Monday 08:00 ET calibration report = 12:00 / 13:00 UTC.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "0 11,12 * * *", "30 21,22 * * *", "0 12,13 * * 1"]
 
 # zenith-db: items, grades, feedback (labels), runs.
 [[d1_databases]]
@@ -21,6 +26,13 @@ binding = "NEWS"
 database_name = "news-monitor-db"
 database_id = "d9217220-a23b-4715-b4ab-c7ddd057415c"
 
+# Delivery (each channel is a no-op until its secret is set):
+#   DISCORD_LEAD_WEBHOOK  (secret) Lead pushes, edited on re-grade
+#   DISCORD_BRIEF_WEBHOOK (secret) 07:00 and 17:30 ET briefs
+#   DISCORD_OPS_WEBHOOK   (secret) grader heartbeat alerts, Monday calibration report
+#   ZENITH_PUBLIC_URL     (var, optional) https origin of this Worker, for label links in posts
+#   ACCESS_TEAM_DOMAIN, ACCESS_AUD (vars) Cloudflare Access team domain and the /m
+#     application's AUD tag; until both are set, GET /m accepts only the APP_TOKEN bearer.
 # Secrets (wrangler secret put): ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN
 # Optional secret CONTACT_EMAIL: SEC's fair-access policy requires a contact
 # email in the User-Agent. Until it is set, sec.gov items get no excerpt (they
