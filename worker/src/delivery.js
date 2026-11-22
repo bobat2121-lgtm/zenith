@@ -14,10 +14,14 @@ import { catchUpReports, CURRENT_GRADE as CURRENT } from "./brief.js";
 export const LEAD_MIN = 90;
 export const OWN_DIGEST_PUSH_MIN = 85;
 export const LEAD_FRESH_HOURS = 72;     // a first post needs an item first seen this recently
+// ...and first seen within this long of its published date. news-monitor stores
+// history it surfaces late (a widened filter's silentBefore items, a seed poll's
+// older items) as already notified; this keeps the Lead channel from replaying it.
+export const LEAD_MAX_LAG_HOURS = 72;
 const EDIT_WINDOW_DAYS = 14;            // re-grades edit messages up to this old
 const MAX_SENDS_PER_TICK = 8;
 const CLAIM_MINUTES = 3;
-const MAX_POST_ATTEMPTS = 4;
+const MAX_POST_ATTEMPTS = 4;            // failures in a row (429s not counted) before a row waits for a new grade
 const HOUR = 3_600_000;
 
 // CURRENT: the grade that is current for (item, ticker): the item's primary
@@ -95,16 +99,18 @@ async function claimExisting(db, row, nowS, until) {
   return r.meta.changes === 1;
 }
 
+// attempts counts failures in a row: a success resets it, and a 429 (the
+// webhook's rate limit, not this message's fault) does not add to it.
 async function settle(db, id, res, { status, grade }) {
   const nowS = nowIso();
   if (res.ok) {
     await db.prepare(
-      `UPDATE deliveries SET status=?, grade_id=?, score=?, band=?, message_id=COALESCE(?, message_id), attempts=attempts+1,
+      `UPDATE deliveries SET status=?, grade_id=?, score=?, band=?, message_id=COALESCE(?, message_id), attempts=0,
          last_error=NULL, claimed_until=NULL, updated_at=? WHERE id=?`,
     ).bind(status, grade.grade_id ?? null, grade.score ?? null, grade.band ?? null, res.id ?? null, nowS, id).run();
   } else {
-    await db.prepare("UPDATE deliveries SET status=?, attempts=attempts+1, last_error=?, claimed_until=NULL, updated_at=? WHERE id=?")
-      .bind(res.failStatus || "failed", String(res.error || "error").slice(0, 300), nowS, id).run();
+    await db.prepare("UPDATE deliveries SET status='failed', attempts=attempts+?, last_error=?, claimed_until=NULL, updated_at=? WHERE id=?")
+      .bind(res.status === 429 ? 0 : 1, String(res.error || "error").slice(0, 300), nowS, id).run();
   }
 }
 
@@ -128,20 +134,25 @@ export async function pushLeads(env, { now = Date.now(), fetchImpl = globalThis.
   let budget = MAX_SENDS_PER_TICK;
   const publicUrl = env.ZENITH_PUBLIC_URL || "";
 
-  // New pushes, re-grades still in the push band, and retries.
+  // New pushes, re-grades still in the push band, and retries. A first post
+  // needs fresh news: first seen within LEAD_FRESH_HOURS, and (when the item has
+  // a published date) first seen within LEAD_MAX_LAG_HOURS of it. A failed row
+  // retries until MAX_POST_ATTEMPTS failures in a row, then waits for a new grade.
   const due = (await db.prepare(
     `SELECT ${GRADE_COLS}, ${ITEM_COLS}, ${DELIVERY_COLS}
        FROM grades g JOIN items i ON i.id = g.item_id
        LEFT JOIN grades p ON p.id = i.grade_id
        LEFT JOIN deliveries d ON d.channel = 'lead' AND d.item_id = g.item_id AND d.ticker = g.ticker
       WHERE g.graded_at >= ?1 AND ${CURRENT} AND ${pushable("g")}
-        AND ((d.id IS NULL AND i.nm_first_seen >= ?2)
+        AND ((d.id IS NULL AND i.nm_first_seen >= ?2
+              AND (julianday(i.published) IS NULL OR (julianday(i.nm_first_seen) - julianday(i.published)) * 24 <= ?7))
           OR (d.id IS NOT NULL AND d.created_at >= ?3 AND (
                 (d.status IN ('posted','retracted') AND d.grade_id IS NOT g.id)
-             OR (d.status = 'failed' AND d.attempts < ?4)
+             OR (d.status = 'failed' AND (d.attempts < ?4 OR d.updated_at < g.graded_at))
              OR (d.status = 'posting' AND d.claimed_until < ?5))))
       ORDER BY g.graded_at, g.id LIMIT ?6`,
-  ).bind(nowIso(now - LEAD_FRESH_HOURS * HOUR), nowIso(now - LEAD_FRESH_HOURS * HOUR), editSince, MAX_POST_ATTEMPTS, nowS, MAX_SENDS_PER_TICK * 2).all()).results || [];
+  ).bind(nowIso(now - LEAD_FRESH_HOURS * HOUR), nowIso(now - LEAD_FRESH_HOURS * HOUR), editSince, MAX_POST_ATTEMPTS, nowS,
+    MAX_SENDS_PER_TICK * 2, LEAD_MAX_LAG_HOURS).all()).results || [];
 
   for (const row of due) {
     if (budget <= 0) break;
@@ -155,7 +166,9 @@ export async function pushLeads(env, { now = Date.now(), fetchImpl = globalThis.
     else { out.failed++; if (res.status === 429) break; }
   }
 
-  // Posted messages whose current grade left the push band (or was withdrawn).
+  // Messages that show a pushed grade whose current grade left the push band (or
+  // was withdrawn). That includes rows whose last edit failed and rows a crashed
+  // tick left 'posting': their message still shows the old pushed grade.
   if (budget > 0) {
     const gone = (await db.prepare(
       `SELECT ${DELIVERY_COLS}, d.item_id, d.ticker, ${ITEM_COLS.replace("i.id AS item_id, ", "")},
@@ -164,17 +177,19 @@ export async function pushLeads(env, { now = Date.now(), fetchImpl = globalThis.
          LEFT JOIN grades p ON p.id = i.grade_id
          LEFT JOIN grades cur ON cur.id = CASE WHEN d.ticker = i.ticker THEN i.grade_id ELSE
               (SELECT MAX(x.id) FROM grades x WHERE x.item_id = d.item_id AND x.ticker = d.ticker AND x.run_id IS p.run_id) END
-        WHERE d.channel = 'lead' AND d.status = 'posted' AND d.message_id IS NOT NULL AND d.created_at >= ?1
+        WHERE d.channel = 'lead' AND d.message_id IS NOT NULL AND d.created_at >= ?1 AND ${pushable("d")}
+          AND (d.status = 'posted'
+            OR (d.status = 'failed' AND (d.attempts < ?3 OR d.updated_at < cur.graded_at))
+            OR (d.status = 'posting' AND d.claimed_until < ?4))
           AND (cur.id IS NULL OR (cur.id != d.grade_id AND NOT ${pushable("cur")}))
         LIMIT ?2`,
-    ).bind(editSince, budget).all()).results || [];
+    ).bind(editSince, budget, MAX_POST_ATTEMPTS, nowS).all()).results || [];
     for (const row of gone) {
       if (!(await claimExisting(db, row, nowS, until))) { out.skipped++; continue; }
       const res = await discordSend(hook, { content: leadMessage(row, { mode: "withdrawn", publicUrl, now }) }, { messageId: row.message_id, fetchImpl });
-      // A deleted message needs no edit; any other failure stays 'posted' and retries.
+      // A deleted message needs no edit; any other failure is 'failed' and retries.
       const done = res.ok || res.status === 404;
-      await settle(db, row.delivery_id, done ? { ...res, ok: true, id: row.message_id } : { ...res, failStatus: "posted" },
-        { status: "retracted", grade: row });
+      await settle(db, row.delivery_id, done ? { ...res, ok: true, id: row.message_id } : res, { status: "retracted", grade: row });
       if (done) out.withdrawn++;
       else { out.failed++; if (res.status === 429) break; }
     }

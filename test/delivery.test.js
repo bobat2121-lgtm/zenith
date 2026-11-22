@@ -4,6 +4,7 @@ import { D1, addItem, addGrade, fakeFetch } from "./helpers/d1.js";
 import { pushLeads, heartbeat, heartbeatChecks, leadMessage, deliveryTick } from "../worker/src/delivery.js";
 import { webhookUrl, discordSend, escapeMd, splitMessages, figures } from "../worker/src/discord.js";
 import { etToUtc } from "../worker/src/et.js";
+import { buildBrief } from "../worker/src/brief.js";
 
 const HOOK = "https://discord.com/api/webhooks/123/abc";
 const iso = (ms) => new Date(ms).toISOString();
@@ -160,6 +161,89 @@ test("lead message escapes hostile titles", () => {
   const m = leadMessage({ ticker: "SYM", band: "lead", score: 91, item_ticker: "SYM", title: "[Click](https://evil) @everyone", why: "x", item_id: 5, source_key: "s", url: "javascript:alert(1)" });
   assert.ok(m.includes("\\[Click\\]\\(https://evil\\) \\@everyone"));
   assert.ok(!m.includes("javascript:"), "non-http links are dropped");
+});
+
+const later = (s) => iso(Date.now() + s * 1000); // a grade submitted after the last delivery attempt
+const deliveryRow = (db, item) => db.prepare("SELECT * FROM deliveries WHERE item_id = ?").bind(item).first();
+
+test("the retry cap counts failures in a row, not sends; a message whose edit failed is still struck through", async () => {
+  const db = new D1();
+  const item = await addItem(db, { ticker: "GRRR", title: "Gorilla wins a city contract" });
+  await addGrade(db, item, { score: 95, run_id: "r1" });
+  const ok = discord();
+  const env = { DB: db, DISCORD_LEAD_WEBHOOK: HOOK };
+  assert.equal((await pushLeads(env, { fetchImpl: ok })).posted, 1);
+  for (const [i, score] of [[2, 92], [3, 93]]) {
+    await addGrade(db, item, { score, run_id: `r${i}`, graded_at: later(i) });
+    assert.equal((await pushLeads(env, { fetchImpl: ok })).edited, 1);
+  }
+  assert.equal((await deliveryRow(db, item)).attempts, 0, "successes reset the counter");
+
+  await addGrade(db, item, { score: 91, run_id: "r4", graded_at: later(4) });
+  const limited = discord({ fail: () => ({ status: 429, json: { retry_after: 1 } }) });
+  assert.equal((await pushLeads(env, { fetchImpl: limited })).failed, 1);
+  assert.deepEqual([(await deliveryRow(db, item)).status, (await deliveryRow(db, item)).attempts], ["failed", 0], "a 429 is not counted");
+  assert.equal((await pushLeads(env, { fetchImpl: ok })).edited, 1, "the edit is retried after three earlier edits and a 429");
+  assert.equal((await deliveryRow(db, item)).score, 91);
+
+  // An edit fails, then the item is re-graded out of the band before the retry.
+  await addGrade(db, item, { score: 94, run_id: "r5", graded_at: later(5) });
+  const down = discord({ fail: () => ({ status: 500, text: "boom" }) });
+  assert.equal((await pushLeads(env, { fetchImpl: down })).failed, 1);
+  await addGrade(db, item, { score: 20, run_id: "r6", graded_at: later(6) });
+  const r = await pushLeads(env, { fetchImpl: ok });
+  assert.equal(r.withdrawn, 1);
+  const last = ok.calls.at(-1);
+  assert.equal(last.method, "PATCH");
+  assert.ok(last.url.endsWith("/messages/m1"));
+  assert.match(last.body.content, /^~~\*\*GRRR · Lead 91\*\*~~ re-graded .*: Reject 20, no longer pushed/, "struck through from what the message shows");
+  assert.deepEqual([(await deliveryRow(db, item)).status, (await deliveryRow(db, item)).attempts], ["retracted", 0]);
+  assert.equal(ok.calls.filter((c) => c.method === "POST").length, 1, "one message for the item throughout");
+});
+
+test("four failures in a row park a delivery until a new grade arrives; 429s never park it", async () => {
+  const db = new D1();
+  const item = await addItem(db, { ticker: "SYM", title: "Symbotic signs a new customer" });
+  await addGrade(db, item, { score: 95 });
+  const env = { DB: db, DISCORD_LEAD_WEBHOOK: HOOK };
+  const limited = discord({ fail: () => ({ status: 429, json: { retry_after: 1 } }) });
+  for (let i = 0; i < 6; i++) await pushLeads(env, { fetchImpl: limited });
+  assert.equal(limited.calls.length, 6, "rate limits retry every tick");
+  assert.equal((await deliveryRow(db, item)).attempts, 0);
+
+  const down = discord({ fail: () => ({ status: 500, text: "boom" }) });
+  for (let i = 0; i < 6; i++) await pushLeads(env, { fetchImpl: down });
+  assert.equal(down.calls.length, 4, "stops after four failures in a row");
+  const ok = discord();
+  assert.equal((await pushLeads(env, { fetchImpl: ok })).posted, 0);
+  await addGrade(db, item, { score: 96, run_id: "run-2", graded_at: later(2) });
+  assert.equal((await pushLeads(env, { fetchImpl: ok })).posted, 1, "a new grade gets a fresh try");
+  assert.match(ok.calls[0].body.content, /^\*\*SYM · Lead 96\*\*/);
+});
+
+test("a first post needs news first seen within 72 h of its published date, so late-surfaced history stays out", async () => {
+  const db = new D1();
+  const now = Date.now();
+  const seen = iso(now - 3_600_000);
+  const mk = async (title, published) => {
+    const id = await addItem(db, { ticker: "KDK", title, nm_first_seen: seen, published });
+    await addGrade(db, id, { score: 95 });
+    return id;
+  };
+  // An 8-K filed 9 days before news-monitor first saw it (a widened filter's
+  // silentBefore history, or a seed poll's older items): stored notified=1 there.
+  const history = await mk("Kodiak 8-K filed 9 days earlier", iso(now - 3_600_000 - 9 * 86_400_000));
+  await mk("Kodiak 8-K filed 2 days earlier", iso(now - 3_600_000 - 2 * 86_400_000));
+  await mk("Kodiak 8-K dated the next day", iso(now + 5 * 3_600_000)); // filed after 17:30, dated next business day
+  await mk("Kodiak release without a date", null);
+  const f = discord();
+  const r = await pushLeads({ DB: db, DISCORD_LEAD_WEBHOOK: HOOK }, { fetchImpl: f });
+  assert.equal(r.posted, 3);
+  assert.ok(!f.calls.some((c) => /9 days earlier/.test(c.body.content)));
+  assert.equal(await deliveryRow(db, history), null, "never claimed");
+  // It still reaches the analyst in the next brief.
+  const b = await buildBrief({ DB: db }, { sources: {} }, { from: iso(now - 86_400_000), to: iso(now + 60_000), now });
+  assert.ok(b.leads_digests.find((g) => g.ticker === "KDK").items.some((i) => i.item_id === history));
 });
 
 // --- Heartbeat ----------------------------------------------------------------
