@@ -205,9 +205,10 @@ test("enrich reads at most two PDFs a tick; the rest wait without spending a try
     db.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, nm_first_seen, ingested_at, state)
       VALUES (?, 'axon_ir_docs', 'AXON', ?, 'AXON Investor Deck', ?, ?, 'pending')`).run(500 + k, `https://investor.example.test/image/deck${k}.pdf`, now, now);
   }
-  await withFetch(async () => pdfResponse(deck()), async () => {
+  await withFetch(async () => pdfResponse(deck()), async (calls) => {
     const e = await enrich({ DB: db });
     assert.deepEqual([e.pdf, e.pdf_deferred], [2, 1]);
+    assert.equal(calls.length, 2, "the deferred PDF is not requested");
   });
   const rows = db.rows("SELECT excerpt_status, excerpt_tries, excerpt_next_at FROM items ORDER BY nm_rowid");
   const waiting = rows.find((r) => r.excerpt_status === null);

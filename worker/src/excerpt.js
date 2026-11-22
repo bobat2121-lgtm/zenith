@@ -545,6 +545,14 @@ async function fetchTail(url, ua, signal) {
 async function fetchPage(url, ua, opts = {}) {
   const path = new URL(url).pathname;
   if (/\.(xlsx?|docx?|zip|pptx?)$/i.test(path) || (PDF_PATH_RE.test(path) && !opts.pdf)) return { status: "skipped_binary" };
+  // A known PDF takes one of this tick's downloads before it is requested (the
+  // fetches run concurrently); a request that brings no PDF gives it back.
+  let reserved = false, downloaded = false;
+  if (opts.pdf && opts.budget && PDF_PATH_RE.test(path)) {
+    if (opts.budget.left <= 0) return { status: "deferred_pdf" };
+    opts.budget.left--;
+    reserved = true;
+  }
   if (isSecUrl(new URL(url))) await secPace();
   const ctl = new AbortController();
   // starts when this fetch starts
@@ -559,8 +567,12 @@ async function fetchPage(url, ua, opts = {}) {
       (/octet-stream|binary|download/i.test(type) && (PDF_PATH_RE.test(path) || PDF_PATH_RE.test(new URL(finalUrl).pathname)));
     if (pdfLike) {
       if (!opts.pdf) { try { await r.body?.cancel(); } catch {} return { status: "skipped_binary" }; }
-      if (opts.budget && opts.budget.left <= 0) { try { await r.body?.cancel(); } catch {} return { status: "deferred_pdf" }; }
-      if (opts.budget) opts.budget.left--;
+      if (opts.budget && !reserved) {
+        if (opts.budget.left <= 0) { try { await r.body?.cancel(); } catch {} return { status: "deferred_pdf" }; }
+        opts.budget.left--;
+        reserved = true;
+      }
+      downloaded = true;
       const { buf, more } = await readBody(r.body, PDF_MAX_BYTES);
       if (!isPdfBytes(buf)) return { status: "skipped_content_type" };
       const tail = more ? await fetchTail(finalUrl, ua, ctl.signal) : null;
@@ -574,6 +586,7 @@ async function fetchPage(url, ua, opts = {}) {
     return { status: String(e).includes("timeout") ? "error_timeout" : "error" };
   } finally {
     clearTimeout(timer);
+    if (reserved && !downloaded) opts.budget.left++;
   }
 }
 
