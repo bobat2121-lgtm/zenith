@@ -9,8 +9,10 @@
 //
 // Feed text (roadmap T8): when news-monitor kept the item's own text from its
 // feed (items.body), ingest builds the excerpt from it (excerpt_status 'feed')
-// and the page is never fetched. A teaser (a WordPress "[…]" summary, a news
-// snippet) is not enough: the page is fetched as before.
+// and the page is never fetched. A teaser or a summary (a WordPress "[…]"
+// summary, a news snippet, a short description) is not enough: the page is
+// fetched as before, and the summary is the excerpt ('feed_summary') only when
+// that read gives none.
 //
 // PDFs (roadmap T9): a covered source's deck, shareholder letter or stats sheet
 // is read with pdf-text.js (excerpt_status 'pdf', or 'pdf_unreadable' when it
@@ -34,12 +36,13 @@ const MIN_BODY_CHARS = 200;
 const MAX_TRIES = 4;
 const FORBIDDEN_TRIES = 2;        // a 403 is tried twice, 20 minutes apart
 const RETRY_MINUTES = [20, 120, 720];
-const FEED_MIN_CHARS = 400;           // shorter feed text is a teaser: fetch the page
+const FEED_FULL_CHARS = 1500;         // shorter feed text may be a summary: fetch the page
 const PDF_MAX_BYTES = 8_000_000;      // the head of a PDF that is read
 const PDF_TAIL_BYTES = 2_000_000;     // and, past the bound, its tail (fonts, page tree)
 const PDF_PER_TICK = 2;               // PDF downloads per enrich call
 const PDF_TIMEOUT_MS = 20_000;
 const PDF_WAIT_MINUTES = 5;           // a PDF over the tick's budget waits, without a try
+const PDF_HOLD_MINUTES = 60;          // a PDF whose parse ended the invocation waits
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', mdash: "—", ndash: "–", hellip: "…", reg: "®", trade: "™", copy: "©" };
 // ix:header is the hidden XBRL block at the top of inline-XBRL SEC filings.
@@ -249,8 +252,9 @@ export function excerptFrom(text, title, heading = "") {
 }
 
 // --- Feed text ------------------------------------------------------------------
-// A summary that stops short: "[…]", a trailing ellipsis, "Read more".
-const TEASER_RE = /(?:\[\s*(?:…|\.\.\.|&hellip;)\s*\]|…|\.\.\.|\bread more\b[^\n]{0,30}|\bcontinue reading\b[^\n]{0,60})\s*$/i;
+// A summary that stops short: "[…]", a trailing ellipsis, "Read more", also
+// with one short line after the mark ("…\nSource", "[…]\nRead the post").
+const TEASER_RE = /(?:\[\s*(?:…|\.\.\.|&hellip;)\s*\]|…|\.\.\.|\bread more\b[^\n]{0,30}|\bcontinue reading\b[^\n]{0,60})\s*(?:\n[^\n]{0,40})?\s*$/i;
 // WordPress's footer on every feed item, full text or teaser.
 const WP_FOOTER_RE = /\n?The post [^\n]{1,400} appeared first on [^\n]{1,200}\s*$/;
 const normalize = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -272,13 +276,29 @@ function dropFeedChrome(text, title) {
   return lines.slice(k).join("\n");
 }
 
+// What an item's feed text gives: { excerpt, full }. full = the feed carried
+// the release itself: the excerpt is final (status 'feed') and the page is
+// never fetched. Otherwise the text is a summary or a teaser (a teaser mark, or
+// under FEED_FULL_CHARS once the feed's chrome is dropped: Q4 blog teasers,
+// news snippets, a description that only summarises): the page is fetched as
+// for any item, and the excerpt, if any, is only its fallback. The length is
+// measured before the boilerplate tail is cut, so a short release with its
+// "About" section still counts as full.
+export function feedText(body, title) {
+  const raw = String(body || "").trim().replace(WP_FOOTER_RE, "").trim();
+  if (!raw) return { excerpt: null, full: false };
+  const text = dropFeedChrome(raw, title).trim();
+  const picked = pickText(cutTail(text));
+  const excerpt = picked.length >= MIN_BODY_CHARS ? picked : null;
+  const full = Boolean(excerpt) && text.length >= FEED_FULL_CHARS && !TEASER_RE.test(text.slice(-300));
+  return { excerpt, full };
+}
+
 // The excerpt for an item whose feed carried its text, or null when the text
-// is missing or only a teaser (the page is fetched instead).
+// is missing, a summary or a teaser (the page is fetched instead).
 export function feedExcerpt(body, title) {
-  const text = String(body || "").trim().replace(WP_FOOTER_RE, "").trim();
-  if (text.length < FEED_MIN_CHARS || TEASER_RE.test(text.slice(-300))) return null;
-  const excerpt = pickText(cutTail(dropFeedChrome(text, title)));
-  return excerpt.length >= MIN_BODY_CHARS ? excerpt : null;
+  const r = feedText(body, title);
+  return r.full ? r.excerpt : null;
 }
 
 // The first PDF a feed's text links, kept by news-monitor as "label (url)":
@@ -605,7 +625,22 @@ function parsePdf(segments) {
   return run;
 }
 
-async function pdfResult(doc, source) {
+// Before a PDF is parsed its item spends a try and is held PDF_HOLD_MINUTES
+// (enrich writes its results only at the end of the call): if the parse ends
+// the invocation (CPU or memory limit), the item is not picked again on the
+// next tick, and once it has used MAX_TRIES it is final without a parse. The
+// result written after a parse that finishes replaces the hold.
+async function holdForParse(env, item) {
+  if (!env.DB || item.id == null) return;
+  try {
+    await env.DB.prepare("UPDATE items SET excerpt_tries = ?, excerpt_next_at = ? WHERE id = ? AND excerpt_status IS NULL")
+      .bind((item.excerpt_tries || 0) + 1, nowIso(Date.now() + PDF_HOLD_MINUTES * 60_000), item.id).run();
+  } catch { /* the parse goes ahead */ }
+}
+
+async function pdfResult(env, item, doc, source) {
+  if ((item.excerpt_tries || 0) >= MAX_TRIES) return { status: "pdf_unreadable", source };
+  await holdForParse(env, item);
   let read;
   try { read = await parsePdf(doc.pdf); } catch { read = { status: "error", pages: [] }; }
   const excerpt = read.status === "ok" ? pdfExcerpt(read.pages) : "";
@@ -614,6 +649,7 @@ async function pdfResult(doc, source) {
 
 // Titles of documents a covered company posts as PDFs.
 const DOC_TITLE_RE = /\b(?:presentations?|deck|slides?|letter|stats?\s+sheets?|fact\s*sheet|investor\s+day|analyst\s+day|annual\s+report|transcript)\b/i;
+export const isDocumentTitle = (title) => DOC_TITLE_RE.test(String(title || ""));
 
 // The PDF a deck page links for this item: one whose URL carries the item's
 // numeric id as a path segment (Equisolve's /presentations/detail/4849/ and
@@ -688,21 +724,42 @@ export async function fetchExcerpt(env, item, ctx = {}) {
   }
   const covered = !item.role;
   const budget = ctx.pdfBudget || { left: PDF_PER_TICK };
-  // A PDF the item's feed named (a Q4 presentations feed links the deck).
+  // A PDF the item's feed named (a Q4 presentations feed links the deck). When
+  // it cannot be read, the item's own page is read instead; the PDF's failure
+  // is the result only when the page gives nothing either.
+  let feedPdf = null;
   if (covered && item.excerpt_source && isHttpUrl(item.excerpt_source)) {
     const doc = await fetchPage(item.excerpt_source, PAGE_UA, { pdf: true, budget });
-    if (doc.status === "ok" && doc.pdf) return pdfResult(doc, item.excerpt_source);
-    if (doc.status !== "ok") return { status: doc.status };
+    if (doc.status === "deferred_pdf") return doc;
+    if (doc.status === "ok" && doc.pdf) {
+      const r = await pdfResult(env, item, doc, item.excerpt_source);
+      if (r.status === "pdf") return r;
+      feedPdf = r;
+    } else if (doc.status !== "ok") feedPdf = { status: doc.status, source: item.excerpt_source };
   }
+  const page = await pageExcerpt(env, item, url, covered, budget);
+  if (!feedPdf) return page;
+  // An excerpt from the page is not read from the feed's PDF: excerpt_source
+  // then names the page's own document (NULL = the item's URL).
+  if (page.status === "ok" || page.status === "pdf") return { ...page, source: page.source ?? null, replaceSource: true };
+  if (page.status === "deferred_pdf") return page;
+  // Both failed: the result that gets another try, else the PDF's.
+  const again = (s) => (RETRYABLE(s) ? 2 : s === "http_403" ? 1 : 0);
+  return again(page.status) > again(feedPdf.status) ? page : feedPdf;
+}
+
+// The item's own page: its text, the PDF it is or redirects to, or the PDF a
+// deck page links.
+async function pageExcerpt(env, item, url, covered, budget) {
   const page = await fetchPage(excerptUrl(url.toString()), PAGE_UA, { pdf: covered, budget });
   if (page.status !== "ok") return { status: page.status };
-  if (page.pdf) return pdfResult(page, page.finalUrl !== url.href ? page.finalUrl : null);
+  if (page.pdf) return pdfResult(env, item, page, page.finalUrl !== url.href ? page.finalUrl : null);
   // A deck's page (or the listing it redirects to) that links the deck's PDF.
   if (covered && (DOC_TITLE_RE.test(item.title || "") || redirectedAway(page.finalUrl, url))) {
     const link = deckPdfLink(page.html, page.finalUrl || url.href, item);
     if (link) {
       const doc = await fetchPage(link, PAGE_UA, { pdf: true, budget });
-      if (doc.status === "ok" && doc.pdf) return pdfResult(doc, link);
+      if (doc.status === "ok" && doc.pdf) return pdfResult(env, item, doc, link);
       if (doc.status === "deferred_pdf") return doc;
     }
   }
@@ -723,7 +780,16 @@ async function fetchAll(env, rows, concurrency, ctx = { pdfBudget: { left: PDF_P
 // Without a contact address a sec.gov item is not a try: it waits, so setting
 // CONTACT_EMAIL later still fills it in.
 const NO_CONTACT_WAIT_MINUTES = 720;
-function resultStatement(env, { item, status, excerpt, source }, now) {
+// A final result. Without an excerpt of its own it takes the feed's summary
+// (excerpt_fallback, kept by ingest when the feed carried only a summary or a
+// teaser) as excerpt_status 'feed_summary'. excerpt_source is kept unless the
+// result names another document (or, with replaceSource, the item's URL).
+const finalStatement = (env, sourceSql) => env.DB.prepare(
+  `UPDATE items SET excerpt = COALESCE(?1, excerpt_fallback),
+      excerpt_status = CASE WHEN ?1 IS NULL AND excerpt_fallback IS NOT NULL THEN 'feed_summary' ELSE ?2 END,
+      excerpt_tries = ?3, excerpt_at = ?4, excerpt_source = ${sourceSql} WHERE id = ?6`,
+);
+function resultStatement(env, { item, status, excerpt, source, replaceSource }, now) {
   if (status === "skipped_sec_needs_contact") {
     return env.DB.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").bind(nowIso(Date.now() + NO_CONTACT_WAIT_MINUTES * 60_000), item.id);
   }
@@ -731,13 +797,12 @@ function resultStatement(env, { item, status, excerpt, source }, now) {
   if (status === "deferred_pdf") {
     return env.DB.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").bind(nowIso(Date.now() + PDF_WAIT_MINUTES * 60_000), item.id);
   }
+  const tries = (item.excerpt_tries || 0) + 1;
+  const final = () => finalStatement(env, replaceSource ? "?5" : "COALESCE(?5, excerpt_source)")
+    .bind(excerpt || null, status, tries, now, source || null, item.id);
   // A PDF's text, or one with none: final. excerpt_source names the PDF when
   // it is not the item's own URL.
-  if (status === "pdf" || status === "pdf_unreadable") {
-    return env.DB.prepare("UPDATE items SET excerpt = ?, excerpt_status = ?, excerpt_tries = ?, excerpt_at = ?, excerpt_source = COALESCE(?, excerpt_source) WHERE id = ?")
-      .bind(excerpt || null, status, (item.excerpt_tries || 0) + 1, now, source || null, item.id);
-  }
-  const tries = (item.excerpt_tries || 0) + 1;
+  if (status === "pdf" || status === "pdf_unreadable") return final();
   // A 403 gets one later retry: CDN bot checks in front of IR sites (Q4's
   // Cloudflare, seen on SRFM, PL and ASST) refuse a request now and then.
   if ((RETRYABLE(status) && tries < MAX_TRIES) || (status === "http_403" && tries < FORBIDDEN_TRIES)) {
@@ -745,8 +810,7 @@ function resultStatement(env, { item, status, excerpt, source }, now) {
     return env.DB.prepare("UPDATE items SET excerpt_tries = ?, excerpt_next_at = ? WHERE id = ?")
       .bind(tries, nowIso(Date.now() + wait * 60_000), item.id);
   }
-  return env.DB.prepare("UPDATE items SET excerpt = ?, excerpt_status = ?, excerpt_tries = ?, excerpt_at = ? WHERE id = ?")
-    .bind(excerpt || null, status, tries, now, item.id);
+  return final();
 }
 
 const SEC_URL_SQL = "(url LIKE 'https://www.sec.gov/%' OR url LIKE 'https://sec.gov/%' OR url LIKE 'http://www.sec.gov/%')";

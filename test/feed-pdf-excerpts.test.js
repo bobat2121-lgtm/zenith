@@ -9,7 +9,7 @@ import { buildPdf, simplePdf } from "./helpers/pdf.js";
 
 hookJsonImports();
 const { ingest, newsHasBody } = await import("../worker/src/ingest.js");
-const { feedExcerpt, pdfLinkIn, pdfExcerpt, fetchExcerpt, enrich, deckPdfLink } = await import("../worker/src/excerpt.js");
+const { feedExcerpt, feedText, pdfLinkIn, pdfExcerpt, fetchExcerpt, enrich, deckPdfLink } = await import("../worker/src/excerpt.js");
 
 const TITLE = "Example Corp. Wins $45 Million Counter-Drone Order";
 const filler = Array.from({ length: 30 }, (_, k) => `The company continued to build out its platform across several programs in phase ${k}.`);
@@ -58,7 +58,7 @@ test("feedExcerpt keeps the lead and the figures, drops feed chrome and the boil
 });
 
 test("teasers and short text are not excerpts; WordPress's footer is not a teaser mark", () => {
-  const body = "Q3 revenue accelerated 39% sequentially and exceeded the upper end of the Company’s expectations. ".repeat(5);
+  const body = "Q3 revenue accelerated 39% sequentially and exceeded the upper end of the Company’s expectations. ".repeat(16);
   assert.equal(feedExcerpt(body + "building the foundation […]\nThe post Q3 results appeared first on Example.", "Q3"), null);
   assert.equal(feedExcerpt(body + "Read more", "Q3"), null);
   assert.equal(feedExcerpt("A short note of 120 characters about an order.", "x"), null);
@@ -67,6 +67,42 @@ test("teasers and short text are not excerpts; WordPress's footer is not a tease
   assert.equal(pdfLinkIn("View this Presentation (PDF) (http://s29.q4cdn.com/9/files/doc_presentations/2026/Deck.pdf)"),
     "http://s29.q4cdn.com/9/files/doc_presentations/2026/Deck.pdf");
   assert.equal(pdfLinkIn("No link (https://example.com/page)"), null);
+});
+
+// Shapes seen in live feeds on 2026-11-22 (text written for the test; each is
+// over the old 400-character floor, as the live items were: 402, 408, 403-1,014).
+// A Q4 blog item: title, date, "Blog", "General", then a teaser cut mid-sentence (MRLN).
+const Q4_BLOG_TEASER = "One Brain, Many Airframes Content Import Thu, 11/19/2026 - 09:00\nOne Brain, Many Airframes\nNov 19, 2026\nBlog\nGeneral\n" +
+  "One Brain, Many Airframes\nSince our listing in March the company has kept widening its programs across defense and civil aviation, and the number of " +
+  "our updates and posts has grown with them. Readers who are new to the company, investors among them, often meet it one article at a time,";
+// A WordPress summary that ends in an ellipsis, then a "Source" line (AWG).
+const ELLIPSIS_SOURCE = "Example Grocers opened a new automated distribution center this fall, part of a multi-year program to modernize its network of " +
+  "warehouses for member stores across the region. The cooperative said the site will serve more than 300 stores, and that the new system " +
+  "will let its teams handle larger orders with fewer errors and shorter lead times, which it says is empowering both independent grocers and…\nSource";
+// A description that is a complete but short summary of a longer release (Volvo).
+const SUMMARY = "Example Group establishes a dedicated business entity to capture the growing demand for autonomous transport in mining and quarries. " +
+  "The new entity will combine the group's autonomous haulage offers under one roof and serve customers and their contractors in several regions. " +
+  "It starts operations on January 1, 2027, and will be led by a member of the group's management team who reports to the CEO. " +
+  "“Autonomous solutions are moving from pilots to daily operations, and our customers want one partner for the whole site,” says the CEO.";
+
+test("summaries and teasers are not the release: the page is fetched, the summary is only a fallback", () => {
+  for (const [name, body, title] of [
+    ["Q4 blog teaser", Q4_BLOG_TEASER, "One Brain, Many Airframes"],
+    ["ellipsis + Source line", ELLIPSIS_SOURCE, "Example Grocers opens automated center"],
+    ["short summary", SUMMARY, "Example Group establishes dedicated entity for autonomous mining"],
+  ]) {
+    const r = feedText(body, title);
+    assert.equal(r.full, false, name);
+    assert.equal(feedExcerpt(body, title), null, name);
+    assert.ok(r.excerpt && r.excerpt.length >= 200, `${name}: kept as a fallback`);
+    assert.doesNotMatch(r.excerpt, /Content Import|^Blog/, name);
+  }
+  const full = feedText(RELEASE, TITLE);
+  assert.equal(full.full, true, "a full release is the excerpt");
+  // A short release (its boilerplate counted) of FEED_FULL_CHARS or more is full.
+  const short = ["Example Corp. will present at the Growth Conference on December 3, 2026, at 10:00 a.m. ET in New York.",
+    "About Example Corp.", "Example Corp. builds autonomous systems for defense and industry. ".repeat(22), "Contacts:", "ir@example.com"].join("\n");
+  assert.equal(feedText(short, "Example Corp. to Present at the Growth Conference").full, true);
 });
 
 function newsWithBody() {
@@ -215,6 +251,92 @@ test("enrich reads at most two PDFs a tick; the rest wait without spending a try
   assert.equal(waiting.excerpt_tries, 0);
   assert.ok(Date.parse(waiting.excerpt_next_at) > Date.now());
   assert.equal(rows.filter((r) => r.excerpt_status === "pdf").length, 2);
+});
+
+const PAGE_TEXT = `<h1>Example Group establishes dedicated entity for autonomous mining</h1><p>${"The page carries the full release with its figures: revenue of $45 million, up 12%. ".repeat(6)}</p>`;
+function pendingItem(db, { nm, url, title, role = null, source = null, fallback = null, tries = 0 }) {
+  const now = new Date().toISOString();
+  db.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, nm_first_seen, ingested_at, state, role, excerpt_source, excerpt_fallback, excerpt_tries)
+    VALUES (?, 'ondas', 'ONDS', ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`).run(nm, url, title, now, now, role, source, fallback, tries);
+  return db.rows("SELECT id FROM items WHERE nm_rowid = ?", nm)[0].id;
+}
+const row = (db, id) => db.rows("SELECT excerpt, excerpt_status, excerpt_tries, excerpt_next_at, excerpt_source, excerpt_fallback FROM items WHERE id = ?", id)[0];
+
+test("ingest keeps a summary as the fallback; enrich reads the page, and uses the summary only when the page gives nothing", async () => {
+  const news = newsWithBody();
+  const db = zenithDb();
+  db.db.prepare("INSERT INTO meta (key, value) VALUES ('nm_cursor', '0')").run();
+  ins(news, { source_key: "volvo", url: "https://www.example.test/news/entity", title: "Example Group establishes dedicated entity for autonomous mining", body: SUMMARY });
+  ins(news, { source_key: "volvo", url: "https://www.example.test/news/gone", title: "Example Group establishes dedicated entity for autonomous mining", body: SUMMARY });
+  ins(news, { source_key: "merlin", url: "https://investors.example.test/news/one-brain", title: "One Brain, Many Airframes", body: Q4_BLOG_TEASER });
+  const r = await ingest({ DB: db, NEWS: news });
+  assert.equal(r.feed_excerpts, 0, "summaries are not feed excerpts");
+  const rows = db.rows("SELECT url, excerpt, excerpt_status, excerpt_fallback FROM items ORDER BY nm_rowid");
+  assert.equal(rows.length, 3);
+  for (const x of rows) {
+    assert.deepEqual([x.excerpt, x.excerpt_status], [null, null], x.url);
+    assert.ok(x.excerpt_fallback?.length >= 200, x.url);
+  }
+  await withFetch(async (url) => (url.endsWith("/gone") ? new Response("", { status: 404 }) : htmlResponse(PAGE_TEXT)), async (calls) => {
+    await enrich({ DB: db });
+    assert.equal(calls.length, 3, "every page is fetched");
+  });
+  const after = Object.fromEntries(db.rows("SELECT url, excerpt, excerpt_status FROM items").map((x) => [x.url.split("/").pop(), x]));
+  assert.equal(after.entity.excerpt_status, "ok");
+  assert.match(after.entity.excerpt, /\$45 million, up 12%/);
+  assert.equal(after.gone.excerpt_status, "feed_summary");
+  assert.match(after.gone.excerpt, /^Example Group establishes a dedicated business entity/);
+});
+
+test("a feed-named PDF that fails or is unreadable falls through to the item's page", async () => {
+  const handler = async (url) => {
+    if (url.endsWith("/a.pdf") || url.endsWith("/c.pdf") || url.endsWith("/news/c") || url.endsWith("/news/d")) return new Response("", { status: 404 });
+    if (url.endsWith("/d.pdf")) return new Response("", { status: 503 });
+    if (url.endsWith("/b.pdf")) return pdfResponse(simplePdf(DECK_PAGES, { trailerExtra: "/Encrypt 99 0 R" }));
+    return htmlResponse(PAGE_TEXT);
+  };
+  // Two items per enrich call: each one's PDF takes one of the tick's two downloads.
+  const db = zenithDb(), db2 = zenithDb();
+  const pdf404 = pendingItem(db, { nm: 1, url: "https://ir.example.test/news/a", title: "Example Corp. Q3 results", source: "https://cdn.example.test/a.pdf" });
+  const unreadable = pendingItem(db, { nm: 2, url: "https://ir.example.test/news/b", title: "Example Corp. Q3 results", source: "https://cdn.example.test/b.pdf" });
+  const both = pendingItem(db2, { nm: 3, url: "https://ir.example.test/news/c", title: "Example Corp. Q3 results", source: "https://cdn.example.test/c.pdf" });
+  const transient = pendingItem(db2, { nm: 4, url: "https://ir.example.test/news/d", title: "Example Corp. Q3 results", source: "https://cdn.example.test/d.pdf" });
+  await withFetch(handler, async (calls) => {
+    await enrich({ DB: db });
+    await enrich({ DB: db2 });
+    for (const page of ["/news/a", "/news/b", "/news/c", "/news/d"]) assert.ok(calls.some((c) => c.url.endsWith(page)), `${page} fetched`);
+  });
+  assert.equal(row(db, pdf404).excerpt_status, "ok");
+  assert.equal(row(db, pdf404).excerpt_source, null, "the excerpt is the page's, not the PDF's");
+  assert.equal(row(db, unreadable).excerpt_status, "ok");
+  assert.match(row(db, unreadable).excerpt, /\$45 million/);
+  assert.equal(row(db2, both).excerpt_status, "http_404", "both failed: the PDF's failure");
+  assert.equal(row(db2, both).excerpt_source, "https://cdn.example.test/c.pdf");
+  const t = row(db2, transient);
+  assert.deepEqual([t.excerpt_status, t.excerpt_tries], [null, 1], "a PDF outage is retried even when the page 404s");
+  assert.ok(Date.parse(t.excerpt_next_at) > Date.now());
+});
+
+test("a PDF is held before it is parsed, so a parse that ends the invocation is not repeated every tick", async () => {
+  const db = zenithDb();
+  const id = pendingItem(db, { nm: 1, url: "https://ir.example.test/files/deck.pdf", title: "Investor Presentation" });
+  await withFetch(async () => pdfResponse(deck()), async () => {
+    const item = db.rows("SELECT id, url, title, excerpt_tries, role, excerpt_source FROM items WHERE id = ?", id)[0];
+    const r = await fetchExcerpt({ DB: db }, item);
+    assert.equal(r.status, "pdf");
+    // What the row holds if the invocation had died before enrich wrote the result.
+    const held = row(db, id);
+    assert.deepEqual([held.excerpt_status, held.excerpt_tries], [null, 1]);
+    assert.ok(Date.parse(held.excerpt_next_at) > Date.now() + 50 * 60_000, "held for about an hour");
+    const picked = await enrich({ DB: db });
+    assert.equal(picked.tried, 0, "a held item is not picked on the next tick");
+  });
+  // An item that has used every try (its parses never finished) is final without a parse.
+  const spent = pendingItem(db, { nm: 2, url: "https://ir.example.test/files/deck2.pdf", title: "Investor Presentation", tries: 4 });
+  await withFetch(async () => pdfResponse(deck()), async () => {
+    await enrich({ DB: db });
+  });
+  assert.deepEqual([row(db, spent).excerpt_status, row(db, spent).excerpt], ["pdf_unreadable", null]);
 });
 
 test("pdfExcerpt: the cover leads; legal pages, running footers, page numbers and axes are dropped", () => {

@@ -5,15 +5,17 @@
 // every scanned row, matched or not.
 //
 // Feed text (roadmap T8): news-monitor keeps the text a covered or counterparty
-// feed carries in items.body. Ingest turns it into the item's excerpt (lead and
-// figures, excerpt_status 'feed'), so enrich never fetches that page; a covered
-// item whose feed text only links a PDF gets the link as excerpt_source, and
-// enrich reads the PDF. A news-monitor-db without the column is detected and
-// read as before: ingest never fails over it.
+// feed carries in items.body. When that is the release itself, ingest turns it
+// into the item's excerpt (lead and figures, excerpt_status 'feed') and enrich
+// never fetches that page; a summary or teaser only becomes the fallback
+// (excerpt_fallback) for a page that cannot be read. A covered item whose feed
+// text only links a PDF gets the link as excerpt_source, and enrich reads the
+// PDF. A news-monitor-db without the column is detected and read as before:
+// ingest never fails over it.
 import COVERED from "./covered.json";
 import { MATCH } from "./rubric.generated.js";
 import { nowIso, skipReason, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups } from "./lib.js";
-import { feedExcerpt, pdfLinkIn } from "./excerpt.js";
+import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
 
 const BATCH = 400;
 const MAX_BATCHES = 6;
@@ -57,13 +59,19 @@ async function newsRows(news, from, to) {
   return (await select(ROW_COLS)).results || [];
 }
 
-// The excerpt fields an item starts with: the feed's own text as its excerpt,
-// or (covered items only) the PDF the feed text links, for enrich to read.
+// The excerpt fields an item starts with. Feed text that is the release itself
+// is the excerpt (status 'feed'). A summary or a teaser leaves the item to
+// enrich, which fetches the page as for any item; the summary is kept as
+// excerpt_fallback, the excerpt only when the page cannot be read. A covered
+// item whose feed text is only a PDF link, or a document's (deck, letter)
+// title with one, gets the PDF as excerpt_source for enrich to read first.
 export function feedFields(r, route, now) {
-  if (!r.body || typeof r.body !== "string") return { excerpt: null, status: null, at: null, source: null };
-  const excerpt = feedExcerpt(r.body, r.title);
-  if (excerpt) return { excerpt, status: "feed", at: now, source: null };
-  return { excerpt: null, status: null, at: null, source: route.role ? null : pdfLinkIn(r.body) };
+  const none = { excerpt: null, status: null, at: null, source: null, fallback: null };
+  if (!r.body || typeof r.body !== "string") return none;
+  const feed = feedText(r.body, r.title);
+  if (feed.full) return { ...none, excerpt: feed.excerpt, status: "feed", at: now };
+  const pdf = route.role ? null : pdfLinkIn(r.body);
+  return { ...none, fallback: feed.excerpt, source: pdf && (!feed.excerpt || isDocumentTitle(r.title)) ? pdf : null };
 }
 
 async function getMeta(db, key) {
@@ -143,11 +151,11 @@ export async function ingest(env) {
       if (feed.status) fromFeed++;
       stmts.push(db.prepare(
         `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects,
-           excerpt, excerpt_status, excerpt_at, excerpt_source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           excerpt, excerpt_status, excerpt_at, excerpt_source, excerpt_fallback)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(r.nm_rowid, r.source_key, route.ticker, r.url, r.title || "(untitled)", r.published, r.category,
         r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason || null, route.role, route.affects,
-        feed.excerpt, feed.status, feed.at, feed.source));
+        feed.excerpt, feed.status, feed.at, feed.source, feed.fallback));
     }
     const n = stmts.length;
     stmts.push(setMeta(db, "nm_cursor", win.hi));
