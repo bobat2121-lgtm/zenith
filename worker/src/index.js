@@ -76,7 +76,7 @@ async function submitGrades(env, body, role) {
   for (const part of chunk(ids)) {
     const ph = part.map(() => "?").join(",");
     for (const r of (await env.DB.prepare(
-      `SELECT i.id, i.ticker, i.state, i.claim_id, i.title, i.source_key, i.url, i.published, i.nm_first_seen AS first_seen, g.run_id AS primary_run
+      `SELECT i.id, i.ticker, i.state, i.claim_id, i.title, i.excerpt, i.source_key, i.url, i.published, i.nm_first_seen AS first_seen, g.run_id AS primary_run
          FROM items i LEFT JOIN grades g ON g.id = i.grade_id WHERE i.id IN (${ph})`,
     ).bind(...part).all()).results || []) items.set(r.id, r);
     if (runId) {

@@ -45,9 +45,16 @@ test("grades below a flagged floor are rejected; calendar notices are fixed at 7
   const sym = { id: 9, ticker: "SYM", source_key: "symbotic", title: "Symbotic Announces Date for Reporting Fourth Quarter and Fiscal Year 2026 Financial Results" };
   const cal = (score) => normalizeGrade(grade({ score, flags: ["reason:calendar_card", "floor:calendar", "group:earnings_calendar"] }), sym, null, null, FLOORS);
   assert.equal(cal(70).ok, false, "the three date notices graded 70");
-  assert.match(cal(70).error, /below floor:calendar \(75 fixed/);
+  assert.match(cal(70).error, /floor:calendar, which is fixed at 75/);
   assert.equal(cal(75).ok, true);
   assert.equal(cal(80).ok, false, "fixed floors are exact");
+  // 14+ company sheets still say "fixed 72": the error says to keep the flag
+  // and score 75, never to drop the flag (which would let 72 through).
+  const sheet72 = cal(72);
+  assert.equal(sheet72.ok, false);
+  assert.match(sheet72.error, /score it 75 and keep the flag/);
+  assert.match(sheet72.error, /"fixed 72"\) is void/);
+  assert.doesNotMatch(sheet72.error, /drop the flag/);
   // The highest flagged floor wins.
   const rcat = { id: 3, ticker: "RCAT", title: "Red Cat wins first Army order" };
   assert.equal(normalizeGrade(grade({ score: 80, flags: ["reason:material", "floor:order", "floor:lead_order"], magnitude_usd: 40e6 }), rcat, null, null, FLOORS).ok, false);
@@ -83,6 +90,20 @@ test("floor:investor_day needs the title to name an investor or analyst day", ()
   }
   // Below the investor-day floor is rejected once the flag is valid.
   assert.equal(normalizeGrade({ ...g, score: 75 }, { id: 13, ticker: "EVLV", title: "Evolv to Host Investor Day" }, null, null, FLOORS).ok, false);
+});
+
+test("floor:investor_day on an SEC filing: the filing's captured text may name the event", () => {
+  const g = grade({ score: 80, flags: ["reason:primary_source", "floor:investor_day"] });
+  const filing = { id: 31, ticker: "AUR", source_key: "edgar_aur", title: "Aurora Innovation, Inc.: 8-K [Items 7.01, 9.01] filed 2026-08-20",
+    url: "https://www.sec.gov/Archives/edgar/data/1828108/000182810826000031/aur-20260820.htm" };
+  // The EDGAR title never names the event; without captured text the flag is refused.
+  assert.match(normalizeGrade(g, filing, null, null, FLOORS).error, /neither the title nor the captured text/);
+  const withExcerpt = { ...filing, excerpt: "Item 7.01 Regulation FD Disclosure.\nOn August 20, 2026, the Company issued a press release.\nEX-99.1: Aurora to Host Analyst & Investor Day on September 23, 2026" };
+  assert.equal(normalizeGrade(g, withExcerpt, null, null, FLOORS).ok, true);
+  assert.equal(normalizeGrade({ ...g, score: 70 }, withExcerpt, null, null, FLOORS).ok, false, "and the 80 floor is then enforced");
+  // A webcast filing whose text names no investor day is still refused.
+  const webcast = { ...filing, excerpt: "Item 7.01 Regulation FD Disclosure.\nEX-99.1: Aurora to Present at the Morgan Stanley Conference; a webcast for investors will follow." };
+  assert.equal(normalizeGrade(g, webcast, null, null, FLOORS).ok, false);
 });
 
 test("unread SEC grades cap at 55 unless a floor applies by identifier", () => {

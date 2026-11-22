@@ -120,7 +120,7 @@ export const LATE_SIGHTING_DAYS = 21;
 //   covered:    the covered ticker list.
 //   floors:     parseFloors(core.md); enables floor enforcement.
 // item carries id and ticker, and (for the timing, floor and SEC checks) title,
-// source_key, url, published and first_seen when known.
+// excerpt, source_key, url, published and first_seen when known.
 export function normalizeGrade(raw, item, alsoTicker = null, covered = null, floors = null) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "grade must be an object" };
   if (!item) return { ok: false, error: "unknown item_id" };
@@ -164,9 +164,11 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
     return { ok: false, error: `late_first_sighting does not apply: item ${item.id} was first seen ${age} day(s) after its published date (published ${item.published}, first_seen ${item.first_seen}). Timeliness is measured from first sighting, not from grading time (core.md 4.5); regrade without the late penalty. Only if the event itself predates this record's publication by more than 21 days, keep the flag, add event_predates_publication and give the event date in why.` };
   }
 
-  // floor:investor_day only when the company calls it an investor or analyst day.
-  if (flags.includes("floor:investor_day") && !INVESTOR_DAY_RE.test(String(item.title || ""))) {
-    return { ok: false, error: `floor:investor_day applies only when the company calls the event an investor or analyst day, and the title of item ${item.id} names neither. Grade a webcast, Q&A or presentation notice on its own terms (often reason:promotional) and drop the flag.` };
+  // floor:investor_day only when the company calls it an investor or analyst
+  // day, in the title or in the captured text (an SEC filing's title never
+  // names the event; its Item text or Ex-99.1 release does).
+  if (flags.includes("floor:investor_day") && !INVESTOR_DAY_RE.test(String(item.title || "")) && !INVESTOR_DAY_RE.test(String(item.excerpt || ""))) {
+    return { ok: false, error: `floor:investor_day applies only when the company calls the event an investor or analyst day, and neither the title nor the captured text of item ${item.id} names one. Grade a webcast, Q&A or presentation notice on its own terms (often reason:promotional) and drop the flag.` };
   }
 
   // Flagged floors are minimums (core.md section 6); unknown ids are ignored.
@@ -180,11 +182,13 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
       if (floor == null || value > floor) { floor = value; fixedFloor = def.fixed; floorId = f.slice(6); }
       else if (value === floor && !def.fixed) fixedFloor = false;
     }
-    if (floor != null && score < floor) {
-      return { ok: false, error: `score ${score} is below floor:${floorId} (${floor}${fixedFloor ? " fixed" : ""}, core.md section 6). Score at least the floor, or drop the flag if the floor does not apply.` };
-    }
+    // A fixed floor is the score itself; company sheets that give it another
+    // value ("calendar 72 fixed") are void without an owner:<date> mark.
     if (floor != null && fixedFloor && score !== floor) {
-      return { ok: false, error: `floor:${floorId} is fixed at ${floor} (core.md section 6); score it ${floor}.` };
+      return { ok: false, error: `score ${score} does not match floor:${floorId}, which is fixed at ${floor} (core.md section 6): score it ${floor} and keep the flag. A company sheet line that gives it another value (such as "fixed 72") is void, because lowering a floor needs an owner:<date> mark.` };
+    }
+    if (floor != null && score < floor) {
+      return { ok: false, error: `score ${score} is below floor:${floorId} (${floor}, core.md section 6). Score at least the floor, or drop the flag if the floor does not apply.` };
     }
   }
 

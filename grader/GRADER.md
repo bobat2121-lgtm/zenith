@@ -65,9 +65,12 @@ the analyst has to fix the environment. Do not retry in a loop.
      (e.g. a bare "8-K filed"), use WebSearch once for the matching release or filing
      summary; follow core.md's rules for unread sources and its confidence caps.
    - **Floors:** flag `floor:<id>` only when its identifier is met, and score at least
-     the floor (`floor:calendar` exactly 75). `floor:investor_day` only when the
-     company calls the event an investor day or an analyst day (the title must say
-     so): a webcast, live Q&A, shareholder call or "investor presentation" is not one.
+     the floor (`floor:calendar` exactly 75). Where a company sheet says date notices
+     are "fixed 72", ignore that line: it has no `owner:` mark, so score 75 with
+     `floor:calendar`. `floor:investor_day` only when the company calls the event an
+     investor day or an analyst day (the title or the excerpt must say so; for an SEC
+     filing it is the excerpt): a webcast, live Q&A, shareholder call or "investor
+     presentation" is not one.
    - Write `.zenith/grades.json`: a JSON array, one object per claimed item,
      following **core.md section 10 exactly**. The item's own grade uses the bare
      `item_id`; a covered-to-covered grade for *another* covered ticker uses

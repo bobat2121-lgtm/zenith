@@ -223,3 +223,19 @@ test("enrich: a 403 gets one later retry; sec.gov without a contact address is n
     assert.deepEqual([row(blocked).excerpt_status, row(blocked).excerpt_tries], ["http_403", 2], "a second 403 is final");
   } finally { globalThis.fetch = real; }
 });
+
+test("grades: an SEC filing's excerpt can carry the investor-day words; calendar 72 is refused with the fix", async () => {
+  const env = newEnv();
+  const filing = addItem(env, { source_key: "edgar_aur", ticker: "AUR", title: "Aurora Innovation, Inc.: 8-K [Items 7.01, 9.01] filed 2026-08-20",
+    url: "https://www.sec.gov/Archives/edgar/data/1828108/000182810826000031/aur-20260820.htm", excerpt_status: "ok",
+    excerpt: "Item 7.01 Regulation FD Disclosure.\nEX-99.1: Aurora to Host Analyst & Investor Day on September 23, 2026" });
+  const date = addItem(env, { source_key: "aurora", ticker: "AUR", title: "Aurora to Host Third Quarter 2026 Business Review Conference Call on October 28, 2026" });
+  const claim = (await request(worker, env, "POST", "/v1/queue/claim", { role: "grader", body: { limit: 10, run_id: "run-i" } })).body;
+  const g = (item_id, over) => ({ item_id, why: "w", read_source: true, confidence: 0.7, ...over });
+  const res = (await request(worker, env, "POST", "/v1/grades", { role: "grader", body: { claim_id: claim.claim_id, run_id: "run-i", grades: [
+    g(filing, { score: 80, flags: ["reason:primary_source", "floor:investor_day"] }),
+    g(date, { score: 72, flags: ["reason:calendar_card", "floor:calendar", "group:earnings_calendar"] }),
+  ] } })).body;
+  assert.deepEqual(res.results.map((r) => [r.item_id, r.score]), [[filing, 80]]);
+  assert.match(res.rejected[0].error, /score it 75 and keep the flag/);
+});
