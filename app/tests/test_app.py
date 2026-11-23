@@ -223,11 +223,18 @@ class PureFunctions(unittest.TestCase):
         for title, form in [("Red Cat Holdings, Inc.: 10-Q filed 2026-11-12", "10-Q"),
                             ("Kratos: 8-K filed 2026-11-10", "8-K"), ("Acme: SC 13D/A filed 2026-11-01", "SC 13D/A"),
                             ("Acme: NT 10-K filed 2026-03-31", "NT 10-K"), ("Acme: 424B5 filed 2026-11-03", "424B5"),
-                            ("Acme: Form 4 filed 2026-11-04", "Form 4"), ("Acme Robotics: D filed 2026-11-05", "D")]:
+                            ("Acme: Form 4 filed 2026-11-04", "Form 4"), ("Acme Robotics: D filed 2026-11-05", "D"),
+                            # news-monitor's filingTitle: "<company>: <form>[ [Items ...]] filed <date>".
+                            ("Aurora Innovation, Inc.: 8-K [Items 7.01, 9.01] filed 2026-08-20", "8-K"),
+                            ("Acme: 8-K/A [Items 5.02] filed 2026-11-13", "8-K/A"),
+                            ("Satellogic: 8-K filed 2026-11-13 [Items 2.02, 9.01]", "8-K")]:
             self.assertEqual(zf.title_form(title), form, title)
             self.assertEqual(zf.link_text({"title": title}), f"{title} - {form}")
         # Only "<form> filed" counts: a press release that mentions a form gets no tag.
-        for title in ("UMAC 8-K", "Red Cat reports Q3 results in its 10-Q", "Form D-style raise filed", "ABC-8-K filed"):
+        # The form must sit right after "<company>: ", so prose such as "Series D filed" is not a Form D.
+        for title in ("UMAC 8-K", "Red Cat reports Q3 results in its 10-Q", "Form D-style raise filed", "ABC-8-K filed",
+                      "Anduril's Series D filed with the SEC", "Acme: Plan C filed in court", "Acme says 8-K filed today",
+                      "Acme: 8-K [Items 2.02 filed 2026-11-13"):
             self.assertIsNone(zf.title_form(title), title)
             self.assertEqual(zf.link_text({"title": title}), title)
         self.assertEqual(zf.link_text({"title": "Acme: 8-K filed 2026-11-10 - 8-K"}), "Acme: 8-K filed 2026-11-10 - 8-K")

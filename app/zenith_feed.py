@@ -175,15 +175,17 @@ def one_line(text) -> str:
 
 
 # SEC forms as zenith-core's tag vocabulary names them. A title "names" a form when it
-# reads "<form> filed" (EDGAR sources: "Agility Robotics, Inc.: 8-K/A filed 2026-11-13").
+# has news-monitor's EDGAR shape "<company>: <form>[ [Items ...]] filed <date>"
+# ("Agility Robotics, Inc.: 8-K/A filed 2026-11-13", "Aurora: 8-K [Items 7.01, 9.01] filed ...").
+# Anchoring on ": " keeps prose such as "Series D filed with ..." from reading as Form D.
 SEC_FORMS = (r"8-K/A|8-K|10-Q/A|10-Q|10-K/A|10-K|6-K/A|6-K|20-F|40-F|S-1/A|S-1|S-3/A|S-3|S-4|S-8|F-1|F-3|424B[1-8]"
              r"|SC 13D/A|SC 13D|SC 13G/A|SC 13G|13F-HR|Form 3|Form 4|Form 5|DEF 14A|DEFA14A|PRE 14A|25-NSE"
              r"|NT 10-Q|NT 10-K|1-U|1-K|C|D")
-TITLE_FORM = re.compile(rf"(?<![\w/-])({SEC_FORMS})\s+filed\b")
+TITLE_FORM = re.compile(rf":\s+({SEC_FORMS})(?:\s+\[Items[^\]]*\])?\s+filed\b")
 
 
 def title_form(title) -> str | None:
-    """The SEC form a title says was filed ("8-K/A filed ..." -> "8-K/A"), else None."""
+    """The SEC form an EDGAR title says was filed ("Acme: 8-K/A [Items 5.02] filed ..." -> "8-K/A"), else None."""
     m = TITLE_FORM.search(one_line(title))
     return m.group(1) if m else None
 
