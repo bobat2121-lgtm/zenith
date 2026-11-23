@@ -24,7 +24,7 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `rubric/core.md`, `rubric/companies/<TICKER>.md` | The grading rubric. Bundled into the Worker at deploy (`npm run build:rubric`); its content hash is the rubric version stamped on every grade. |
 | `worker/` | zenith-core: `src/ingest.js` (cursor over news-monitor-db), `src/excerpt.js` (opening text of each release), `src/index.js` (API), `src/auxiliary.js` (auxiliary names: own tables, cursor, claim, grades and feed; never touches coverage rows), `migrations/`. |
 | `grader/` | What the hourly routine runs: `GRADER.md` (procedure) and `zenith.mjs` (API CLI). |
-| `app/` | Streamlit feed. Views: For you (≥70), Latest, Label queue, Lead only. Labels High/Medium/Low/Noise and Too high/Too low, recorded against the grade on the card, plus a "why it matters" note feed back to the grader. |
+| `app/` | Streamlit app, two pages: **Coverage Universe** (`/v1/feed`) and **Auxiliary Names** (`/v1/aux/feed`, every company or program outside coverage). Each has a For You (Signal 60/70/80/90+, recent Leads pinned) | Latest (newest, pending included) switch, a Companies / Names filter and an Unlabeled only toggle. One-glance cards: name, source or status, score · band, age, title, the grader's one-line why, read-through chips on auxiliary cards. Labels High/Medium/Low/Noise and Too high/Too low, recorded against the grade on the card, plus a "why it matters" note feed back to the grader. |
 | `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`, and `worker/src/aux-sources.json` (every other company or program source, as auxiliary names). |
 
 ## API (bearer tokens: ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN)
@@ -57,11 +57,13 @@ cd worker && npx wrangler deploy # deploy (rubric is bundled at build time)
 
 Run the app locally: `app/.venv/Scripts/python -m streamlit run app/streamlit_app.py`
 with `app/.streamlit/secrets.toml` holding `ZENITH_API` and `ZENITH_APP_TOKEN`.
+The entrypoint only sets up `st.navigation`; the pages are `app/views/*.py` and the shared feed code is
+`app/zenith_feed.py`. Tests (requests mocked, no network): `app/.venv/Scripts/python -m unittest discover -s app/tests -v`.
 
 Hosted on Streamlit Community Cloud (for labelling from any device):
 - New app → repository `bobat2121-lgtm/zenith`, branch `main`, main file `app/streamlit_app.py`, Python 3.12.
 - App settings → Secrets: `ZENITH_API` and `ZENITH_APP_TOKEN` in TOML, as in `app/.streamlit/secrets.toml`.
-- The repository is private, so the app is private: only the owner and invited viewers can open it. The app token reaches only feed, stats and feedback.
+- The repository is private, so the app is private: only the owner and invited viewers can open it. The app token reaches only feed, stats and feedback (coverage and auxiliary).
 - The theme comes from `.streamlit/config.toml` at the repository root (a copy of `app/.streamlit/config.toml`, which local runs use).
 
 Secrets live only in Worker secrets, the routine's environment variables and git-ignored

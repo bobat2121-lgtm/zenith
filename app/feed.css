@@ -1,14 +1,16 @@
-/* Zenith feed — black with red accent, X-style timeline. */
+/* Zenith feed — black with red accent, X-style timeline, succinct cards. */
 :root {
   --z-bg: #000000;
   --z-panel: #0F0F10;
   --z-line: #2F3336;
   --z-text: #E7E9EA;
+  --z-soft: #C9CDD1;
   --z-dim: #8B9298;
+  --z-faint: #5E6469;
   --z-red: #E10600;
   --z-red-text: #FF453A;
 }
-.block-container { max-width: 720px; padding-top: 3rem; }
+.block-container { max-width: 760px; padding-top: 3.2rem; }
 [data-testid="stSidebar"] { border-right: 1px solid var(--z-line); }
 a { color: var(--z-red-text) !important; }
 
@@ -16,34 +18,43 @@ a { color: var(--z-red-text) !important; }
 .z-brand span { color: var(--z-red); }
 .z-sub { color: var(--z-dim); font-size: .8rem; margin-top: -.2rem; }
 
-.z-card { display: flex; gap: .75rem; padding: .2rem 0 .1rem 0; }
-.z-avatar { flex: 0 0 42px; height: 42px; border-radius: 50%; background: var(--z-panel);
-  border: 1px solid var(--z-line); display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: .72rem; color: var(--z-text); }
-.z-avatar.lead { border-color: var(--z-red); box-shadow: 0 0 0 1px var(--z-red) inset; }
-.z-body { flex: 1; min-width: 0; }
-.z-head { color: var(--z-dim); font-size: .85rem; display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
-.z-head b { color: var(--z-text); }
-.z-title { font-size: 1.02rem; line-height: 1.38; margin: .2rem 0 .3rem 0; }
+/* Card: line 1 name · tag · score · age, line 2 title, line 3 why (two lines at most). */
+.z-card { padding: .05rem 0 0 0; }
+.z-card.lead { border-left: 3px solid var(--z-red); padding-left: .6rem; }
+.z-head { color: var(--z-dim); font-size: .8rem; display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.z-name { color: var(--z-text); font-weight: 800; font-size: .88rem; letter-spacing: .01em; }
+.z-age { color: var(--z-dim); font-size: .78rem; }
+.z-title { font-size: 1rem; line-height: 1.36; margin: .18rem 0 .2rem 0; font-weight: 600; }
 .z-title a { color: var(--z-text) !important; text-decoration: none; }
 .z-title a:hover { text-decoration: underline; }
-.z-why { color: #C9CDD1; font-size: .9rem; line-height: 1.35; }
-.z-hook { color: var(--z-dim); font-size: .85rem; font-style: italic; margin-top: .15rem; }
+.z-why { color: var(--z-soft); font-size: .88rem; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.z-rt { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .3rem; }
+.z-chip { display: inline-block; padding: 0 .45rem; border-radius: 4px; font-size: .72rem; font-weight: 700;
+  background: var(--z-panel); border: 1px solid var(--z-line); color: var(--z-text); line-height: 1.3rem; }
 
 .z-badge { display: inline-block; padding: 0 .45rem; border-radius: 999px; font-size: .72rem; font-weight: 700;
-  border: 1px solid var(--z-line); color: var(--z-dim); line-height: 1.35rem; }
+  border: 1px solid var(--z-line); color: var(--z-dim); line-height: 1.3rem; }
 .z-badge.lead { background: var(--z-red); border-color: var(--z-red); color: #fff; }
 .z-badge.digest { border-color: var(--z-red-text); color: var(--z-red-text); }
-.z-badge.borderline { color: #C9CDD1; }
-.z-badge.reject { color: #5E6469; }
+.z-badge.borderline { color: var(--z-soft); }
+.z-badge.reject { color: var(--z-faint); }
 .z-badge.pending { border-style: dashed; }
-.z-badge.duplicate { color: #5E6469; border-style: dotted; }
+.z-badge.duplicate, .z-badge.covered, .z-badge.other { color: var(--z-faint); border-style: dotted; }
 .z-badge.also { color: var(--z-text); }
 .z-badge.src { font-weight: 600; }
-.z-label { color: var(--z-red-text); font-weight: 700; font-size: .78rem; }
 
-div[data-testid="stVerticalBlockBorderWrapper"] { border-color: var(--z-line) !important; border-radius: 0 !important;
-  border-left: none !important; border-right: none !important; border-top: none !important; }
+/* One hairline between cards (keyed card containers carry st-key-zcard-*). */
+div[class*="st-key-zcard-"], div[data-testid="stVerticalBlockBorderWrapper"] {
+  border-color: var(--z-line) !important; border-radius: 0 !important;
+  border-left: none !important; border-right: none !important; border-top: none !important;
+  padding-left: .1rem !important; padding-right: .1rem !important; }
+
+/* Compact label row: segmented control + "Why it matters" popover. */
+div[class*="st-key-zcard-"] [data-testid="stButtonGroup"] button { min-height: 1.75rem; padding: 0 .6rem; font-size: .78rem; }
+div[class*="st-key-zcard-"] [data-testid="stPopover"] button { min-height: 1.75rem; padding: 0 .6rem; font-size: .78rem;
+  border-radius: 999px; }
+div[class*="st-key-zcard-"] [data-testid="stExpander"] details summary { padding-top: .2rem; padding-bottom: .2rem; font-size: .8rem; }
 .stButton > button { border-radius: 999px; border: 1px solid var(--z-line); background: transparent; color: var(--z-dim);
   padding: .1rem .7rem; font-size: .8rem; min-height: 1.9rem; }
 .stButton > button:hover { border-color: var(--z-red); color: var(--z-text); }
