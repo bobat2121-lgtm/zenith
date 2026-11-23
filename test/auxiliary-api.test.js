@@ -519,6 +519,12 @@ test("coverage endpoints, the claim queue and Lead pushes are the same with or w
     ["app", "/v1/feed?ticker=RCAT"], ["grader", "/v1/labels"], ["grader", "/v1/recent?ticker=RCAT"], ["app", "/v1/calibration"], ["app", `/v1/brief?since=${encodeURIComponent(at(DAY))}`]]) {
     const a = await request(worker, plain, "GET", path, { role });
     const b = await request(worker, mixed, "GET", path, { role });
+    // Calibration carries an aux block (round 4 Z6); its coverage block must not move.
+    if (path === "/v1/calibration") {
+      assert.deepEqual(stable(b.body.coverage), stable(a.body.coverage), path);
+      assert.equal(b.body.aux.all_time.n, 1);
+      continue;
+    }
     assert.deepEqual(stable(b), stable(a), path);
   }
   const page = async (env) => (await worker.fetch(new Request("https://zenith.test/m", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), env)).text();

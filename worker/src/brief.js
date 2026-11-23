@@ -251,15 +251,10 @@ function groupBy(rows, key) {
   return Object.fromEntries([...m.entries()].map(([k, v]) => [k, summarize(v)]));
 }
 
-export async function buildCalibration(db, { now = Date.now() } = {}) {
-  const weekFrom = nowIso(now - 7 * DAY_MS);
-  const rows = (await db.prepare(
-    `SELECT f.id, f.item_id, f.label, f.created_at, g.score, g.band, COALESCE(g.ticker, i.ticker) AS ticker, i.title
-       FROM feedback f JOIN items i ON i.id = f.item_id LEFT JOIN grades g ON g.id = f.grade_id
-      WHERE f.id IN (SELECT MAX(id) FROM feedback GROUP BY item_id)`,
-  ).all()).results || [];
+// One pipeline's calibration: rows are the latest label per item, `by` the
+// column to group by (ticker for coverage, entity for auxiliary names).
+function calibrationOf(rows, weekFrom, labelledThisWeek, by) {
   const week = rows.filter((r) => r.created_at >= weekFrom);
-  const labelled = await db.prepare("SELECT COUNT(DISTINCT item_id) AS n FROM feedback WHERE created_at >= ?").bind(weekFrom).first();
   const dist = (r) => {
     const v = verdict(r.label, r.score);
     if (v === "agree" || !v) return -1;
@@ -268,12 +263,39 @@ export async function buildCalibration(db, { now = Date.now() } = {}) {
   };
   const misses = week.map((r) => ({ ...r, verdict: verdict(r.label, r.score), distance: dist(r) }))
     .filter((r) => r.distance >= 0).sort((a, b) => b.distance - a.distance).slice(0, 5);
+  const key = `by_${by}`;
+  return {
+    labelled_this_week: labelledThisWeek,
+    this_week: { ...summarize(week), by_band: groupBy(week, "band"), [key]: groupBy(week, by) },
+    all_time: { ...summarize(rows), by_band: groupBy(rows, "band"), [key]: groupBy(rows, by) },
+    misses: misses.map((r) => ({ item_id: r.item_id, [by]: r[by], label: r.label, reason: r.reason ?? null, score: r.score, band: r.band, title: r.title, verdict: r.verdict })),
+  };
+}
+
+// Coverage calibration at the top level (the Monday report renders it), with
+// the auxiliary names' (aux_feedback against aux_grades, by entity) under aux
+// and the analyst's reason codes (migration 0011) over both under reasons.
+export async function buildCalibration(db, { now = Date.now() } = {}) {
+  const weekFrom = nowIso(now - 7 * DAY_MS);
+  const rows = (await db.prepare(
+    `SELECT f.id, f.item_id, f.label, f.reason, f.created_at, g.score, g.band, COALESCE(g.ticker, i.ticker) AS ticker, i.title
+       FROM feedback f JOIN items i ON i.id = f.item_id LEFT JOIN grades g ON g.id = f.grade_id
+      WHERE f.id IN (SELECT MAX(id) FROM feedback GROUP BY item_id)`,
+  ).all()).results || [];
+  const labelled = await db.prepare("SELECT COUNT(DISTINCT item_id) AS n FROM feedback WHERE created_at >= ?").bind(weekFrom).first();
+  const auxRows = (await db.prepare(
+    `SELECT f.id, f.item_id, f.label, f.reason, f.created_at, g.score, g.band, COALESCE(g.entity, i.entity_name) AS entity, i.title
+       FROM aux_feedback f JOIN aux_items i ON i.id = f.item_id LEFT JOIN aux_grades g ON g.id = f.grade_id
+      WHERE f.id IN (SELECT MAX(id) FROM aux_feedback GROUP BY item_id)`,
+  ).all()).results || [];
+  const auxLabelled = await db.prepare("SELECT COUNT(DISTINCT item_id) AS n FROM aux_feedback WHERE created_at >= ?").bind(weekFrom).first();
+  const reasons = {};
+  for (const r of [...rows, ...auxRows]) if (r.reason) reasons[r.reason] = (reasons[r.reason] || 0) + 1;
   return {
     generated_at: nowIso(now), week_from: weekFrom,
-    labelled_this_week: labelled?.n || 0,
-    this_week: { ...summarize(week), by_band: groupBy(week, "band"), by_ticker: groupBy(week, "ticker") },
-    all_time: { ...summarize(rows), by_band: groupBy(rows, "band"), by_ticker: groupBy(rows, "ticker") },
-    misses: misses.map(({ item_id, ticker, label, score, band, title, verdict: v }) => ({ item_id, ticker, label, score, band, title, verdict: v })),
+    ...calibrationOf(rows, weekFrom, labelled?.n || 0, "ticker"),
+    aux: calibrationOf(auxRows, weekFrom, auxLabelled?.n || 0, "entity"),
+    reasons,
   };
 }
 
@@ -418,7 +440,9 @@ export async function calendarRoute(env, url) {
   return json({ calendar_version: CALENDAR_VERSION, from, days, ticker, entries });
 }
 
+// { coverage: {..., text: the Monday report}, aux: {same shape, by entity}, reasons: {code: n} }
 export async function calibrationRoute(env) {
   const c = await buildCalibration(env.DB, { now: Date.now() });
-  return json({ ...c, text: renderCalibration(c) });
+  const { aux, reasons, ...coverage } = c;
+  return json({ generated_at: c.generated_at, week_from: c.week_from, coverage: { ...coverage, text: renderCalibration(c) }, aux, reasons });
 }

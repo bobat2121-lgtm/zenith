@@ -16,6 +16,7 @@ import COVERED from "./covered.json";
 import { MATCH } from "./rubric.generated.js";
 import { nowIso, skipReason, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups } from "./lib.js";
 import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
+import { mutedSources } from "./tuning.js";
 
 // Windowing, shared with the auxiliary ingest (auxiliary.js).
 export const BATCH = 400;
@@ -125,6 +126,8 @@ export async function ingest(env) {
     await setMeta(db, "nm_cursor", cursor).run();
   }
   let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0;
+  // A muted source's rows are stored skipped (source prefs, tuning.js).
+  const muted = await mutedSources(db);
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
@@ -149,7 +152,7 @@ export async function ingest(env) {
     for (const { r, route } of routed) {
       const archive = park.has(archiveGroupKey(r.source_key, r.first_seen)) && isArchiveCandidate(r);
       // Only http(s) links are ever fetched or shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || route.skip;
+      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || route.skip || (muted.has(r.source_key) ? "muted_source" : null);
       if (reason) skipped++;
       const feed = feedFields(r, route, now);
       if (feed.status) fromFeed++;

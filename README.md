@@ -37,7 +37,7 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `POST /v1/grades` `{claim_id, run_id, rubric_version, model, grades[]}` (each grade may carry `headline` and `tag`, both or neither: core.md section 10; stored on the item, a `#TICKER` grade's only when the item has none) | grader |
 | `GET /v1/labels?since=` | grader |
 | `GET /v1/feed?limit&before_id&ticker&min_score&state&unlabeled&order=newest` (items carry `headline` and `headline_tag`, null until written; recent Leads first, then newest; page with `before_id` = the last page's `next_before_id`, passed back unchanged: it is negative while the pinned Leads continue) | app |
-| `POST /v1/feedback` `{item_id, label, note, ticker or grade_id}` | app |
+| `POST /v1/feedback` `{item_id, label, note, reason?, ticker or grade_id}` (`reason`: not_material, duplicate, wrong_company, stale, marketing, not_my_focus or missed_detail; feeds return it as `my_reason`, labels as `reason`) | app |
 | `GET /v1/stats` (an `aux` block: by_state, by_band, entities, last_ingest_at) | grader, app |
 | `GET /v1/rubric/aux` (auxiliary rubric, own `rubric_version`; 503 until built) | grader |
 | `POST /v1/aux/claim` `{limit 1-40, run_id}`, `POST /v1/aux/grades` `{claim_id, run_id, rubric_version, model, grades[]}` (optional `headline` and `tag`, as coverage) | grader |
@@ -45,7 +45,13 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `POST /v1/headlines` `{claim_id, headlines: [{kind, item_id, headline, tag}]}` → `{accepted, rejected: [{kind, item_id, error}], results}`: items from the claim only; writes the headline and tag, never a grade, score or state | grader |
 | `GET /v1/aux/recent?entity&days`, `GET /v1/aux/labels?limit&days` (labels the current grade falls outside of) | grader |
 | `GET /v1/aux/feed?limit&before_id&entity&min_score&state&unlabeled&order=newest&pin_lead_hours` (same paging and `headline`, `headline_tag` as `/v1/feed`, newest by news-monitor arrival; hides skipped, duplicate and covered, and coverage-subject items until graded) | app |
-| `POST /v1/aux/feedback` `{item_id, label, note}` | app |
+| `POST /v1/aux/feedback` `{item_id, label, note, reason?}` | app |
+| `GET /v1/feed?sort=to_label`, `GET /v1/aux/feed?sort=to_label` (graded, unlabeled cards of 14 days: confidence < 0.6, then 60-79 nearest 70, then by score; no paging) | app |
+| `GET /v1/calibration` → `{coverage: {..., text}, aux: {same shape, by_entity}, reasons: {code: n}}` | grader, app |
+| `GET /v1/ops` → `{grader: {last_run_at, last_run, runs_24h, gaps_7d: [{from, to, hours}], status: ok\|late\|down, checks, backlog: {coverage_pending, aux_pending, headlines_waiting, oldest_aux_pending_at}}, as_of}` | app |
+| `GET /v1/source-prefs`, `POST /v1/source-prefs` `{source_key, action: mute\|demote\|normal, note?}` (mute: new items skipped as `muted_source` and cards hidden; demote: For You counts the source 15 lower; never `edgar_*` or a covered company's own channel) | app |
+| `GET /v1/source-yield?days=30` → `{coverage: [...], aux: [...]}`: per source `{graded, high, reject, duplicate, covered, last_high_at, pref, suggest}` | app |
+| `GET /v1/left-out?kind=coverage\|aux&reason&days=14&limit=50` (skipped items and `counts` by skip reason; `archive_seed` only when asked for), `POST /v1/left-out/grade` `{kind, id}` (back to pending) | app |
 | `POST /v1/admin/aux-ingest` (the cron runs it after the coverage ingest and enrich) | admin |
 | `GET /v1/site-changes?days=14&limit=50[&tickers=KDK,RCAT]` (news-monitor `site_structure_changes`: `{items: [{id, ticker, source_key, kind, section, detail, detected_at, notable}]}`, newest first; `tickers` filters before the limit, and notable rows are kept first when over it; a section told with its new child sitemap is listed once; `notable` = a new IR, events, presentations, investor-day, press or news section, matched on whole path words) | app |
 | `GET /v1/source-health` (`{edgar_fast_path: {last_match_at, matches_24h, matches_7d}, ir_probes: {checked_at, failing: [{key, ticker, label, since, error}], ok}, as_of}`; a block is null when its news-monitor table is missing; a feed or sitemap probe that answers an HTML page is failing) | app |
