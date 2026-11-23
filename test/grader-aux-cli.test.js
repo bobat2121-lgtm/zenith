@@ -439,6 +439,24 @@ test("rubric/auxiliary.md uses the API's reason flags, bands and output fields",
   }
 });
 
+// Section 2 keeps 0-9 for data problems; correct but immaterial items (recognition,
+// marketing, routine news) sit at 10-39, and every section 9 example fits its reason.
+test("rubric/auxiliary.md reason ranges and examples agree with the score scale", () => {
+  assert.match(auxMd, /0-9 = data problem/);
+  const table = auxMd.slice(auxMd.indexOf("| `reason:` |"));
+  const ranges = Object.fromEntries([...table.matchAll(/^\| `([a-z_]+)` \| [^|]+ \| (\d+)-(\d+) \|$/gm)].map((m) => [m[1], [Number(m[2]), Number(m[3])]]));
+  for (const r of ["material", "minor", "noise", "promotional"]) assert.ok(ranges[r][0] >= 10, `${r} starts at ${ranges[r][0]}, inside the data-problem range`);
+  const examples = auxMd.slice(auxMd.indexOf("## 9. Examples"));
+  const rows = [...examples.matchAll(/^\| [^|]+ \| (\d+) `([a-z_]+)` \|/gm)];
+  assert.ok(rows.length >= 8);
+  for (const [, score, reason] of rows) {
+    const [lo, hi] = ranges[reason];
+    assert.ok(Number(score) >= lo && Number(score) <= hi, `example ${score} ${reason} is outside ${lo}-${hi}`);
+  }
+  // The API rejects an empty entity: the rubric must say what to use when no company or program is named.
+  assert.match(auxMd, /no company or program is named[^.\n]*routed `entity=` name/i);
+});
+
 test("GRADER.md hands an empty coverage claim on to the auxiliary pass", () => {
   const md = readFileSync(join(root, "grader", "GRADER.md"), "utf8");
   const step = (n) => new RegExp(`^${n}\\. [\\s\\S]*?(?=^${n + 1}\\. |^## )`, "m").exec(md)[0];

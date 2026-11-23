@@ -9,7 +9,7 @@ Version 1.0, 2026-11-23. Read once per run, in the auxiliary pass (grader/GRADER
 Auxiliary items come from news-monitor sources outside the covered lane: public and private companies, subsidiaries of larger groups, government programs and contract feeds (DIU, NGA, war.gov contracts), and industry media. Each claimed item shows the entity its source routes to (`entity=`) and a status (`public`, `private`, `program`, `media`, `unknown`). The routed entity is a hint, never the answer.
 
 - **entity:** the outside company or program the item is mainly about, by its canonical short name: "Anduril", "AeroVironment", "Waymo", "Shield AI". No legal suffix, ticker or "(private)". Where peers.md has a heading for the company, use that name without the parenthesis. Keep one spelling per company across the run.
-- **Program and media sources:** the entity is the company the item is about (a war.gov contract paragraph awarding Anduril → "Anduril"). If several companies are named, take the one the item is mainly about (the largest award, else the first named). If no company is named, the entity is the program or agency ("DIU", "NGA", "Army SRR").
+- **Program and media sources:** the entity is the company the item is about (a war.gov contract paragraph awarding Anduril → "Anduril"). If several companies are named, take the one the item is mainly about (the largest award, else the first named). If no company is named, the entity is the program or agency ("DIU", "NGA", "Army SRR"). If no company or program is named (a media piece on policy), use the routed `entity=` name from the claim, e.g. "Industry media": the entity is never empty.
 - **Subsidiaries are their own entity** (Waymo, Zoox, Wing, Torc Robotics, Boston Dynamics): size the event against the subsidiary, not the parent.
 - **Covered names belong on the Coverage page.** If the item is mainly about a covered company, its subsidiary, brand or product, grade it `score: null`, `band: "covered"`, `reason:covered_name`, `covered_ticker: "<TICKER>"`, and `entity` the covered company's name. The covered universe (core.md section 1): RCAT Red Cat (Teal Drones, Blue Ops, FlightWave) · UMAC Unusual Machines (Fat Shark, Rotor Riot) · DPRO Draganfly · SPAI Safe Pro · ONDS Ondas (American Robotics, Airobotics, Sentrycs, DZYNE, Roboteam) · AXON Axon Enterprise (TASER, Dedrone, Fusus, Prepared) · KDK Kodiak AI · AUR Aurora · SERV Serve Robotics (Diligent Robotics, Vayu Robotics) · AGLT Agility Robotics · PL Planet Labs · SATL Satellogic · EVLV Evolv · XTRAF Xtract One · SYM Symbotic · PDYN Palladyne AI (Sarcos) · MRLN Merlin (Merlin Labs) · SRFM Surf Air Mobility · GRRR Gorilla Technology · MBAI MBody AI · PUSA Powerus · BOT RoboStrategy · MSTR Strategy (MicroStrategy) · ASST Strive.
 - A covered company named only as one of several partners, customers or rivals does not make the item covered: grade the outside entity and record the link in `reads_through`. Watch collisions (core.md section 1): Axon Vision, Agility Global, the SpaceX Merlin engine, "strategy" the word, and Strive the word are not covered companies.
@@ -93,7 +93,7 @@ One JSON object per claimed item, in a JSON array, nothing else:
 ```
 
 - **item_id:** the id the claim printed. Every claimed item gets exactly one object.
-- **entity:** section 1, 1-80 characters.
+- **entity:** section 1, 1-80 characters, never empty.
 - **score:** integer 0-100; null only for `duplicate` and `covered`.
 - **band:** `lead` 90-100, `digest` 70-89, `borderline` 40-69, `reject` 0-39, matching the score exactly; `duplicate` or `covered` with a null score.
 - **event_type** (≤ 40 characters): `ipo`, `acquisition`, `financing`, `contract`, `program_award`, `program`, `bankruptcy`, `exec_change`, `regulatory`, `safety_incident`, `recall`, `results`, `guidance`, `product`, `deployment`, `partnership`, `pilot`, `layoffs`, `legal`, `filing_other`, `hiring`, `event`, `recognition`, `marketing`, `commentary`, `duplicate`, `covered`.
@@ -110,7 +110,7 @@ One JSON object per claimed item, in a JSON array, nothing else:
 | `material` | An event at 70+ | 70-100 |
 | `minor` | True, on-entity, small (the 40-69 rung) | 40-69 |
 | `noise` | Hiring, recaps, opinion, stock-move pieces, routine filings | 10-39 |
-| `promotional` | Awards, recognition, events, webinars, conference appearances, sponsorships, marketing, customer stories | 0-25 |
+| `promotional` | Awards, recognition, events, webinars, conference appearances, sponsorships, marketing, customer stories | 10-25 |
 | `stale` | First seen more than 21 days after the event; undated backfill | 0-29 |
 | `off_topic` | No company or program event; wrong entity | 0-15 |
 | `insufficient_evidence` | The event cannot be placed on the ladder (section 7) | 0-39 |
@@ -130,6 +130,6 @@ One JSON object per claimed item, in a JSON array, nothing else:
 | AeroVironment quarterly results, guidance raised | 82 `material` | Results with a guidance change |
 | Einride 6-K with no new facts | 20 `noise` | Routine filing |
 | DIU opens a $5M solicitation, no company named | 48 `minor` | Program entity "DIU", small solicitation |
-| Zipline named to an innovation list | 8 `promotional` | Recognition |
-| Media piece on drone policy naming no company | 10 `off_topic` | No company or program event |
+| Zipline named to an innovation list | 12 `promotional` | Recognition |
+| Media piece on drone policy naming no company | 10 `off_topic` | No company or program event; entity is the routed name ("Industry media") |
 | war.gov paragraph awarding Red Cat's Teal Drones | null `covered_name` | `covered_ticker: "RCAT"` |
