@@ -127,8 +127,11 @@ test("GET /v1/site-changes: last 14 days, newest first, mapped to covered ticker
   assert.deepEqual([c.ticker, c.kind, c.notable], [null, "index_moved", false]);
   assert.ok(sql.length > 0 && sql.every((s) => /^\s*SELECT\b/i.test(s)), "news-monitor-db is read with SELECT only");
 
+  // Over the limit, notable changes are kept first (kdk and the 15-day-old /news/), still newest first.
   const wide = await request(worker, env, "GET", "/v1/site-changes?days=30&limit=2", { role: "admin" });
-  assert.deepEqual(wide.body.items.map((i) => i.id), [rcat, kdk]);
+  assert.deepEqual(wide.body.items.map((i) => i.id), [kdk, old]);
+  const one = await request(worker, env, "GET", "/v1/site-changes?days=30&limit=3", { role: "admin" });
+  assert.deepEqual(one.body.items.map((i) => i.id), [rcat, kdk, old]);
   const all30 = await request(worker, env, "GET", "/v1/site-changes?days=30", { role: "admin" });
   assert.equal(all30.body.items.length, 4);
   const junk = await request(worker, env, "GET", "/v1/site-changes?days=abc&limit=-3", { role: "app" });
@@ -211,4 +214,93 @@ test("roles: app and admin may read both routes, the grader may not", async () =
     assert.equal(anon.status, 401, path);
     assert.equal((await request(worker, env, "POST", path, { role: "admin", body: {} })).status, 404, path);
   }
+});
+
+// --- Review fixes ------------------------------------------------------------------
+
+test("a section told with its new child sitemap (news-monitor merged) is not listed twice", async () => {
+  const sites = { site_x: { ticker: "KDK" } };
+  const base = { source_key: "site_x", detected_at: "2026-11-23T10:00:00.000Z" };
+  assert.equal(siteChangeRow({ ...base, id: 2, kind: "section_new", message: "new section /investor-day/ (3 URLs) — unwatched",
+    detail: JSON.stringify({ kind: "section_new", section: "/investor-day/", n: 3, docs: ["d1"], merged: true }) }, sites), null);
+  assert.equal(siteChangeRow({ ...base, id: 3, kind: "section_gone", message: "section /old/ gone (had 2 URLs)",
+    detail: JSON.stringify({ kind: "section_gone", section: "/old/", n: 2, viaChild: true, merged: true }) }, sites), null);
+
+  const env = newEnv();
+  const flushed = iso(HOUR);
+  const child = addChange(env.NEWS, { kind: "child_new", detected_at: flushed, message: "new child sitemap <https://kodiak.ai/s2.xml> with new section /investor-day/ (3 URLs) — unwatched",
+    detail: { kind: "child_new", id: "d1", url: "https://kodiak.ai/s2.xml", newSections: [{ section: "/investor-day/", n: 3 }] } });
+  addChange(env.NEWS, { kind: "section_new", detected_at: flushed, message: "new section /investor-day/ (3 URLs) — unwatched",
+    detail: { kind: "section_new", section: "/investor-day/", n: 3, docs: ["d1"], merged: true } });
+  const r = await request(worker, env, "GET", "/v1/site-changes", { role: "app" });
+  assert.deepEqual(r.body.items.map((i) => [i.id, i.kind, i.section, i.notable]), [[child, "child_new", "/investor-day/", true]]);
+});
+
+test("a detail cut at 8000 characters: the section comes from the change text", () => {
+  const sites = { site_x: { ticker: "KDK" } };
+  const docs = Array.from({ length: 300 }, (_, i) => `https://kodiak.ai/sitemap-press-${i}.xml`);
+  const cut = JSON.stringify({ kind: "section_new", section: "/press/", n: 900, docs }).slice(0, 8000);
+  assert.throws(() => JSON.parse(cut));
+  const row = siteChangeRow({ id: 1, source_key: "site_x", kind: "section_new", detected_at: "2026-11-23T10:00:00.000Z",
+    message: "new section /press/ (900 URLs) — unwatched", detail: cut }, sites);
+  assert.deepEqual([row.section, row.notable], ["/press/", true]);
+  const child = siteChangeRow({ id: 2, source_key: "site_x", kind: "child_new", detected_at: "2026-11-23T10:00:00.000Z",
+    message: "new child sitemap <https://kodiak.ai/s.xml> with new section /shop/ (2 URLs) — unwatched; new section /events/ (4 URLs) — unwatched",
+    detail: cut.replace("section_new", "child_new") }, sites);
+  assert.deepEqual([child.section, child.notable], ["/events/", true]);
+  const gone = siteChangeRow({ id: 3, source_key: "site_x", kind: "section_gone", detected_at: "2026-11-23T10:00:00.000Z",
+    message: "section /news/ gone (had 9 URLs)", detail: "{\"kind\":\"section_go" }, sites);
+  assert.deepEqual([gone.section, gone.notable], ["/news/", false]);
+});
+
+test("notable sections match whole path words, not substrings; off-site hosts only by an IR host label", () => {
+  for (const s of ["/investor-relations/", "/investor_day/", "/en/press-releases/", "/news-events/", "/ir-resources/", "/shareholders/",
+    "/media-kit/", "/investorday/", "/pressroom/", "//investors.kodiak.ai/", "//ir.example.com/"]) {
+    assert.equal(isNotableSection(s), true, s);
+  }
+  for (const s of ["/prevention/", "/express-delivery/", "/compressors/", "/social-media-policy/", "//media.graphassets.com/",
+    "/newsletter/", "/en/pressure-sensors/", "/eventually/", "/representations/", "//news.ycombinator.com/", "/irrigation/"]) {
+    assert.equal(isNotableSection(s), false, s);
+  }
+});
+
+test("GET /v1/site-changes?tickers=: filtered in SQL, so a flood from one site cannot crowd out another company", async () => {
+  const env = newEnv();
+  const kdk = addChange(env.NEWS, { detected_at: iso(48 * HOUR), message: "new section /investor-day/ (3 URLs) — unwatched",
+    detail: { kind: "section_new", section: "/investor-day/", n: 3 } });
+  for (let i = 0; i < 60; i++) {
+    addChange(env.NEWS, { source_key: "site_redcat_ir", domain: "ir.redcatholdings.com", kind: "section_gone", detected_at: iso(HOUR),
+      message: `section /p${i}/ gone (had 1 URL)`, detail: { kind: "section_gone", section: `/p${i}/`, n: 1 } });
+  }
+  const sql = spy(env.NEWS);
+  const r = await request(worker, env, "GET", "/v1/site-changes?days=14&limit=50&tickers=kdk,AUR", { role: "app" });
+  assert.deepEqual(r.body.items.map((i) => [i.id, i.ticker, i.notable]), [[kdk, "KDK", true]]);
+  assert.ok(sql.every((s) => /^\s*SELECT\b/i.test(s)));
+  const none = await request(worker, env, "GET", "/v1/site-changes?tickers=ZZZZ", { role: "app" });
+  assert.deepEqual(none.body, { items: [] });
+  // Unfiltered: the notable change is kept even when 60 newer rows exceed the limit; output stays newest first.
+  const all = await request(worker, env, "GET", "/v1/site-changes?days=14&limit=50", { role: "app" });
+  assert.equal(all.body.items.length, 50);
+  assert.equal(all.body.items.at(-1).id, kdk);
+  assert.equal(all.body.items.filter((i) => i.notable).length, 1);
+});
+
+test("probes built to read a feed or a sitemap fail when they answer an HTML page", async () => {
+  assert.equal(SITE_SOURCES.probes.probe_sym_ir_events_rss.expect, "feed");
+  assert.equal(SITE_SOURCES.probes.probe_axon_sitemap.expect, "sitemap");
+  assert.equal(SITE_SOURCES.probes.probe_kdk_ir_events.expect, null);
+  assert.equal(probeError({ probe_verdict: "page", status: 200 }, "feed"), "page, not a feed");
+  const env = newEnv();
+  addProbe(env.NEWS, "probe_sym_ir_events_rss", "page");
+  addProbe(env.NEWS, "probe_axon_sitemap", "page");
+  addProbe(env.NEWS, "probe_unsynced_news_rss", "page");
+  addProbe(env.NEWS, "probe_kdk_ir_news_rss", "feed");
+  addProbe(env.NEWS, "probe_kdk_ir_events", "page");
+  const p = (await request(worker, env, "GET", "/v1/source-health", { role: "app" })).body.ir_probes;
+  assert.equal(p.ok, 2);
+  assert.deepEqual(p.failing.map((f) => [f.key, f.error]), [
+    ["probe_axon_sitemap", "page, not a sitemap"],
+    ["probe_sym_ir_events_rss", "page, not a feed"],
+    ["probe_unsynced_news_rss", "page, not a feed"],
+  ]);
 });

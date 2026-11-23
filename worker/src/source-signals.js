@@ -2,10 +2,12 @@
 // site-structure changes and source health. Read from news-monitor-db through
 // the NEWS binding, SELECT only; nothing here touches zenith-db, so no coverage
 // count, alert, brief or grade can change.
-//   app, admin: GET /v1/site-changes?days=14&limit=50, GET /v1/source-health
+//   app, admin: GET /v1/site-changes?days=14&limit=50[&tickers=KDK,RCAT],
+//               GET /v1/source-health
 //
 // site-sources.json (written by scripts/sync-covered.mjs) maps each site_*
-// watcher and probe_* source to the covered ticker it watches.
+// watcher and probe_* source to the covered ticker it watches, and each probe
+// to the answer it is built to get (expect).
 //
 // news-monitor tables read here:
 //   site_structure_changes (src/site-structure.js): one row per flushed change;
@@ -25,10 +27,25 @@ export const SITE_DAYS = 14;
 export const SITE_LIMIT = 50;
 const MAX_SITE_DAYS = 90;
 const MAX_SITE_LIMIT = 200;
+// Rows read before the notable-first cut to `limit` (one restructure can emit
+// dozens of section rows).
+const SITE_SCAN = 1000;
+const MAX_TICKERS = 100;
 
-// A section path that suggests investor relations, events, presentations,
-// investor day, press or news.
-export const NOTABLE_SECTION_RE = /investor|(?:^|[^a-z])ir(?:[^a-z]|$)|shareholder|stockholder|event|presentation|webcast|press|news|media/i;
+// Path words (split on / - _ .) that suggest investor relations, events,
+// presentations, investor day, press or news. Whole words only: /prevention/,
+// /express-delivery/, /social-media-policy/ and /newsletter/ are not leads.
+export const NOTABLE_WORDS = new Set([
+  "investor", "investors", "investorrelations", "investorday", "ir", "shareholder", "shareholders", "stockholder", "stockholders",
+  "event", "events", "presentation", "presentations", "webcast", "webcasts",
+  "press", "pressroom", "pressreleases", "news", "newsroom", "media", "mediaroom",
+]);
+// Words that count only when they lead a path segment.
+const LEADING_ONLY = new Set(["media"]);
+// An off-site section ("//host/", news-monitor's links to another host) counts
+// only when the host's first label names an IR site (//investors.kodiak.ai/),
+// not a CDN or an aggregator (//media.graphassets.com/, //news.ycombinator.com/).
+const OFFSITE_IR_LABELS = new Set(["investor", "investors", "ir", "shareholder", "shareholders", "stockholders"]);
 // Kinds that add or change a section: a new section, or a new child sitemap
 // that brings new sections with it.
 const ADDING_KINDS = new Set(["section_new", "child_new"]);
@@ -50,7 +67,10 @@ export function isNotableSection(section) {
   const s = String(section || "");
   // Root sections ("/", "/en/") hold one-level pages, never a section of their own.
   if (!s || isRootSection(s)) return false;
-  return NOTABLE_SECTION_RE.test(s);
+  const off = /^\/\/([^/]+)/.exec(s);
+  if (off) return OFFSITE_IR_LABELS.has(off[1].toLowerCase().split(".")[0]);
+  // "media" leads its segment (/media/, /media-kit/), so /social-media-policy/ is not a lead.
+  return s.toLowerCase().split("/").some((seg) => seg.split(/[-_.]+/).some((w, i) => NOTABLE_WORDS.has(w) && (i === 0 || !LEADING_ONLY.has(w))));
 }
 
 function parseDetail(detail) {
@@ -58,20 +78,34 @@ function parseDetail(detail) {
     const d = JSON.parse(detail || "null");
     return d && typeof d === "object" ? d : {};
   } catch {
-    return {};
+    return null;
   }
 }
 
-// One site_structure_changes row -> the API shape. section: the changed
-// section, or for a new child sitemap its first notable new section (else its
-// first new one).
+// Sections named in news-monitor's change text (src/site-structure.js
+// changeText), for a detail JSON cut at 8000 characters: "new section /press/
+// (...)", "new child sitemap <...> with new section /a/ (...); new section /b/
+// (...)", "section /news/ gone (...)".
+function sectionsFromMessage(kind, message) {
+  const m = String(message || "");
+  if (kind === "section_gone") return [/^section (\S+) gone/.exec(m)?.[1]].filter(Boolean);
+  if (kind === "section_new" || kind === "child_new") return [...m.matchAll(/(?:^|with |; )new section (\S+) \(/g)].map((x) => x[1]);
+  return [];
+}
+
+// One site_structure_changes row -> the API shape, or null for a section that
+// news-monitor tells with its child sitemap (detail.merged: the child_new or
+// child_gone row already carries it). section: the changed section, or for a
+// new child sitemap its first notable new section (else its first new one).
 export function siteChangeRow(row, sites = SITE_SOURCES.sites || {}) {
-  const d = parseDetail(row.detail);
+  const parsed = parseDetail(row.detail);
+  if (parsed?.merged === true) return null;
+  const d = parsed || {};
   let section = typeof d.section === "string" ? d.section : null;
-  if (!section && Array.isArray(d.newSections)) {
-    const added = d.newSections.map((s) => s?.section).filter((s) => typeof s === "string");
-    section = added.find(isNotableSection) || added[0] || null;
-  }
+  const added = Array.isArray(d.newSections)
+    ? d.newSections.map((s) => s?.section).filter((s) => typeof s === "string")
+    : parsed ? [] : sectionsFromMessage(row.kind, row.message);
+  if (!section) section = added.find(isNotableSection) || added[0] || null;
   return {
     id: row.id,
     ticker: sites[row.source_key]?.ticker ?? null,
@@ -89,31 +123,56 @@ const intParam = (v, dflt, max) => {
   return Number.isFinite(n) && n >= 1 ? Math.min(max, n) : dflt;
 };
 
+// tickers=KDK,RCAT -> the site_* keys that watch them (null: no filter).
+export function siteKeysFor(tickersParam, sites = SITE_SOURCES.sites || {}) {
+  if (tickersParam == null) return null;
+  const want = new Set(String(tickersParam).split(",").map((t) => t.trim().toUpperCase()).filter(Boolean).slice(0, MAX_TICKERS));
+  return Object.keys(sites).filter((k) => sites[k]?.ticker && want.has(sites[k].ticker));
+}
+
+// Keep `limit` rows, notable ones first (so a burst of structural rows cannot
+// push out a lead), returned newest first.
+export function pickSiteChanges(items, limit) {
+  const keep = new Set([...items.filter((i) => i.notable), ...items.filter((i) => !i.notable)].slice(0, limit));
+  return items.filter((i) => keep.has(i));
+}
+
 export async function siteChanges(env, url, now = Date.now()) {
   if (!env.NEWS) return json({ error: "NEWS binding missing" }, 503);
   const days = intParam(url.searchParams.get("days"), SITE_DAYS, MAX_SITE_DAYS);
   const limit = intParam(url.searchParams.get("limit"), SITE_LIMIT, MAX_SITE_LIMIT);
+  const keys = siteKeysFor(url.searchParams.get("tickers"));
+  if (keys && !keys.length) return json({ items: [] });
   let rows;
   try {
+    // The site keys go in as one JSON array (json_each), well under D1's 100-parameter limit.
     rows = (await env.NEWS.prepare(
       `SELECT id, source_key, kind, detected_at, message, detail FROM site_structure_changes
-        WHERE detected_at >= ? ORDER BY detected_at DESC, id DESC LIMIT ?`,
-    ).bind(nowIso(now - days * DAY_MS), limit).all()).results || [];
+        WHERE detected_at >= ?1 AND (?2 IS NULL OR source_key IN (SELECT value FROM json_each(?2)))
+        ORDER BY detected_at DESC, id DESC LIMIT ?3`,
+    ).bind(nowIso(now - days * DAY_MS), keys ? JSON.stringify(keys) : null, SITE_SCAN).all()).results || [];
   } catch (e) {
     if (missingTable(e)) return json({ items: [] });
     return json({ error: clip(e?.message || e, 200) }, 502);
   }
-  return json({ items: rows.map((r) => siteChangeRow(r)) });
+  return json({ items: pickSiteChanges(rows.map((r) => siteChangeRow(r)).filter(Boolean), limit) });
 }
 
 // --- Source health ------------------------------------------------------------
 // Probe verdicts that are a usable answer (src/ir-platforms.js classifyResponse);
 // everything else (challenge, blocked, not_found, error_status, empty, error,
-// other) is failing.
+// other) is failing. A probe built to read a feed or a sitemap (expect, from
+// site-sources.json) is also failing when it gets anything else, such as an
+// HTML soft-404: news-monitor's feed validation calls that "page, not a feed".
 const PROBE_OK = new Set(["feed", "sitemap", "json", "page"]);
 
-export function probeError(row) {
-  const d = parseDetail(row.probe_detail);
+// An unsynced probe's expected answer, from its key (*_rss, *_feed, *_sitemap).
+const keyExpect = (key) => (/_sitemap$/.test(key) ? "sitemap" : /_(rss|feed)$/.test(key) ? "feed" : null);
+export const probeOk = (verdict, expect) => PROBE_OK.has(verdict) && (!expect || verdict === expect);
+
+export function probeError(row, expect = null) {
+  if (expect && PROBE_OK.has(row.probe_verdict) && row.probe_verdict !== expect) return `${row.probe_verdict}, not a ${expect}`;
+  const d = parseDetail(row.probe_detail) || {};
   const http = row.status != null ? `HTTP ${row.status}` : null;
   switch (row.probe_verdict) {
     case "challenge": return [`${d.vendor ? `${d.vendor} ` : ""}challenge`, http].filter(Boolean).join(", ");
@@ -158,11 +217,12 @@ async function irProbes(news, probes) {
   let checkedAt = null;
   for (const r of rows) {
     if (r.polled_at && (!checkedAt || r.polled_at > checkedAt)) checkedAt = r.polled_at;
-    if (PROBE_OK.has(r.probe_verdict)) { ok++; continue; }
     const p = probes[r.key];
+    const expect = p ? p.expect ?? null : keyExpect(r.key);
+    if (probeOk(r.probe_verdict, expect)) { ok++; continue; }
     failing.push({
       key: r.key, ticker: p?.ticker ?? null, label: p?.label || r.key.replace(/^probe_/, "").replace(/_/g, " "),
-      since: r.polled_at || null, error: probeError(r),
+      since: r.polled_at || null, error: probeError(r, expect),
     });
   }
   // By ticker (probes without one last), then key.

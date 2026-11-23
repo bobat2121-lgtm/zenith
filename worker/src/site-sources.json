@@ -145,123 +145,153 @@
   "probes": {
     "probe_aglt_ir_home": {
       "ticker": "AGLT",
-      "label": "AGLT home"
+      "label": "AGLT home",
+      "expect": null
     },
     "probe_aglt_ir_news_rss": {
       "ticker": "AGLT",
-      "label": "AGLT news"
+      "label": "AGLT news",
+      "expect": "feed"
     },
     "probe_aglt_press_page": {
       "ticker": "AGLT",
-      "label": "AGLT press page"
+      "label": "AGLT press page",
+      "expect": null
     },
     "probe_axon_newsroom": {
       "ticker": "AXON",
-      "label": "AXON newsroom"
+      "label": "AXON newsroom",
+      "expect": null
     },
     "probe_axon_sitemap": {
       "ticker": "AXON",
-      "label": "AXON sitemap"
+      "label": "AXON sitemap",
+      "expect": "sitemap"
     },
     "probe_bw_legacy_feed": {
       "ticker": null,
-      "label": "bw legacy feed"
+      "label": "bw legacy feed",
+      "expect": "feed"
     },
     "probe_bw_pl_release": {
       "ticker": "PL",
-      "label": "PL bw release"
+      "label": "PL bw release",
+      "expect": null
     },
     "probe_gnw_bot_rss": {
       "ticker": "BOT",
-      "label": "BOT gnw"
+      "label": "BOT gnw",
+      "expect": "feed"
     },
     "probe_gnw_bot_www": {
       "ticker": "BOT",
-      "label": "BOT gnw www"
+      "label": "BOT gnw www",
+      "expect": "feed"
     },
     "probe_gnw_sym_rss": {
       "ticker": "SYM",
-      "label": "SYM gnw"
+      "label": "SYM gnw",
+      "expect": "feed"
     },
     "probe_kdk_ir_events": {
       "ticker": "KDK",
-      "label": "KDK events"
+      "label": "KDK events",
+      "expect": null
     },
     "probe_kdk_ir_news_rss": {
       "ticker": "KDK",
-      "label": "KDK news"
+      "label": "KDK news",
+      "expect": "feed"
     },
     "probe_kdk_ir_presentations": {
       "ticker": "KDK",
-      "label": "KDK presentations"
+      "label": "KDK presentations",
+      "expect": null
     },
     "probe_mrln_ir_events": {
       "ticker": "MRLN",
-      "label": "MRLN events"
+      "label": "MRLN events",
+      "expect": null
     },
     "probe_mrln_ir_news_rss": {
       "ticker": "MRLN",
-      "label": "MRLN news"
+      "label": "MRLN news",
+      "expect": "feed"
     },
     "probe_mrln_ir_presentations": {
       "ticker": "MRLN",
-      "label": "MRLN presentations"
+      "label": "MRLN presentations",
+      "expect": null
     },
     "probe_pdyn_ir_news_rss": {
       "ticker": "PDYN",
-      "label": "PDYN news"
+      "label": "PDYN news",
+      "expect": "feed"
     },
     "probe_pdyn_ir_presentations": {
       "ticker": "PDYN",
-      "label": "PDYN presentations"
+      "label": "PDYN presentations",
+      "expect": null
     },
     "probe_pi_sitemap": {
       "ticker": null,
-      "label": "pi sitemap"
+      "label": "pi sitemap",
+      "expect": "sitemap"
     },
     "probe_satl_ir_events_rss": {
       "ticker": "SATL",
-      "label": "SATL events"
+      "label": "SATL events",
+      "expect": "feed"
     },
     "probe_satl_ir_news_rss": {
       "ticker": "SATL",
-      "label": "SATL news"
+      "label": "SATL news",
+      "expect": "feed"
     },
     "probe_satl_ir_presentations": {
       "ticker": "SATL",
-      "label": "SATL presentations"
+      "label": "SATL presentations",
+      "expect": null
     },
     "probe_serv_ir_events_rss": {
       "ticker": "SERV",
-      "label": "SERV events"
+      "label": "SERV events",
+      "expect": "feed"
     },
     "probe_serv_ir_news_rss": {
       "ticker": "SERV",
-      "label": "SERV news"
+      "label": "SERV news",
+      "expect": "feed"
     },
     "probe_sym_ir_events_page": {
       "ticker": "SYM",
-      "label": "SYM events page"
+      "label": "SYM events page",
+      "expect": null
     },
     "probe_sym_ir_events_rss": {
       "ticker": "SYM",
-      "label": "SYM events"
+      "label": "SYM events",
+      "expect": "feed"
     },
     "probe_sym_ir_news_page": {
       "ticker": "SYM",
-      "label": "SYM news page"
+      "label": "SYM news page",
+      "expect": null
     },
     "probe_sym_ir_news_rss": {
       "ticker": "SYM",
-      "label": "SYM news"
+      "label": "SYM news",
+      "expect": "feed"
     },
     "probe_xtraf_ir_events_rss": {
       "ticker": "XTRAF",
-      "label": "XTRAF events"
+      "label": "XTRAF events",
+      "expect": "feed"
     },
     "probe_xtraf_ir_presentations": {
       "ticker": "XTRAF",
-      "label": "XTRAF presentations"
+      "label": "XTRAF presentations",
+      "expect": null
     }
   }
 }

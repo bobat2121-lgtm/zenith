@@ -45,8 +45,8 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `GET /v1/aux/feed?limit&before_id&entity&min_score&state&unlabeled&order=newest&pin_lead_hours` (same paging as `/v1/feed`; hides skipped, duplicate and covered) | app |
 | `POST /v1/aux/feedback` `{item_id, label, note}` | app |
 | `POST /v1/admin/aux-ingest` (the cron runs it after the coverage ingest and enrich) | admin |
-| `GET /v1/site-changes?days=14&limit=50` (news-monitor `site_structure_changes`: `{items: [{id, ticker, source_key, kind, section, detail, detected_at, notable}]}`; `notable` = a new IR, events, presentations, investor-day, press or news section) | app |
-| `GET /v1/source-health` (`{edgar_fast_path: {last_match_at, matches_24h, matches_7d}, ir_probes: {checked_at, failing: [{key, ticker, label, since, error}], ok}, as_of}`; a block is null when its news-monitor table is missing) | app |
+| `GET /v1/site-changes?days=14&limit=50[&tickers=KDK,RCAT]` (news-monitor `site_structure_changes`: `{items: [{id, ticker, source_key, kind, section, detail, detected_at, notable}]}`, newest first; `tickers` filters before the limit, and notable rows are kept first when over it; a section told with its new child sitemap is listed once; `notable` = a new IR, events, presentations, investor-day, press or news section, matched on whole path words) | app |
+| `GET /v1/source-health` (`{edgar_fast_path: {last_match_at, matches_24h, matches_7d}, ir_probes: {checked_at, failing: [{key, ticker, label, since, error}], ok}, as_of}`; a block is null when its news-monitor table is missing; a feed or sitemap probe that answers an HTML page is failing) | app |
 | `POST /v1/admin/ingest`, `/v1/admin/enrich`, `/v1/admin/requeue` `{item_ids}` or `{mode: "late_flags"}` or `{mode: "sec_excerpts", retry_failed?}` (covered tickers only; repeat until `remaining` is 0, `waiting` counts items in retry backoff) | admin |
 
 ## Operate
