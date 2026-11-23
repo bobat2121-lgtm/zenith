@@ -200,6 +200,79 @@ class PureFunctions(unittest.TestCase):
         self.assertIn("→ KTOS ±", out)
         self.assertIn(">Other<", zf.card_html(zf.AUXILIARY, AUX_ITEMS[1]))
 
+    def test_link_text_headline_and_tag(self):
+        it = {"title": "RoboStrategy, Inc. Updates Net Asset Value as of October 31, 2026",
+              "headline": "RoboStrategy Portfolio NAV hits $289 million. Up 4.1% in October.", "headline_tag": "Press release"}
+        self.assertEqual(zf.link_text(it), "RoboStrategy Portfolio NAV hits $289 million. Up 4.1% in October. - Press release")
+        # A filing headline keeps its form tag; stray whitespace and line breaks collapse.
+        self.assertEqual(zf.link_text({"title": "Agility Robotics, Inc.: 8-K/A filed 2026-11-13",
+                                       "headline": "  Agility Robotics amends its 8-K:\n adds audited financials ",
+                                       "headline_tag": "8-K/A"}),
+                         "Agility Robotics amends its 8-K: adds audited financials - 8-K/A")
+        # zenith-core stores both or neither; a headline alone still shows (no dangling " - ").
+        self.assertEqual(zf.link_text({"title": "T", "headline": "Headline only", "headline_tag": None}), "Headline only")
+
+    def test_link_text_without_headline(self):
+        self.assertEqual(zf.link_text({"title": "Red Cat wins Army order", "headline": None, "headline_tag": None}),
+                         "Red Cat wins Army order")
+        self.assertEqual(zf.link_text({"title": "Red Cat wins Army order"}), "Red Cat wins Army order")
+        self.assertEqual(zf.link_text({"title": "Kratos  update\n", "headline": "   ", "headline_tag": "News"}), "Kratos update")
+        self.assertEqual(zf.link_text({}), "")
+        self.assertEqual(zf.link_text({"title": "Agility Robotics, Inc.: 8-K/A filed 2026-11-13"}),
+                         "Agility Robotics, Inc.: 8-K/A filed 2026-11-13 - 8-K/A")
+        for title, form in [("Red Cat Holdings, Inc.: 10-Q filed 2026-11-12", "10-Q"),
+                            ("Kratos: 8-K filed 2026-11-10", "8-K"), ("Acme: SC 13D/A filed 2026-11-01", "SC 13D/A"),
+                            ("Acme: NT 10-K filed 2026-03-31", "NT 10-K"), ("Acme: 424B5 filed 2026-11-03", "424B5"),
+                            ("Acme: Form 4 filed 2026-11-04", "Form 4"), ("Acme Robotics: D filed 2026-11-05", "D")]:
+            self.assertEqual(zf.title_form(title), form, title)
+            self.assertEqual(zf.link_text({"title": title}), f"{title} - {form}")
+        # Only "<form> filed" counts: a press release that mentions a form gets no tag.
+        for title in ("UMAC 8-K", "Red Cat reports Q3 results in its 10-Q", "Form D-style raise filed", "ABC-8-K filed"):
+            self.assertIsNone(zf.title_form(title), title)
+            self.assertEqual(zf.link_text({"title": title}), title)
+        self.assertEqual(zf.link_text({"title": "Acme: 8-K filed 2026-11-10 - 8-K"}), "Acme: 8-K filed 2026-11-10 - 8-K")
+
+    def test_card_link_escapes_headline(self):
+        it = {"item_id": 1, "ticker": "RCAT", "title": "Original <b>title</b>", "url": "https://e.test/a",
+              "headline": "Red Cat <script>alert(1)</script> wins & \"ships\"", "headline_tag": "<i>News</i>",
+              "band": "digest", "score": 75}
+        out = zf.card_html(zf.COVERAGE, it)
+        self.assertIn('rel="noopener noreferrer">Red Cat &lt;script&gt;alert(1)&lt;/script&gt; wins &amp; &quot;ships&quot; - '
+                      '&lt;i&gt;News&lt;/i&gt;</a>', out)
+        for raw in ("<script>", "<i>", "<b>", "Original"):
+            self.assertNotIn(raw, out)  # the original title moves to the Excerpt expander
+        # No safe link: the same text, unlinked.
+        self.assertIn('<div class="z-title">Red Cat &lt;script&gt;', zf.card_html(zf.COVERAGE, dict(it, url="javascript:x")))
+        filing = zf.card_html(zf.COVERAGE, {"item_id": 2, "ticker": "AGIL", "url": "https://sec.test/x",
+                                            "title": "Agility Robotics, Inc.: 8-K/A filed 2026-11-13"})
+        self.assertIn(">Agility Robotics, Inc.: 8-K/A filed 2026-11-13 - 8-K/A</a>", filing)
+
+    def test_long_headline_wraps_inside_the_card(self):
+        word = "A" * 400  # one unbroken run, longer than any card is wide
+        headline = " ".join(["Portfolio NAV hits $289 million."] * 10) + " " + word
+        out = zf.card_html(zf.AUXILIARY, {"item_id": 3, "entity": "RoboStrategy", "url": "https://e.test/r",
+                                          "title": "t", "headline": headline, "headline_tag": "Press release"})
+        self.assertIn(f"{headline} - Press release</a>", out)  # shown whole, never cut
+        self.assertEqual(out.count('<div class="z-title">'), 1)
+        css = (APP / "feed.css").read_text(encoding="utf-8")
+        rule = css[css.index(".z-title {"):]
+        rule = rule[:rule.index("}")]
+        self.assertIn("overflow-wrap: anywhere", rule)  # wraps normally instead of widening the card
+        self.assertNotIn("nowrap", rule)
+        self.assertNotIn("line-clamp", rule)
+
+    def test_excerpt_lines(self):
+        it = {"title": "Original <b>title</b>\nsecond line", "headline": "H", "headline_tag": "News",
+              "snippet": "Opening <i>paragraph</i>.", "note_hook": "Hook"}
+        self.assertEqual(zf.excerpt_lines(it), ("Excerpt", ["Original: Original <b>title</b> second line", "Note hook: Hook",
+                                                           "Opening <i>paragraph</i>."]))
+        # A headline with no excerpt still opens the expander, so the original title stays readable.
+        self.assertEqual(zf.excerpt_lines({"title": "T", "headline": "H"}), ("Excerpt", ["Original: T"]))
+        self.assertEqual(zf.excerpt_lines({"title": "T", "snippet": "S"}), ("Excerpt", ["Original: T", "S"]))
+        self.assertEqual(zf.excerpt_lines({"title": "T", "note_hook": "N"}), ("Note hook", ["Note hook: N"]))
+        self.assertEqual(zf.excerpt_lines({"title": "T"}), (None, []))
+        self.assertEqual(zf.excerpt_lines({"snippet": "S"}), ("Excerpt", ["S"]))
+
     def test_health_strip_html(self):
         out = zf.health_strip_html(HEALTH)
         self.assertIn("SEC fast path: last 2h ago", out)
@@ -437,6 +510,34 @@ class AppPages(unittest.TestCase):
         self.at.button(key="cov-more").click()
         self.run_app()
         self.assertEqual(self.api.feed_calls("/v1/feed")[-1], {"min_score": 70, "limit": 80})
+
+    def excerpts(self) -> list[list[str]]:
+        return [[t.value for t in e.text] for e in self.at.expander if e.label == "Excerpt"]
+
+    def test_coverage_cards_show_headlines(self):
+        self.api.items["/v1/feed"][0].update(headline="Red Cat wins $20M <b>Army</b> SRR order", headline_tag="Press release")
+        self.api.items["/v1/feed"][1].update(title="Unusual Machines, Inc.: 8-K/A filed 2026-11-13", headline=None,
+                                             headline_tag=None)
+        self.run_app()
+        cards = self.cards()
+        self.assertIn(">Red Cat wins $20M &lt;b&gt;Army&lt;/b&gt; SRR order - Press release</a>", cards[0])
+        self.assertNotIn("Red Cat wins &lt;script&gt;", cards[0])
+        self.assertIn('<div class="z-title">Unusual Machines, Inc.: 8-K/A filed 2026-11-13 - 8-K/A</div>', cards[1])
+        self.assertIn(">Kratos update</a>", cards[2])
+        self.assertNotIn("<b>Army", self.page_text().split("</style>")[-1])
+        # The original title is the Excerpt's first line, as plain text.
+        self.assertEqual(self.excerpts(), [["Original: Red Cat wins <script>alert(1)</script> Army order", "Opening paragraph."]])
+
+    def test_auxiliary_cards_show_headlines(self):
+        self.api.items["/v1/aux/feed"][0].update(headline="Anduril raises $2.5B Series G at $30.5B valuation",
+                                                 headline_tag="News")
+        self.api.items["/v1/aux/feed"][1].update(headline="Waymo expands <robotaxi> service to Miami", headline_tag="Blog")
+        self.open_aux()
+        cards = self.cards()
+        self.assertIn(">Anduril raises $2.5B Series G at $30.5B valuation - News</a>", cards[0])
+        self.assertIn(">Waymo expands &lt;robotaxi&gt; service to Miami - Blog</a>", cards[1])
+        self.assertEqual(self.excerpts(), [["Original: Anduril raises $2.5B", "Anduril today announced..."],
+                                           ["Original: Waymo pending item"]])
 
     # auxiliary -----------------------------------------------------------------
     def test_auxiliary_page_renders(self):
