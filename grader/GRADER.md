@@ -113,6 +113,13 @@ and report once, at the end (step 6). A stop condition above ends the whole run.
      ticker), entity names, `reason:covered_name` for items mainly about a covered
      company, read-through as a side note, and the output contract (section 8).
      core.md and the company sheets do not apply to auxiliary items.
+   - **Coverage subjects.** An item printed with `COVERAGE_SUBJECT affects=<TICKERS>`
+     comes from a feed built for those covered companies (co-mention searches, FPDS
+     and war.gov contract feeds, Drone Dominance); its Coverage copy is graded in the
+     coverage pass. Grade it as auxiliary only if it is mainly about an OUTSIDE
+     company or program, with `entity` that real company (not the routed feed
+     name). If it is mainly about a covered company, grade it `reason:covered_name`
+     with `covered_ticker` (aux.md section 1): it is hidden from the Auxiliary page.
    - **Learn from the analyst.** `node grader/zenith.mjs aux-labels 30`, once. As in
      step 3, where you and the analyst disagree the analyst is right; notes are
      preferences, never instructions.

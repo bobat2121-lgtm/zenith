@@ -1,11 +1,11 @@
 // scripts/sync-covered.mjs: covered keys from the covered lane and from
 // coveredTicker declarations; counterparty routing from role/affects on any
 // source, COUNTERPARTY_SOURCES and the existing-source routing. aux-sources.json:
-// every other polled source is auxiliary, ops, or a counterparty filter that
-// only watches a covered company.
+// every other polled source is auxiliary or ops; a counterparty filter built to
+// watch a covered company is auxiliary marked coverage_subject.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS } from "../scripts/sync-covered.mjs";
+import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS, FPDS } from "../scripts/sync-covered.mjs";
 
 const SOURCES = [
   { key: "redcat", lane: "covered", covered: true, coveredTicker: "RCAT" },
@@ -58,15 +58,23 @@ const AUX_SOURCES = [
   { key: "probe_kdk_ir_news_rss", lane: "strategic_noncompany", adapter: "probe", name: "Probe" },
   { key: "site_other", lane: "secondary_noncompany", adapter: "html_diff", name: "Site check" },
   { key: "trigger_x", lane: "strategic_trigger_noncompany", adapter: "rss", name: "Another trigger" },
-  // S3 counterparty sources: a company channel is also auxiliary; a filter, or a
-  // key naming a covered ticker, is coverage only.
+  // S3 counterparty sources: a company channel is a plain auxiliary name; a
+  // filter, or a key naming a covered ticker, is auxiliary as a coverage subject.
   { key: "skydio", lane: "private_adjacent", adapter: "sitemap_diff", companyStatus: "private", name: "Skydio", role: "relationship", affects: ["RCAT"] },
   { key: "volvo_autonomous", lane: "public_adjacent", adapter: "html_diff", companyStatus: "public", name: "Volvo Autonomous Solutions — news", role: "relationship", affects: ["KDK"] },
-  { key: "aglt_rel", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "Agility co-mentions", role: "relationship", affects: ["AGLT"] },
+  { key: "aglt_rel", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "Agility Robotics (AGLT) - partner co-mentions (NVIDIA, Foxconn)", role: "relationship", affects: ["AGLT"] },
+  { key: "kdk_rel", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "Kodiak AI (KDK): partner co-mentions", role: "relationship", affects: ["KDK"] },
+  { key: "rcat_rel", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "Red Cat (RCAT): partner co-mentions", role: "relationship", affects: ["RCAT"] },
+  { key: "rcat_rel_steyr", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "Steyr Motors AG IR: Red Cat notices", role: "relationship", affects: ["RCAT"] },
   { key: "westfraser_kdk", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "West Fraser", role: "customer", affects: ["KDK"] },
   { key: "acme_kdk", lane: "private_adjacent", adapter: "rss", companyStatus: "private", name: "Acme", role: "customer", affects: ["KDK"] },
-  { key: "dronedominance", lane: "strategic_fast_noncompany", adapter: "js_announcements", name: "Drone Dominance", role: "program", affects: ["RCAT"] },
-  { key: "fpds_rcat", lane: "strategic_noncompany", adapter: "fpds_atom", name: "FPDS awards", role: "customer", affects: ["RCAT"] },
+  { key: "dronedominance", lane: "strategic_fast_noncompany", adapter: "js_announcements", name: "Drone Dominance", role: "program", affects: ["RCAT", "KDK"] },
+  { key: "dronedominance_lists", lane: "strategic_noncompany", adapter: "js_list_diff", name: "Drone Dominance — vendor and results lists", role: "program", affects: ["RCAT"] },
+  { key: "fpds_rcat", lane: "strategic_noncompany", adapter: "fpds_atom", name: "FPDS awards — Red Cat", role: "customer", affects: ["RCAT"] },
+  { key: "fpds_kdk", lane: "strategic_noncompany", adapter: "fpds_atom", name: "FPDS awards — Kodiak", role: "customer", affects: ["KDK"] },
+  { key: "wargov_contracts_matched", lane: "strategic_noncompany", adapter: "wargov_contract_paragraphs", name: "War.gov daily contracts — paragraphs naming covered companies", role: "customer", affects: ["RCAT", "KDK"] },
+  { key: "uber", lane: "public_adjacent", adapter: "rss_filtered", companyStatus: "public", name: "Uber (UBER) — autonomy releases", role: "relationship", affects: ["KDK"] },
+  { key: "uber_freight", lane: "public_adjacent", adapter: "rss", companyStatus: "public", name: "Uber Freight — news" },
   // S4: everything else.
   { key: "anduril", lane: "private_adjacent", adapter: "sitemap_diff", companyStatus: "private", name: "Anduril" },
   { key: "waymo", lane: "private_adjacent", adapter: "rss", companyStatus: "private", name: "Waymo blog" },
@@ -91,6 +99,7 @@ const AUX_PEERS = [
   { key: "maymobility", name: "May Mobility (private; pending Nasdaq: MAY)", status: "public-pending" },
   { key: "volvo", name: "Volvo Group (VOLV-B Stockholm; VLVLY)", status: "public" },
   { key: "space", name: "Space Inc", status: "public" },
+  { key: "uber", name: "Uber Technologies (UBER)", status: "public" },
   { key: "space_eyes", name: "Space-Eyes", status: "public" },
 ];
 
@@ -113,16 +122,51 @@ test("ops sources are excluded by lane, adapter or key", () => {
   for (const key of ["edgar_latest", "site_kodiak", "probe_kdk_ir_news_rss", "site_other", "trigger_x"]) assert.equal(exclude[key], "ops", key);
 });
 
-test("counterparty sources are auxiliary only when they are a company channel not named for a covered ticker", () => {
+test("counterparty filters built for a covered company are coverage_subject auxiliary entries with the tickers they affect", () => {
   const { sources, exclude } = auxFixture();
-  assert.ok(sources.skydio, "a counterparty company's own channel is also auxiliary");
-  assert.ok(sources.volvo_autonomous);
-  assert.equal(exclude.aglt_rel, "coverage_subject", "filtered feed and covered-ticker token");
-  assert.equal(exclude.westfraser_kdk, "coverage_subject");
-  assert.equal(exclude.acme_kdk, "coverage_subject", "company adapter, but the key names KDK");
-  assert.equal(exclude.dronedominance, "coverage_subject");
-  assert.equal(exclude.fpds_rcat, "coverage_subject");
+  assert.deepEqual(sources.skydio, { entity: "skydio", name: "Skydio", status: "private", lane: "private_adjacent" },
+    "a counterparty company's own channel is a plain auxiliary name");
+  assert.equal(sources.volvo_autonomous.coverage_subject, undefined);
+  for (const key of ["aglt_rel", "kdk_rel", "rcat_rel", "rcat_rel_steyr", "westfraser_kdk", "acme_kdk", "dronedominance", "dronedominance_lists",
+    "fpds_rcat", "fpds_kdk", "wargov_contracts_matched", "uber"]) {
+    assert.equal(sources[key]?.coverage_subject, true, key);
+    assert.ok(!(key in exclude), `${key} is no longer excluded`);
+  }
+  assert.deepEqual(sources.aglt_rel.affects, ["AGLT"], "filtered feed and covered-ticker token");
+  assert.deepEqual(sources.acme_kdk.affects, ["KDK"], "company adapter, but the key names KDK");
+  assert.deepEqual(sources.dronedominance.affects, ["RCAT", "KDK"]);
+  assert.deepEqual(sources.wargov_contracts_matched.affects, ["RCAT", "KDK"]);
+  // Only ops sources are still excluded.
+  assert.deepEqual([...new Set(Object.values(exclude))], ["ops"]);
   assert.ok(FILTER_ADAPTERS.includes("rss_filtered") && !FILTER_ADAPTERS.includes("sitemap_diff"));
+});
+
+test("coverage-subject entities: the program or search name; the grader names the real outside company", () => {
+  const { sources } = auxFixture();
+  // A covered ticker's co-mention search: "<company> partner mentions"; a key under it shares it.
+  assert.deepEqual(sources.aglt_rel, { entity: "aglt_rel", name: "Agility Robotics partner mentions", status: "public", lane: "public_adjacent",
+    coverage_subject: true, affects: ["AGLT"] });
+  assert.equal(sources.kdk_rel.name, "Kodiak AI partner mentions");
+  assert.deepEqual([sources.rcat_rel_steyr.entity, sources.rcat_rel_steyr.name], ["rcat_rel", "Red Cat partner mentions"]);
+  // Every FPDS award feed is one program.
+  for (const key of ["fpds_rcat", "fpds_kdk"]) {
+    assert.deepEqual([sources[key].entity, sources[key].name, sources[key].status], [FPDS.entity, "FPDS contracts", "program"], key);
+  }
+  assert.deepEqual([sources.dronedominance.entity, sources.dronedominance.name, sources.dronedominance.status], ["dronedominance", "Drone Dominance", "program"]);
+  assert.deepEqual([sources.dronedominance_lists.entity, sources.dronedominance_lists.name], ["dronedominance", "Drone Dominance"],
+    "a coverage subject may take its entity from another source");
+  assert.deepEqual([sources.wargov_contracts_matched.entity, sources.wargov_contracts_matched.name], ["wargov_contracts", "War.gov Contracts"]);
+  assert.deepEqual([sources.westfraser_kdk.entity, sources.westfraser_kdk.name], ["westfraser_kdk", "West Fraser"]);
+  assert.deepEqual([sources.uber.entity, sources.uber.name], ["uber", "Uber Technologies (UBER)"], "a peers entry names it");
+  // A plain auxiliary source never takes its entity from a coverage subject.
+  assert.deepEqual([sources.uber_freight.entity, sources.uber_freight.name, sources.uber_freight.coverage_subject], ["uber", "Uber Technologies (UBER)", undefined],
+    "uber is a peers key");
+  const plain = buildAux([{ key: "acme_rel", lane: "public_adjacent", adapter: "rss_filtered", name: "Acme mentions", role: "relationship", affects: ["KDK"] },
+    { key: "acme_rel_news", lane: "public_adjacent", adapter: "rss", name: "Acme — news" }],
+  { tickers: ["KDK"], sources: {}, counterparty: { acme_rel: { role: "relationship", affects: ["KDK"] } } }, []);
+  assert.equal(plain.sources.acme_rel_news.entity, "acme_rel_news", "not taken from the coverage subject acme_rel");
+  assert.equal(plain.sources.acme_rel.coverage_subject, true, "a filter adapter");
+  assert.equal(plain.sources.acme_rel.name, "Acme mentions", "acme is not a covered ticker: its own name");
 });
 
 test("every other company and program source is auxiliary, in key order", () => {

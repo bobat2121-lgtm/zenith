@@ -25,7 +25,7 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `worker/` | zenith-core: `src/ingest.js` (cursor over news-monitor-db), `src/excerpt.js` (opening text of each release), `src/index.js` (API), `src/auxiliary.js` (auxiliary names: own tables, cursor, claim, grades and feed; never touches coverage rows), `migrations/`. |
 | `grader/` | What the hourly routine runs: `GRADER.md` (procedure) and `zenith.mjs` (API CLI). |
 | `app/` | Streamlit app, two pages: **Coverage Universe** (`/v1/feed`) and **Auxiliary Names** (`/v1/aux/feed`, every company or program outside coverage). Each has a For You (Signal 60/70/80/90+, recent Leads pinned) / Latest (newest, pending included) switch, a Companies / Names filter and an Unlabeled only toggle. One-glance cards: name, source or status, score · band, age, title, the grader's one-line why, read-through chips on auxiliary cards. Labels High/Medium/Low/Noise and Too high/Too low, recorded against the grade on the card, plus a "why it matters" note feed back to the grader. |
-| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`, and `worker/src/aux-sources.json` (every other company or program source, as auxiliary names). |
+| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`, and `worker/src/aux-sources.json` (every other company or program source, as auxiliary names; counterparty filters built for a covered company, such as co-mention searches, FPDS feeds and Drone Dominance, are marked `coverage_subject` with the tickers they affect). |
 
 ## API (bearer tokens: ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN)
 
