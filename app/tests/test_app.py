@@ -219,6 +219,19 @@ class PureFunctions(unittest.TestCase):
         self.assertIn("P3</span>, +2 more)", many_out)
         self.assertNotIn("P4", many_out)
 
+    def test_health_strip_flags_stale_probe_checks(self):
+        # Probes run once a day; a check older than 36h means news-monitor stopped probing.
+        stale = zf.health_strip_html({"ir_probes": {"checked_at": iso(72), "ok": 25, "failing": []}})
+        self.assertIn('IR probes: <span class="z-bad">last checked 3d ago</span>', stale)
+        self.assertNotIn("all 25 OK", stale)
+        failing = copy.deepcopy(HEALTH)
+        failing["ir_probes"]["checked_at"] = iso(40)
+        self.assertIn('<span class="z-bad">last checked 1d ago</span>', zf.health_strip_html(failing))
+        self.assertNotIn("SYM events", zf.health_strip_html(failing))
+        self.assertIn("all 25 OK", zf.health_strip_html({"ir_probes": {"checked_at": iso(30), "ok": 25, "failing": []}}))
+        self.assertIn("last checked Nov 02",
+                      zf.health_strip_html({"ir_probes": {"checked_at": "2025-11-02T10:00:00Z", "ok": 1, "failing": []}}))
+
     def test_health_details(self):
         lines = zf.health_details(HEALTH)
         self.assertIn("3 filings matched in 24h, 9 in 7 days", lines[0])
@@ -320,7 +333,8 @@ class AppPages(unittest.TestCase):
         self.assertIn("SYM events (probe_sym_ir_events_rss): akamai challenge, HTTP 403", "\n".join(t.value for t in self.at.text))
         self.assertEqual([g for g, _, _ in self.api.gets if g in ("/v1/source-health", "/v1/site-changes")],
                          ["/v1/source-health", "/v1/site-changes"])
-        self.assertEqual(self.api.feed_calls("/v1/site-changes"), [{"days": 14, "limit": 50}])
+        # The shown companies go to the server, so one site's burst cannot crowd them out of the 50.
+        self.assertEqual(self.api.feed_calls("/v1/site-changes"), [{"days": 14, "limit": 50, "tickers": "KTOS,RCAT,UMAC"}])
         exp = [e for e in self.at.expander if e.label.startswith("Site changes")]
         self.assertEqual([e.label for e in exp], ["Site changes · last 14 days (2) · 1 notable"])  # RCAT and UMAC are shown
         sites = [m.value for m in self.at.markdown if 'class="z-site' in m.value]
@@ -336,6 +350,7 @@ class AppPages(unittest.TestCase):
         self.at.multiselect(key="cov-filter").set_value(["UMAC"])
         self.run_app()
         self.assertIn("Site changes · last 14 days (1)", [e.label for e in self.at.expander])
+        self.assertEqual(self.api.feed_calls("/v1/site-changes")[-1]["tickers"], "UMAC")
         self.api.items["/v1/site-changes"] = []
         zf.get_json.clear()
         self.run_app()

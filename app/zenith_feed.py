@@ -235,6 +235,7 @@ def card_html(page: FeedPage, it: dict) -> str:
 SITE_DAYS = 14
 SITE_LIMIT = 50
 STRIP_NAMES = 4
+PROBE_STALE_HOURS = 36
 SITE_KIND = {
     "section_new": "New section", "section_gone": "Section gone", "child_new": "New sitemap",
     "child_gone": "Sitemap gone", "child_404": "Sitemap 404", "index_moved": "Sitemap moved", "index_gone": "No sitemap",
@@ -245,6 +246,19 @@ def _ago_text(iso: str | None) -> str:
     # "2h ago" for recent times; ago() gives a date ("Nov 12") past a week.
     a = ago(iso)
     return f"{a} ago" if a[:-1].isdigit() and a[-1:] in ("m", "h", "d") else a
+
+
+def probes_stale(checked_at: str | None, now: datetime | None = None) -> bool:
+    """True when the newest probe check is over PROBE_STALE_HOURS old (probes run once a day)."""
+    if not checked_at:
+        return False
+    try:
+        t = datetime.fromisoformat(str(checked_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (now or datetime.now(timezone.utc)) - t > timedelta(hours=PROBE_STALE_HOURS)
 
 
 def health_strip_html(health: dict) -> str:
@@ -260,6 +274,9 @@ def health_strip_html(health: dict) -> str:
     probes = health.get("ir_probes")
     if not isinstance(probes, dict):
         ir = "unavailable"
+    elif probes_stale(probes.get("checked_at")):
+        # Probes run daily: an old check says nothing about today (details in the popover).
+        ir = f'<span class="z-bad">last checked {html.escape(_ago_text(probes["checked_at"]))}</span>'
     else:
         failing = [f for f in probes.get("failing") or [] if isinstance(f, dict)]
         if failing:
@@ -504,8 +521,11 @@ def health_strip() -> None:
 
 def site_changes(tickers) -> None:
     """Coverage page: the last 14 days of site-structure changes for the shown companies."""
+    # The server filters by ticker before its limit, so a burst on one site cannot
+    # crowd out another company; site_changes_for still filters (older workers ignore it).
+    shown = ",".join(sorted({str(t).upper() for t in tickers or []}))
     try:
-        items = get_json("/v1/site-changes", (("days", SITE_DAYS), ("limit", SITE_LIMIT)))["items"]
+        items = get_json("/v1/site-changes", (("days", SITE_DAYS), ("limit", SITE_LIMIT), ("tickers", shown)))["items"]
     except Exception:  # noqa: BLE001
         return
     rows = site_changes_for(items, tickers)
