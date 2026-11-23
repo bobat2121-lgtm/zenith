@@ -21,6 +21,16 @@ export function bandFor(score) {
 
 export const nowIso = (ms = Date.now()) => new Date(ms).toISOString();
 
+// SQL subquery of the covered tickers, for "still in the universe" filters. A
+// name dropped from coverage (SSTI and REKR on 2026-11-18) keeps its rows and
+// grades in zenith-db but leaves the app feed and the phone page. The tickers
+// come from covered.json at build time and are checked here, so they are
+// inlined rather than bound (no parameter order to keep, no D1 parameter cost).
+export function universeSql(tickers) {
+  const ok = (tickers || []).filter((t) => typeof t === "string" && /^[A-Z][A-Z0-9.]{0,9}$/.test(t));
+  return `(SELECT value FROM json_each('${JSON.stringify(ok)}'))`;
+}
+
 export function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,

@@ -136,6 +136,25 @@ test("feed: recent Leads first, then newest; event date shown when older than fi
   assert.deepEqual(after.items.map((i) => i.item_id), [pending, digest, oldLead]);
 });
 
+test("feed: tickers dropped from coverage (SSTI, REKR) leave every view, cross-ticker badges included", async () => {
+  const env = newEnv();
+  const ssti = addItem(env, { source_key: "soundthinking", ticker: "SSTI", title: "Transom Capital Completes Acquisition of SoundThinking" });
+  addGrade(env, ssti, { ticker: "SSTI", score: 95, band: "lead" });
+  const rekr = addItem(env, { source_key: "rekor", ticker: "REKR", title: "Rekor Q3" });
+  const rcat = addItem(env, { title: "Red Cat and Rekor team up" });
+  addGrade(env, rcat, { score: 91, band: "lead" });
+  addGrade(env, rcat, { ticker: "REKR", score: 80, band: "digest", primary: false });
+  addGrade(env, rcat, { ticker: "ONDS", score: 75, band: "digest", primary: false });
+  const ids = async (q) => (await request(worker, env, "GET", `/v1/feed${q}`, { role: "app" })).body.items.map((i) => i.item_id);
+  for (const q of ["", "?min_score=70", "?min_score=90", "?state=graded&unlabeled=1", "?order=newest"]) assert.deepEqual(await ids(q), [rcat], q || "latest");
+  assert.deepEqual(await ids("?ticker=SSTI"), [], "a dropped ticker cannot be asked for");
+  assert.deepEqual(await ids("?ticker=REKR"), [], "nor its cross-ticker grade on a covered item");
+  assert.deepEqual(await ids("?ticker=ONDS"), [rcat], "a covered cross-ticker grade still shows");
+  const card = (await request(worker, env, "GET", "/v1/feed", { role: "app" })).body.items[0];
+  assert.equal(card.also, "ONDS:75", "no 'also REKR' badge");
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM items WHERE id IN (?, ?)", ssti, rekr)[0].n, 2, "rows are kept, only hidden");
+});
+
 test("requeue late_flags: the 11-19 backfill grades the grading clock made late", async () => {
   const env = newEnv();
   const day = "2026-11-19T15:00:00.000Z";

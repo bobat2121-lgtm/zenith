@@ -7,7 +7,7 @@ import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
-import { json, roleFor, nowIso, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
@@ -145,6 +145,9 @@ const SHOWN_GRADE = `(SELECT MAX(gt.id) FROM grades gt WHERE gt.item_id = i.id A
 
 // Lead items first seen in the last PIN_LEAD_HOURS come first, then newest.
 const PIN_LEAD_HOURS = 72;
+// The feed shows today's universe only: a ticker dropped from covered.json
+// leaves the app with its old items (owner, 2026-11-23).
+const IN_UNIVERSE = universeSql(COVERED.tickers);
 
 async function feed(env, url) {
   const q = url.searchParams;
@@ -161,6 +164,7 @@ async function feed(env, url) {
   const PINNED = pinHours > 0 ? "(CASE WHEN g.band = 'lead' AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)" : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
+  where.push(`COALESCE(g.ticker, i.ticker) IN ${IN_UNIVERSE}`);
   // Paging: pass next_before_id back unchanged. A negative cursor means the
   // last page ended inside the pinned Leads: the rest of them (below that id)
   // come next, then the whole newest-first list. A positive one continues the
@@ -184,7 +188,8 @@ async function feed(env, url) {
       g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct, g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source,
       g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned,
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
-        WHERE gx.item_id = i.id AND g.id IS NOT NULL AND gx.ticker != g.ticker AND gx.run_id IS g.run_id) AS also,
+        WHERE gx.item_id = i.id AND g.id IS NOT NULL AND gx.ticker != g.ticker AND gx.run_id IS g.run_id
+          AND gx.ticker IN ${IN_UNIVERSE}) AS also,
       (SELECT label FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label,
       (SELECT note FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label_note
     FROM items i ${gradeJoin}

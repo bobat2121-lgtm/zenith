@@ -82,7 +82,10 @@ test("GET /m is 403 without credentials and before anything is configured", asyn
 
 test("GET /m renders bands with escaped text, a strict nonce CSP and no inline handlers", async () => {
   const { db, lead } = await pageSetup();
-  const r = await mobile(req("/m", { headers: { authorization: `Bearer ${APP}` } }), env0(db), new URL("https://zenith.example.com/m"), { tickers: ["SYM", "PL"] });
+  // A ticker dropped from coverage (not in deps.tickers) keeps its rows but is not shown.
+  const dropped = await addItem(db, { ticker: "SSTI", title: "SoundThinking acquired" });
+  await addGrade(db, dropped, { score: 95 });
+  const r = await mobile(req("/m", { headers: { authorization: `Bearer ${APP}` } }), env0(db), new URL("https://zenith.example.com/m"), { tickers: ["SYM", "PL", "GRRR", "AUR"] });
   assert.equal(r.status, 200);
   const csp = r.headers.get("content-security-policy");
   const nonce = /script-src 'nonce-([A-Za-z0-9]+)'/.exec(csp)[1];
@@ -102,6 +105,7 @@ test("GET /m renders bands with escaped text, a strict nonce CSP and no inline h
   assert.ok(!/<script[^>]+src=/.test(html) && !/<link[^>]+stylesheet/.test(html), "no external scripts or styles");
   for (const h of ["Lead (1)", "Digest (1)", "Borderline (0)", "Waiting for a grade (1)", "Reject (1)"]) assert.ok(html.includes(h), h);
   assert.ok(!html.includes("Skipped item"));
+  assert.ok(!html.includes("SoundThinking") && !html.includes(`id="i${dropped}"`), "dropped tickers are hidden");
   assert.ok(html.includes(`id="i${lead}"`));
   for (const l of ["high", "medium", "low", "noise", "too_high", "too_low"]) assert.ok(html.includes(`name="label" value="${l}"`), l);
   assert.ok(/<form class="lbl" method="post" action="\/m\/feedback"[^>]*>\s*<button type="submit" class="nodefault" disabled/.test(html), "Enter cannot submit a label");

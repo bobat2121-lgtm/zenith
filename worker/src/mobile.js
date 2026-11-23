@@ -6,7 +6,7 @@
 // else gets 403, so the page is inert until one of them is configured.
 // Strict CSP: one nonce'd inline script and style, no external resources, no
 // inline event handlers. Titles and grader text are escaped as untrusted.
-import { json, tokenMatches, isHttpUrl } from "./lib.js";
+import { json, tokenMatches, isHttpUrl, universeSql } from "./lib.js";
 import { fmtEt, fmtAge } from "./et.js";
 
 export const MOBILE_LABELS = [
@@ -121,9 +121,12 @@ function nonce() {
   return btoa(String.fromCharCode(...b)).replace(/[+/=]/g, "");
 }
 
-async function pageRows(db, { days, ticker, unlabeled, now }) {
+// universe: the covered tickers (deps.tickers). Items of a ticker dropped from
+// coverage are not shown; without a list (a misconfigured caller) nothing is hidden.
+async function pageRows(db, { days, ticker, unlabeled, now, universe }) {
   const where = ["i.nm_first_seen >= ?", "i.state != 'skipped'", "(g.band IS NULL OR g.band != 'duplicate')"];
   const binds = [new Date(now - days * 86_400_000).toISOString()];
+  if (universe?.length) where.push(`COALESCE(g.ticker, i.ticker) IN ${universeSql(universe)}`);
   if (ticker) { where.push("i.ticker = ?"); binds.push(ticker); }
   if (unlabeled) where.push("NOT EXISTS (SELECT 1 FROM feedback f WHERE f.item_id = i.id)");
   return (await db.prepare(
@@ -269,7 +272,7 @@ export async function mobile(request, env, url, deps = {}) {
     const days = Math.max(1, Math.min(14, Number(q.get("days")) || 3));
     const ticker = /^[A-Z.]{1,8}$/.test((q.get("ticker") || "").toUpperCase()) ? q.get("ticker").toUpperCase() : "";
     const unlabeled = q.get("unlabeled") === "1";
-    const rows = await pageRows(env.DB, { days, ticker, unlabeled, now });
+    const rows = await pageRows(env.DB, { days, ticker, unlabeled, now, universe: deps.tickers });
     const n = nonce();
     return htmlResponse(renderPage(rows, { days, ticker, unlabeled, now, nonce: n, tickers: deps.tickers || [] }), n);
   }
