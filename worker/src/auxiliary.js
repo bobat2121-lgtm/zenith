@@ -17,7 +17,7 @@ import { AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
-  olderEventDate, LABELS, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+  olderEventDate, normalizeHeadline, LABELS, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 
 export const AUX_BACKFILL_DAYS = 14;
 export const AUX_MAX_CLAIM = 40;
@@ -252,6 +252,9 @@ export function normalizeAuxGrade(raw, { covered = COVERED.tickers, dupExists = 
   if (given(raw.event_type) && typeof raw.event_type !== "string") return bad("event_type must be a string");
   const eventType = given(raw.event_type) ? squash(raw.event_type) : "";
   if (eventType.length > 40) return bad(`event_type must be at most 40 characters (got ${eventType.length})`);
+  // Optional headline and tag (aux.md section 8); a bad one rejects this grade only.
+  const head = normalizeHeadline(raw);
+  if (!head.ok) return head;
 
   return {
     ok: true,
@@ -259,6 +262,7 @@ export function normalizeAuxGrade(raw, { covered = COVERED.tickers, dupExists = 
       item_id: itemId, entity, score, band: finalBand, reason, event_type: eventType || null, why,
       reads_through: JSON.stringify(readsThrough), flags: JSON.stringify(flags), confidence,
       read_source: raw.read_source ? 1 : 0, dup_of: dupOf, covered_ticker: coveredTicker,
+      headline: head.headline, headline_tag: head.tag,
     },
   };
 }
@@ -311,6 +315,10 @@ export async function submitAuxGrades(env, body, role) {
     stmts.push(env.DB.prepare(
       "UPDATE aux_items SET state='graded', grade_id=(SELECT id FROM aux_grades WHERE item_id=?1 AND run_id=?2), claim_id=NULL, claimed_until=NULL WHERE id=?1",
     ).bind(item.id, runId));
+    // The headline lives on the item; a grade without one keeps the item's.
+    if (g.headline) {
+      stmts.push(env.DB.prepare("UPDATE aux_items SET headline=?, headline_tag=?, headline_at=? WHERE id=?").bind(g.headline, g.headline_tag, now, item.id));
+    }
     accepted.push({ item_id: raw.item_id, entity: g.entity, score: g.score, band: g.band });
   }
   // All-or-nothing: a failure part-way through commits nothing, so a retry is safe.
@@ -441,7 +449,7 @@ export async function auxFeed(env, url) {
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
   if (q.get("unlabeled") === "1") where.push("NOT EXISTS (SELECT 1 FROM aux_feedback f WHERE f.item_id = i.id)");
   const sql = `SELECT i.id AS item_id, COALESCE(g.entity, i.entity_name) AS entity, i.entity_key, i.status, i.source_key, i.title, i.url, i.published,
-      i.nm_first_seen AS first_seen, i.state, i.skip_reason, substr(i.excerpt, 1, 420) AS snippet,
+      i.nm_first_seen AS first_seen, i.state, i.skip_reason, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet,
       g.id AS grade_id, g.score, g.band, g.event_type, g.why, g.reads_through, g.confidence, g.read_source, g.flags, g.covered_ticker, g.dup_of,
       g.graded_at, ${PINNED} AS pinned,
       (SELECT label FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label,

@@ -2,7 +2,8 @@
 // names (every other company or program news-monitor follows; auxiliary.js).
 //   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items
 //   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers|/aux], GET /v1/labels, GET /v1/recent,
-//           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels
+//           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels,
+//           POST /v1/headlines/claim, POST /v1/headlines (headline-only pass; headlines.js)
 //   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/aux/feed, POST /v1/aux/feedback,
 //           GET /v1/site-changes, GET /v1/source-health (news-monitor ops signals; source-signals.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
@@ -16,6 +17,7 @@ import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
 import { siteChanges, sourceHealth } from "./source-signals.js";
+import { headlineClaim, submitHeadlines } from "./headlines.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -43,6 +45,9 @@ const ALLOW = {
   // Coverage-page signals read from news-monitor-db (SELECT only).
   "GET /v1/site-changes": ["app", "admin"],
   "GET /v1/source-health": ["app", "admin"],
+  // Headline-only pass for graded items without a headline (headlines.js).
+  "POST /v1/headlines/claim": ["grader", "admin"],
+  "POST /v1/headlines": ["grader", "admin"],
 };
 
 async function readJson(request) {
@@ -142,6 +147,13 @@ async function submitGrades(env, body, role) {
         "UPDATE items SET state='graded', grade_id=(SELECT MAX(id) FROM grades WHERE item_id=?1 AND ticker=?2), claim_id=NULL, claimed_until=NULL WHERE id=?1",
       ).bind(item.id, item.ticker));
     }
+    // The headline lives on the item. A "#TICKER" grade's headline is kept
+    // only when the item has none (the own-ticker grade describes the item).
+    if (g.headline) {
+      stmts.push(env.DB.prepare(
+        `UPDATE items SET headline=?, headline_tag=?, headline_at=? WHERE id=?${g.primary ? "" : " AND headline IS NULL"}`,
+      ).bind(g.headline, g.headline_tag, now, item.id));
+    }
     accepted.push({ item_id: raw.item_id, ticker: g.ticker, score: g.score, band: g.band });
   }
   if (runId) {
@@ -200,7 +212,7 @@ async function feed(env, url) {
   // Labels belong to the grade shown: the item under the ticker it is shown for.
   const LABEL_OF = "f.item_id = i.id AND f.ticker = COALESCE(g.ticker, i.ticker)";
   if (q.get("unlabeled") === "1") where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
-  const sql = `SELECT ${ITEM_COLS}, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score, g.band, g.rung,
+  const sql = `SELECT ${ITEM_COLS}, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score, g.band, g.rung,
       g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct, g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source,
       g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned,
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
@@ -430,6 +442,8 @@ export default {
       case "POST /v1/admin/aux-ingest": return json(await ingestAux(env));
       case "GET /v1/site-changes": return siteChanges(env, url);
       case "GET /v1/source-health": return sourceHealth(env);
+      case "POST /v1/headlines/claim": return json(await headlineClaim(env, await readJson(request)));
+      case "POST /v1/headlines": return submitHeadlines(env, await readJson(request), role);
     }
     return json({ error: "not found" }, 404);
   },

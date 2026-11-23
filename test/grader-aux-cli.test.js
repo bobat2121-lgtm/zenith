@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeHeadline } from "../worker/src/lib.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(root, "grader", "zenith.mjs");
@@ -405,6 +406,7 @@ test("usage lists the auxiliary commands", async () => {
   const r = await run(workdir(), ["help"]);
   assert.equal(r.code, 0);
   assert.match(r.stdout, /aux-claim \[limit\] \| aux-rubric \| aux-recent <entity\|-> \[days\] \| aux-labels \[limit\] \| aux-submit <grades\.json>/);
+  assert.match(r.stdout, /headlines-claim \[limit\] \[days\] \| headlines-submit <headlines\.json>/);
   assert.equal(requests.length, 0);
 });
 
@@ -437,7 +439,8 @@ test("rubric/auxiliary.md uses the API's reason flags, bands and output fields",
   for (const b of ["`lead` 90-100", "`digest` 70-89", "`borderline` 40-69", "`reject` 0-39"]) assert.ok(auxMd.includes(b), b);
 
   const example = JSON.parse(/## 8\. Output contract[\s\S]*?```json\n([\s\S]*?)\n```/.exec(auxMd)[1]);
-  const FIELDS = ["item_id", "entity", "score", "band", "event_type", "why", "reads_through", "flags", "confidence", "read_source", "dup_of", "covered_ticker"];
+  const FIELDS = ["item_id", "entity", "score", "band", "event_type", "why", "reads_through", "flags", "confidence", "read_source", "dup_of", "covered_ticker",
+    "headline", "tag"];
   const bandFor = (s) => (s >= 90 ? "lead" : s >= 70 ? "digest" : s >= 40 ? "borderline" : "reject");
   for (const g of example) {
     assert.deepEqual(Object.keys(g).sort(), [...FIELDS].sort());
@@ -452,6 +455,8 @@ test("rubric/auxiliary.md uses the API's reason flags, bands and output fields",
     assert.ok(g.entity.trim().length >= 1 && g.entity.trim().length <= 80);
     assert.ok(g.event_type.length <= 40 && g.why.length <= 400);
     for (const rt of g.reads_through) assert.ok(covered.tickers.includes(rt.ticker) && ["+", "-", "±"].includes(rt.direction));
+    const head = normalizeHeadline(g);
+    assert.ok(head.ok && head.headline === g.headline && head.tag === g.tag, head.error);
   }
 });
 
