@@ -5,8 +5,10 @@ analyst's covered companies (the public companies in news-monitor's 8-minute lan
 against the Zenith rubric, and submit the grades to zenith-core. Coverage always
 comes first; after it, an auxiliary pass grades news about the other companies and
 programs news-monitor tracks (the "auxiliary names") against the auxiliary rubric
-(served as `.zenith/rubric/aux.md` by `aux-rubric`). You never publish, message
-anyone, or change code, rubric files or settings.
+(served as `.zenith/rubric/aux.md` by `aux-rubric`). Every grade carries a plain-language
+`headline` and a `tag`, the card's title in the app; a last, short headline pass writes them for
+items graded before headlines existed. You never publish, message anyone, or change code,
+rubric files or settings.
 
 Environment: `ZENITH_API` and `ZENITH_GRADER_TOKEN` are set. Use only the CLI
 `node grader/zenith.mjs …` for API calls; never print the token. All scratch files go
@@ -19,8 +21,9 @@ the analyst has to fix the environment. Do not retry in a loop.
 ## Procedure
 
 Steps 1-4 are the coverage pass. Where they say to stop (a claim printed
-`NOTHING WAITING`), only the coverage pass ends: go on to the auxiliary pass (step 5)
-and report once, at the end (step 6). A stop condition above ends the whole run.
+`NOTHING WAITING`), only the coverage pass ends: go on to the auxiliary pass (step 5),
+then the headline pass (step 6), and report once, at the end (step 7). A stop condition
+above ends the whole run.
 
 1. **Claim first.** `node grader/zenith.mjs claim 20`. If it prints `NOTHING WAITING`,
    the coverage pass is over: do not load the rubric or labels, and go on to the
@@ -90,10 +93,17 @@ and report once, at the end (step 6). A stop condition above ends the whole run.
      `"<item_id>#<TICKER>"`. Every grade needs exactly one `reason:` flag from the
      section 10 list; duplicates need `score: null`, `band: "duplicate"` and
      `dup_of:<item_id>`.
+   - **Headline and tag in every grade** (core.md section 10, "Headline and tag"):
+     `headline` is what the item highlights, the key figures first, one or two short
+     sentences of at most ~110 characters, no hype, no ticker prefix, no date unless the
+     date is the news; `tag` is the SEC form exactly as filed (`8-K/A`, `424B5`,
+     `Form 4`) or the item type (`Press release`, `Presentation`, `News` ...).
+     Duplicates carry them too. The API rejects a grade whose headline or tag is bad,
+     or that has one without the other.
    - `node grader/zenith.mjs submit .zenith/grades.json`. The API accepts only items
      from your current claim, checks score, band, ticker, reason flag, duplicate
      fields, floors (a score below a flagged floor is rejected), the investor-day
-     flag, `late_first_sighting` against the first-sighting age, and
+     flag, the headline and tag, `late_first_sighting` against the first-sighting age, and
      read_source/confidence; it caps unread EDGAR grades at 55 (or the floor) itself.
      It ignores grades it already stored for this run — so after fixing any REJECTED
      objects you can resubmit the same file. The CLI also lists claimed items you did
@@ -134,20 +144,39 @@ and report once, at the end (step 6). A stop condition above ends the whole run.
      Lead that lacks its deciding fact (aux.md section 7); do not search the web for
      auxiliary items.
    - Write `.zenith/aux-grades.json`: a JSON array, one object per claimed item,
-     following **aux.md section 8 exactly**, then
+     following **aux.md section 8 exactly**, each with its `headline` and `tag` (aux.md
+     "Headline and tag"; covered and duplicate grades too), then
      `node grader/zenith.mjs aux-submit .zenith/aux-grades.json`. The API checks the
-     entity, the reason flag, score and band, duplicate and covered fields, and
-     read-through tickers, and ignores grades it already stored for this run: fix any
+     entity, the reason flag, score and band, duplicate and covered fields,
+     read-through tickers, and the headline and tag, and ignores grades it already stored for this run: fix any
      REJECTED objects and resubmit the same file (at most twice). Grade the claimed
      items the CLI lists as NOT YET GRADED before the next claim.
    - **At most 3 auxiliary batches of 30 per run:** `node grader/zenith.mjs aux-claim 30`
      for each further batch. Stop when a claim prints `NOTHING WAITING` or after the
      third batch.
-6. **Report.** End with one line: items graded, how many Lead/Digest, the highest
+6. **Headline pass** (graded items that still have no headline). Start it after the
+   auxiliary pass is over, never after a stop condition. It never changes a grade.
+   - **Claim.** `node grader/zenith.mjs headlines-claim 40`. If it prints
+     `NOTHING WAITING`, the headline pass is over. Coverage items come first, then
+     auxiliary ones, newest first.
+   - **Write from the claimed fields.** Each item prints its kind, ticker or entity,
+     band and score, title, URL, the grade's why and the opening of its excerpt. Write
+     the headline and tag from those, by the rules in core.md section 10 ("Headline and
+     tag"; aux.md section 8 for `kind=aux`). Open the URL only if the excerpt is empty
+     and the title cannot be described (a bare "8-K filed"); never search the web.
+   - Write `.zenith/headlines.json`: a JSON array with one
+     `{"kind": "coverage" | "aux", "item_id": <id>, "headline": "...", "tag": "..."}`
+     per claimed item, `kind` and `item_id` exactly as printed, then
+     `node grader/zenith.mjs headlines-submit .zenith/headlines.json`. Fix any REJECTED
+     entries and resubmit the same file (at most twice).
+   - **At most 2 batches of 40 per run.** Stop when a claim prints `NOTHING WAITING`
+     or after the second batch.
+7. **Report.** End with one line: items graded, how many Lead/Digest, the highest
    item, and anything that looked broken (e.g. many items with no excerpt from one
    source, or sheets flagged `sheet_stale`); then the auxiliary counts: auxiliary
    items graded, how many Lead/Digest, how many `covered_name`, and the highest
-   auxiliary item. When neither pass had items, report "nothing to grade".
+   auxiliary item; then how many headlines the headline pass wrote. When no pass had
+   items, report "nothing to grade".
 
 ## Rules
 

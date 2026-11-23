@@ -32,6 +32,7 @@ test("a scored grade is stored as given, flags and read-through as JSON", () => 
     why: "Anduril raised a $2.5B Series G at a $30.5B valuation.",
     reads_through: '[{"ticker":"PDYN","direction":"-"},{"ticker":"MRLN","direction":"±"}]',
     flags: '["reason:material","ceiling_only"]', confidence: 0.8, read_source: 1, dup_of: null, covered_ticker: null,
+    headline: null, headline_tag: null,
   });
   assert.equal(ok({ item_id: "12", score: "75", band: "Digest" }).score, 75, "numeric strings and band case are accepted");
   assert.deepEqual([ok({ reads_through: undefined }).reads_through, ok({ reads_through: null }).reads_through], ["[]", "[]"]);
