@@ -223,8 +223,10 @@ test("aux-recent asks for one entity (or every entity with -) and lists the item
 
   const all = await run(cwd, ["aux-recent", "-"]);
   assert.equal(all.code, 0, all.stderr);
-  assert.equal(requests[1].path, "/v1/aux/recent?days=14");
+  // Every entity asks for the API's maximum, not its default of 80.
+  assert.equal(requests[1].path, "/v1/aux/recent?days=14&limit=200");
   assert.match(all.stdout, /^2 auxiliary item\(s\) for every entity in the last 14 days:/);
+  assert.doesNotMatch(all.stdout, /only the 200 newest/);
 });
 
 test("aux-recent without an entity prints usage and calls nothing", async () => {

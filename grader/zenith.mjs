@@ -28,6 +28,7 @@ const RUN_FILE = join(OUT, "run.json");
 const RUN_TTL_MS = 2 * 3600_000;
 const AUX_VERSION_FILE = join(OUT, "rubric", "AUX_VERSION");
 const AUX_MAX_CLAIM = 40;
+const AUX_RECENT_MAX = 200;
 
 function die(msg) { console.error(`zenith: ${msg}`); process.exit(1); }
 if (!API || !TOKEN) die("set ZENITH_API and ZENITH_GRADER_TOKEN");
@@ -204,10 +205,15 @@ if (cmd === "stats") {
   const entity = (args[0] || "").trim();
   if (!entity) die('usage: aux-recent <entity|-> [days]  ("-" lists every entity)');
   const days = Number(args[1]) || 14;
-  const query = entity === "-" ? `days=${days}` : `entity=${encodeURIComponent(entity)}&days=${days}`;
+  // Every entity: ask for the API's maximum (its default is 80 rows) and say
+  // when the list is cut, so a missing copy is never read as "no duplicate".
+  const query = entity === "-" ? `days=${days}&limit=${AUX_RECENT_MAX}` : `entity=${encodeURIComponent(entity)}&days=${days}`;
   const r = await call("GET", `/v1/aux/recent?${query}`);
   const items = r.items || [];
   console.log(`${items.length} auxiliary item(s) for ${entity === "-" ? "every entity" : `"${entity}"`} in the last ${r.days ?? days} days:`);
+  if (entity === "-" && items.length >= AUX_RECENT_MAX) {
+    console.log(`(only the ${AUX_RECENT_MAX} newest are listed; check a possible duplicate with aux-recent "<entity>")`);
+  }
   for (const i of items) {
     console.log(`- item_id=${i.item_id ?? i.id} ${String(i.first_seen || "").slice(0, 10)} ${i.band ?? "ungraded"}${i.score == null ? "" : ` ${i.score}`} [${i.entity ?? i.entity_name ?? "-"}] ${i.title}${i.dup_of ? ` (dup_of ${i.dup_of})` : ""}`);
   }
