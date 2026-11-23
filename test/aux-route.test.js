@@ -102,3 +102,11 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
   assert.equal(auxRoute("nga").status, "program");
   for (const key of ["aglt_rel", "fpds_pl", "site_kodiak", "dronedominance"]) assert.ok(key in aux.exclude, key);
 });
+
+test("runtime keys never route a covered company's channel or a blank name to the auxiliary page", () => {
+  assert.equal(route("ia_draganfly"), null, "ia_<covered source key>");
+  assert.equal(route("ia_redcat"), null);
+  assert.deepEqual(route("edgar_"), unknown("edgar_", "Edgar"), "nothing after the prefix keeps the key");
+  assert.deepEqual(route("ia_"), unknown("ia_", "Ia"));
+  assert.deepEqual(route("ia_rockwell"), unknown("rockwell", "Rockwell"));
+});

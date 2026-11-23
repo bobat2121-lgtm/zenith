@@ -35,7 +35,11 @@ export function makeAuxRoute(aux, covered) {
     const entity = sources[key].entity;
     if (!byEntity.has(entity) || key === entity) byEntity.set(entity, key);
   }
-  const named = (x) => {
+  const named = (x, key) => {
+    // A covered company's own channel under a runtime name (ia_<covered key>).
+    if (has(coveredSources, x)) return null;
+    // Nothing left after the prefix (edgar_, ia_): keep the whole key as the name.
+    if (!x) x = key;
     if (has(sources, x)) return entry(x);
     if (byEntity.has(x)) return entry(byEntity.get(x));
     return { entity_key: x, entity_name: humanize(x), status: "unknown" };
@@ -58,15 +62,15 @@ export function makeAuxRoute(aux, covered) {
       const known = candidates.find((c) => has(sources, c));
       if (known) return entry(known);
       if (/^[0-9a-f]{32}$/.test(x)) return { entity_key: key, entity_name: "Other company", status: "unknown" };
-      return named(x);
+      return named(x, key);
     }
     m = /^ia_media_(.+)$/.exec(key);
     if (m) return { entity_key: "media_" + m[1], entity_name: "Industry media", status: "media" };
     m = /^ia_(.+)$/.exec(key);
-    if (m) return named(m[1]);
+    if (m) return named(m[1], key);
     // Anything else: a source news-monitor no longer lists (edgar_ssti,
     // soundthinking: names dropped from coverage) or a new one not synced yet.
-    return named(key.replace(/^edgar_/, ""));
+    return named(key.replace(/^edgar_/, ""), key);
   };
 }
 
