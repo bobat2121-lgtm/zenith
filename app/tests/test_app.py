@@ -167,6 +167,8 @@ class FakeApi:
         self.post_status = 200
         self.post_errors: dict[str, tuple[int, str]] = {}
         self.missing: set[str] = set()
+        self.old_feed = False  # True: a feed from before round 4, without my_reason
+        self.by_ticker: dict[str, list[dict]] | None = None  # /v1/feed?ticker= answers, per ticker
 
     def get(self, url, headers=None, params=None, timeout=None):
         path = url.removeprefix(API)
@@ -181,11 +183,18 @@ class FakeApi:
         if path in self.routes:
             route = self.routes[path]
             return Resp(copy.deepcopy(route(params) if callable(route) else route))
-        items = copy.deepcopy(self.items[path])
+        if path == "/v1/feed" and params.get("ticker") and self.by_ticker is not None:
+            items = copy.deepcopy(self.by_ticker.get(params["ticker"], []))
+        else:
+            items = copy.deepcopy(self.items[path])
+        if path in ("/v1/feed", "/v1/aux/feed") and not self.old_feed:
+            for i in items:
+                i.setdefault("my_reason", None)
         if params.get("unlabeled") == "1":
-            # Labelled cards leave an unlabeled feed (To label, Unlabeled only).
-            done = {b["item_id"] for p, b, _ in self.posts if p.endswith("/feedback")}
-            items = [i for i in items if i["item_id"] not in done and not i.get("label")]
+            # Labelled cards leave an unlabeled feed (To label, Unlabeled only), per graded ticker.
+            done = {(b["item_id"], b.get("ticker")) for p, b, _ in self.posts if p.endswith("/feedback")}
+            items = [i for i in items if (i["item_id"], i.get("grade_ticker") or i.get("ticker")) not in done
+                     and not i.get("label")]
         if params.get("sort") == "to_label":
             items = [i for i in items if i.get("state") == "graded"]
         return Resp({"items": items, "next_before_id": None})
@@ -734,12 +743,22 @@ class TuningFunctions(unittest.TestCase):
                  {"item_id": 5, "score": 61, "confidence": None}, {"item_id": 6, "score": 85}, {"item_id": 7, "score": None},
                  {"item_id": 8, "score": 79, "confidence": 0.59}]
         ordered = [i["item_id"] for i in sorted(items, key=zf.to_label_key)]
-        # Confidence < 0.6 first; then 60-79 nearest 70; then the rest by score desc.
-        self.assertEqual(ordered, [2, 8, 4, 3, 5, 1, 6, 7])
+        # Confidence < 0.6 first; then 60-79 nearest 70; then the rest; score desc within each step.
+        self.assertEqual(ordered, [8, 2, 4, 3, 5, 1, 6, 7])
         merged = zf.merge_items([[items[0], items[2]], [items[1], items[0]]], "to_label")
         self.assertEqual([i["item_id"] for i in merged], [2, 3, 1])
         # The other sorts keep pinned Leads first, then newest.
         self.assertEqual([i["item_id"] for i in zf.merge_items([[items[0], items[2]], [items[1]]])], [3, 2, 1])
+
+    def test_to_label_order_breaks_ties_like_the_server(self):
+        # TO_LABEL_ORDER: step, distance from 70, score DESC, then id DESC.
+        low = [[{"item_id": 5, "confidence": 0.5, "score": 50}, {"item_id": 4, "confidence": 0.5, "score": 30}],
+               [{"item_id": 3, "confidence": 0.4, "score": 95}]]
+        self.assertEqual([i["item_id"] for i in zf.merge_items(low, "to_label")], [3, 5, 4])
+        near = [[{"item_id": 5, "score": 65}], [{"item_id": 3, "score": 75}]]
+        self.assertEqual([i["item_id"] for i in zf.merge_items(near, "to_label")], [3, 5])
+        same = [[{"item_id": 6, "score": 85}], [{"item_id": 9, "score": 85}, {"item_id": 7, "score": None}]]
+        self.assertEqual([i["item_id"] for i in zf.merge_items(same, "to_label")], [9, 6, 7])
 
     def test_reason_choices(self):
         down = ["not_material", "duplicate", "wrong_company", "stale", "marketing", "not_my_focus"]
@@ -863,6 +882,10 @@ class TuningFunctions(unittest.TestCase):
         for raw in ("<k>", "<g>", "<d>"):
             self.assertNotIn(raw, evil)
         self.assertEqual(zf.widget_slug("ia_<x> y"), "ia__x__y")
+        # One row per widget key: a repeated key, or two that slug alike, keep the first.
+        twins = zf.yield_rows([{"source_key": "a.b", "graded": 1}, {"source_key": "a_b", "graded": 2},
+                               {"source_key": "c"}, {"source_key": "a.b", "graded": 3}])
+        self.assertEqual([(r["source_key"], r.get("graded")) for r in twins], [("a.b", 1), ("c", None)])
 
     def test_left_out_helpers(self):
         counts = {"rival_no_key_account": 168, "archive_seed": 900, "muted_source": 12, "grading_failed": 0}
@@ -996,7 +1019,55 @@ class Round4Pages(AppBase):
         self.assertEqual(len(self.cards()), 0)
         self.assertIn("Nothing to label", self.at.info[0].value)
 
+    def test_to_label_with_names_shows_an_item_once_after_a_label(self):
+        # Item 11 is graded for both picked names: one card, under UMAC (the later batch).
+        base = dict(COVERAGE_ITEMS[0], item_id=11, score=72, confidence=0.9, label=None, also="UMAC:71")
+        self.api.by_ticker = {"RCAT": [dict(base, grade_ticker="RCAT", grade_id=101)],
+                              "UMAC": [dict(base, grade_ticker="UMAC", grade_id=102, score=71)]}
+        self.run_app()
+        self.at.segmented_control(key="cov-mode").set_value("To label")
+        self.at.multiselect(key="cov-filter").set_value(["RCAT", "UMAC"])
+        self.run_app()
+        labels = lambda: [w.key for w in self.at.segmented_control if w.key.startswith("cov-lbl-")]  # noqa: E731
+        self.assertEqual(labels(), ["cov-lbl-11-UMAC"])
+        self.at.segmented_control(key="cov-lbl-11-UMAC").set_value("noise")
+        self.run_app()  # no duplicate card key
+        # The UMAC grade is labelled; the RCAT one still waits, so it takes the card's place.
+        self.assertEqual(labels(), ["cov-lbl-11-RCAT"])
+        self.assertIsNone(self.at.segmented_control(key="cov-lbl-11-RCAT").value)
+        self.at.segmented_control(key="cov-lbl-11-RCAT").set_value("low")
+        self.run_app()
+        # Both grades labelled: one kept card, with the latest label.
+        self.assertEqual(labels(), ["cov-lbl-11-RCAT"])
+        self.assertEqual(self.at.segmented_control(key="cov-lbl-11-RCAT").value, "low")
+        self.assertEqual(len(self.cards()), 1)
+
+    def test_to_label_card_keeps_its_place_after_a_label(self):
+        self.api.items["/v1/feed"] = [
+            dict(COVERAGE_ITEMS[0], item_id=20, score=90, confidence=0.5, label=None),
+            dict(COVERAGE_ITEMS[0], item_id=19, score=40, confidence=0.5, label=None),
+            dict(COVERAGE_ITEMS[0], item_id=18, score=70, confidence=0.9, label=None)]
+        self.run_app()
+        self.at.segmented_control(key="cov-mode").set_value("To label")
+        self.run_app()
+        order = lambda: [w.key for w in self.at.segmented_control if w.key.startswith("cov-lbl-")]  # noqa: E731
+        self.assertEqual(order(), ["cov-lbl-20-RCAT", "cov-lbl-19-RCAT", "cov-lbl-18-RCAT"])
+        self.at.segmented_control(key="cov-lbl-20-RCAT").set_value("low")
+        self.run_app()
+        self.assertEqual(order(), ["cov-lbl-20-RCAT", "cov-lbl-19-RCAT", "cov-lbl-18-RCAT"])
+
     # A3 ----------------------------------------------------------------------------
+    def test_no_reason_picker_on_an_older_feed(self):
+        # A feed without my_reason comes from a zenith-core that drops reasons: no picker.
+        self.api.old_feed = True
+        self.run_app()
+        self.assertEqual(self.at.segmented_control(key="cov-lbl-10-UMAC").value, "noise")
+        self.assertEqual(len(self.at.selectbox), 0)
+        self.at.segmented_control(key="cov-lbl-11-RCAT").set_value("low")
+        self.run_app()
+        self.assertEqual(len(self.at.selectbox), 0)
+        self.assertNotIn("reason", self.api.posts[-1][1])
+
     def test_reason_picker_follows_the_label(self):
         self.run_app()
         # UMAC 10 is labelled Noise on the server: the down reasons, empty until picked.
@@ -1191,6 +1262,15 @@ class Round4Pages(AppBase):
         self.at.button(key="tune-grade-aux-801").click()
         self.run_app()
         self.assertEqual(self.api.posts[-1][:2], ("/v1/left-out/grade", {"kind": "aux", "id": 801}))
+
+    def test_left_out_items_without_an_id(self):
+        rows = [{"kind": "coverage", "ticker": "X", "source_key": "s", "title": "no id 1", "skip_reason": "grading_failed"},
+                {"kind": "coverage", "ticker": "Y", "source_key": "s", "title": "no id 2", "skip_reason": "grading_failed"}]
+        self.api.routes["/v1/left-out"] = lambda params: {"items": rows, "counts": {"grading_failed": 2}}
+        self.open_tuning()
+        left = [m.value for m in self.at.markdown if "z-badge reject" in m.value]
+        self.assertEqual(len(left), 2)
+        self.assertFalse([b for b in self.at.button if (b.key or "").startswith("tune-grade-")])
 
     def test_refused_grade_it_is_reported(self):
         self.api.post_errors["/v1/left-out/grade"] = (400, "source heo is still muted")

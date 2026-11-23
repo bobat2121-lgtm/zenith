@@ -152,15 +152,19 @@ def card_reason(it: dict) -> str | None:
 
 
 def to_label_key(it: dict) -> tuple:
-    """zenith-core's sort=to_label order: confidence under 0.6 first, then scores
-    60-79 nearest 70 first, then the rest by score, highest first."""
+    """zenith-core's sort=to_label order (worker lib.js TO_LABEL_ORDER): confidence under
+    0.6 first, then scores 60-79 nearest 70 first, then the rest; within each step score
+    highest first, then newest first (item id; the aux feed breaks that tie by nm_rowid).
+    A full order, so a kept card re-sorts back into the place it had."""
     conf, score = it.get("confidence"), it.get("score")
     score = score if isinstance(score, (int, float)) else None
+    item_id = it.get("item_id")
+    tail = (-(score if score is not None else -1), -(item_id if isinstance(item_id, int) else 0))
     if isinstance(conf, (int, float)) and conf < 0.6:
-        return (0, 0)
+        return (0, 0) + tail
     if score is not None and 60 <= score <= 79:
-        return (1, abs(score - 70))
-    return (2, -(score if score is not None else -1))
+        return (1, abs(score - 70)) + tail
+    return (2, 0) + tail
 
 
 def merge_items(batches, sort: str | None = None) -> list[dict]:
@@ -633,7 +637,11 @@ def suggest_of(row: dict) -> str | None:
 def yield_rows(rows) -> list[dict]:
     """Suggested rows first, then the server's order (most graded first)."""
     rows = [r for r in rows or [] if isinstance(r, dict) and r.get("source_key")]
-    return sorted(rows, key=lambda r: suggest_of(r) is None)
+    # One row per widget key: a repeated key (or two that slug alike) would collide.
+    unique: dict[str, dict] = {}
+    for r in rows:
+        unique.setdefault(widget_slug(r["source_key"]), r)
+    return sorted(unique.values(), key=lambda r: suggest_of(r) is None)
 
 
 def yield_line_html(row: dict, kind: str) -> str:
@@ -880,7 +888,8 @@ def reason_picker(page: FeedPage, it: dict, key: str) -> None:
     so it stays one line at 375 px (feed.css st-key-zreason-*)."""
     label = st.session_state.get(f"{key}:srv")
     choices = reason_choices(label)
-    if not choices:
+    # An older zenith-core has no my_reason in its feed and drops the reason it is sent.
+    if not choices or "my_reason" not in it:
         return
     # One widget per reason set, so a label change never leaves a foreign option selected.
     rkey = f"{key}:rsn-{'up' if choices == UP_REASONS else 'down'}"
@@ -916,11 +925,14 @@ def feed(page: FeedPage, base: tuple, picked: tuple) -> None:
         return
     fetched = len(items)
     if to_label:
-        # Cards labelled since this list opened stay in place (the server now leaves them out).
-        shown = {card_key(page, i) for i in items}
-        kept = [c for k, c in (st.session_state.get(_kept_key(page)) or {}).items() if k not in shown]
+        # Cards labelled since this list opened stay in place (the server now leaves them out),
+        # one card per item: an item the server still returns (under another picked name) wins,
+        # and of two kept cards for one item the later label wins.
+        shown = {i["item_id"] for i in items}
+        kept = {c["item_id"]: c for c in (st.session_state.get(_kept_key(page)) or {}).values()
+                if c["item_id"] not in shown}
         if kept:
-            items = sorted(items + kept, key=to_label_key)
+            items = sorted(items + list(kept.values()), key=to_label_key)
     if not items:
         st.info("Nothing to label: every graded card from the last 14 days has your label." if to_label else
                 "Nothing here yet. The grader routine runs hourly; ungraded items show in Latest.")
@@ -1185,9 +1197,10 @@ def tuning_left_out() -> None:
     items = [i for i in data.get("items") or [] if isinstance(i, dict)][:LEFT_SHOW]
     if not items:
         st.caption(f"Nothing left out for this reason in the last {LEFT_DAYS} days.")
-    for it in items:
+    for n, it in enumerate(items):
         item_id = it.get("id")
-        with st.container(border=True, key=f"zcard-left-{kind}-{widget_slug(item_id)}"):
+        # The position keeps the key unique when items have no id.
+        with st.container(border=True, key=f"zcard-left-{kind}-{n}-{widget_slug(item_id)}"):
             st.markdown(left_out_item_html(it), unsafe_allow_html=True)
             if isinstance(item_id, int):
                 st.button("Grade it", key=f"tune-grade-{kind}-{item_id}", on_click=_grade_left, args=(kind, item_id),
