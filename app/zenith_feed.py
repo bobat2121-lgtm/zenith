@@ -86,7 +86,11 @@ def feed_params(mode: str, min_score: int | None, unlabeled: bool) -> dict:
 
 def shown_name(page: FeedPage, it: dict) -> str:
     if page.kind == "aux":
-        return str(it.get("entity") or it.get("entity_key") or "")
+        name = str(it.get("entity") or it.get("entity_key") or "")
+        # Routed names carry peer-note tags ("NeutraDC (Telkom Indonesia subsidiary; ...)"):
+        # the card shows the name alone so the head line stays short.
+        short = name.split(" (", 1)[0].strip()
+        return short or name
     # A cross-ticker card is shown (and labelled) under its own ticker.
     return str(it.get("grade_ticker") or it.get("ticker") or "")
 
@@ -327,10 +331,12 @@ def render_card(page: FeedPage, it: dict) -> None:
         return
     key = card_key(page, it)
     _sync_label(key, it.get("label"))
-    left, right = st.columns([5, 2], vertical_alignment="center")
-    left.segmented_control("Label", choices, format_func=LABEL_TEXT.get, required=True, key=key,
-                           label_visibility="collapsed", on_change=_on_label, args=(page, it, key))
-    with right.popover("Why it matters"):
+    # One wrapping row (not fixed columns): each button keeps its word on one
+    # line, and on a narrow screen the row breaks onto a second line inside the card.
+    row = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zlabels-{key}")
+    row.segmented_control("Label", choices, format_func=LABEL_TEXT.get, required=True, key=key,
+                          label_visibility="collapsed", width="content", on_change=_on_label, args=(page, it, key))
+    with row.popover("Why it matters", width="content"):
         st.text_area("Your note", key=f"{key}:note", placeholder="One line on why this matters (or doesn't)")
         current = it.get("label")
         st.radio("Label", choices, format_func=LABEL_TEXT.get, horizontal=True, key=f"{key}:nl",

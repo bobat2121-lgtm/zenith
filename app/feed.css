@@ -50,8 +50,15 @@ div[class*="st-key-zcard-"], div[data-testid="stVerticalBlockBorderWrapper"] {
   border-left: none !important; border-right: none !important; border-top: none !important;
   padding-left: .1rem !important; padding-right: .1rem !important; }
 
-/* Compact label row: segmented control + "Why it matters" popover. */
-div[class*="st-key-zcard-"] [data-testid="stButtonGroup"] button { min-height: 1.75rem; padding: 0 .6rem; font-size: .78rem; }
+/* Compact label row: segmented control + "Why it matters" popover. The row wraps
+   as a whole; a button's own text never wraps or spills past the card. */
+div[class*="st-key-zlabels-"] { flex-wrap: wrap !important; row-gap: .35rem; max-width: 100%; }
+div[class*="st-key-zlabels-"] > div { max-width: 100%; min-width: 0; }
+div[class*="st-key-zcard-"] [data-testid="stButtonGroup"] { flex-wrap: wrap; max-width: 100%; row-gap: .35rem; }
+div[class*="st-key-zcard-"] [data-testid="stButtonGroup"] button { min-height: 1.75rem; padding: 0 .55rem; font-size: .78rem;
+  white-space: nowrap; flex: 0 0 auto; width: auto; min-width: max-content; }
+div[class*="st-key-zcard-"] [data-testid="stButtonGroup"] button * ,
+div[class*="st-key-zcard-"] [data-testid="stPopover"] button * { white-space: nowrap; }
 div[class*="st-key-zcard-"] [data-testid="stPopover"] button { min-height: 1.75rem; padding: 0 .6rem; font-size: .78rem;
   border-radius: 999px; }
 div[class*="st-key-zcard-"] [data-testid="stExpander"] details summary { padding-top: .2rem; padding-bottom: .2rem; font-size: .8rem; }
