@@ -17,8 +17,9 @@ import { MATCH } from "./rubric.generated.js";
 import { nowIso, skipReason, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups } from "./lib.js";
 import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
 
-const BATCH = 400;
-const MAX_BATCHES = 6;
+// Windowing, shared with the auxiliary ingest (auxiliary.js).
+export const BATCH = 400;
+export const MAX_BATCHES = 6;
 const BACKFILL_DAYS = 30;
 const COUNTERPARTY = COVERED.counterparty || {};
 // Filtered in code, not with SQL IN (...): D1 allows at most 100 bound
@@ -47,7 +48,7 @@ export async function newsHasBody(news, nowMs = Date.now()) {
 }
 
 const ROW_COLS = "rowid AS nm_rowid, source_key, url, title, published, category, first_seen, notified";
-async function newsRows(news, from, to) {
+export async function newsRows(news, from, to) {
   const select = (cols) => news.prepare(`SELECT ${cols} FROM items WHERE rowid > ? AND rowid <= ? ORDER BY rowid`).bind(from, to).all();
   if (await newsHasBody(news)) {
     try { return (await select(`${ROW_COLS}, body`)).results || []; }
@@ -74,30 +75,33 @@ export function feedFields(r, route, now) {
   return { ...none, fallback: feed.excerpt, source: pdf && (!feed.excerpt || isDocumentTitle(r.title)) ? pdf : null };
 }
 
-async function getMeta(db, key) {
+export async function getMeta(db, key) {
   const row = await db.prepare("SELECT value FROM meta WHERE key = ?").bind(key).first();
   return row ? row.value : null;
 }
-const setMeta = (db, key, value) =>
+export const setMeta = (db, key, value) =>
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, String(value));
 
-async function initialCursor(news) {
-  const since = nowIso(Date.now() - BACKFILL_DAYS * 86_400_000);
+// A first run starts just before the oldest row first seen in the last `days`
+// days, or at the newest row when there is none.
+export async function initialCursor(news, days = BACKFILL_DAYS) {
+  const since = nowIso(Date.now() - days * 86_400_000);
   const row = await news.prepare("SELECT MIN(rowid) AS r FROM items WHERE first_seen >= ?").bind(since).first();
   const max = await news.prepare("SELECT MAX(rowid) AS r FROM items").first();
   return row?.r != null ? row.r - 1 : (max?.r ?? 0);
 }
 
 // Undated or old rows already stored from earlier batches (rowid <= cursor),
-// per source and first_seen, for the groups in this batch.
-const OLD_OR_UNDATED_SQL = "(published IS NULL OR julianday(nm_first_seen) - julianday(published) > 14)";
-async function storedArchiveCounts(db, rows, cursor) {
+// per source and first_seen, for the groups in this batch. table: "items", or
+// "aux_items" for the auxiliary ingest (same columns).
+export const OLD_OR_UNDATED_SQL = "(published IS NULL OR julianday(nm_first_seen) - julianday(published) > 14)";
+export async function storedArchiveCounts(db, rows, cursor, table = "items") {
   const firstSeen = [...new Set(rows.filter(isArchiveCandidate).map((r) => r.first_seen))];
   const out = new Map();
   for (const part of chunk(firstSeen, 80)) {
     const ph = part.map(() => "?").join(",");
     const res = await db.prepare(
-      `SELECT source_key, nm_first_seen, COUNT(*) AS n FROM items
+      `SELECT source_key, nm_first_seen, COUNT(*) AS n FROM ${table}
         WHERE nm_first_seen IN (${ph}) AND nm_rowid <= ? AND ${OLD_OR_UNDATED_SQL} GROUP BY source_key, nm_first_seen`,
     ).bind(...part, cursor).all();
     for (const x of res.results || []) out.set(archiveGroupKey(x.source_key, x.nm_first_seen), x.n);
