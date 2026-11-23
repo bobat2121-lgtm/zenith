@@ -405,7 +405,11 @@ const parseList = (s) => { try { const v = JSON.parse(s || "[]"); return Array.i
 // shown name or the entity key: entityFilter), unlabeled=1, state, limit, before_id (pass
 // next_before_id back unchanged). Skipped items and the duplicate and covered
 // bands are hidden unless asked for (include_skipped, include_duplicates,
-// include_covered, or a state).
+// include_covered, or a state). A coverage-subject item (migration 0009) is
+// hidden until it is graded, with the covered band: it is often only about a
+// covered company. Newest first is news-monitor's arrival order (nm_rowid), so
+// rows the one-time coverage-subject catch-up stores late sit by their age;
+// before_id stays an item id.
 export async function auxFeed(env, url) {
   const q = url.searchParams;
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 50));
@@ -422,13 +426,14 @@ export async function auxFeed(env, url) {
   // pinned Leads (the rest of them come next, then the newest-first list); a
   // positive one continues the newest-first list after every pinned Lead.
   const before = Number(q.get("before_id"));
+  const BEFORE = "i.nm_rowid < (SELECT b.nm_rowid FROM aux_items b WHERE b.id = ?)";
   if (Number.isInteger(before) && before !== 0) {
-    if (pinHours > 0 && before < 0) { where.push(`(${PINNED} = 0 OR i.id < ?)`); binds.push(pinSince, -before); }
-    else if (pinHours > 0) { where.push("i.id < ?", `${PINNED} = 0`); binds.push(before, pinSince); }
-    else { where.push("i.id < ?"); binds.push(Math.abs(before)); }
+    if (pinHours > 0 && before < 0) { where.push(`(${PINNED} = 0 OR ${BEFORE})`); binds.push(pinSince, -before); }
+    else if (pinHours > 0) { where.push(BEFORE, `${PINNED} = 0`); binds.push(before, pinSince); }
+    else { where.push(BEFORE); binds.push(Math.abs(before)); }
   }
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
-  if (q.get("include_covered") !== "1") where.push("(g.band IS NULL OR g.band != 'covered')");
+  if (q.get("include_covered") !== "1") where.push("(g.band IS NULL OR g.band != 'covered')", "(i.coverage_subject = 0 OR i.grade_id IS NOT NULL)");
   const minScore = Number(q.get("min_score"));
   if (q.get("min_score") !== null && q.get("min_score") !== "" && Number.isFinite(minScore)) { where.push("g.score >= ?"); binds.push(minScore); }
   const state = q.get("state");
@@ -443,7 +448,7 @@ export async function auxFeed(env, url) {
       (SELECT note FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label_note
     FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
-    ORDER BY pinned DESC, i.id DESC LIMIT ?`;
+    ORDER BY pinned DESC, i.nm_rowid DESC LIMIT ?`;
   const rows = (await env.DB.prepare(sql).bind(...pinBinds, ...binds, limit).all()).results || [];
   for (const r of rows) {
     r.reads_through = parseList(r.reads_through);

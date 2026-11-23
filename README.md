@@ -42,7 +42,7 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `GET /v1/rubric/aux` (auxiliary rubric, own `rubric_version`; 503 until built) | grader |
 | `POST /v1/aux/claim` `{limit 1-40, run_id}`, `POST /v1/aux/grades` `{claim_id, run_id, rubric_version, model, grades[]}` | grader |
 | `GET /v1/aux/recent?entity&days`, `GET /v1/aux/labels?limit&days` (labels the current grade falls outside of) | grader |
-| `GET /v1/aux/feed?limit&before_id&entity&min_score&state&unlabeled&order=newest&pin_lead_hours` (same paging as `/v1/feed`; hides skipped, duplicate and covered) | app |
+| `GET /v1/aux/feed?limit&before_id&entity&min_score&state&unlabeled&order=newest&pin_lead_hours` (same paging as `/v1/feed`, newest by news-monitor arrival; hides skipped, duplicate and covered, and coverage-subject items until graded) | app |
 | `POST /v1/aux/feedback` `{item_id, label, note}` | app |
 | `POST /v1/admin/aux-ingest` (the cron runs it after the coverage ingest and enrich) | admin |
 | `GET /v1/site-changes?days=14&limit=50[&tickers=KDK,RCAT]` (news-monitor `site_structure_changes`: `{items: [{id, ticker, source_key, kind, section, detail, detected_at, notable}]}`, newest first; `tickers` filters before the limit, and notable rows are kept first when over it; a section told with its new child sitemap is listed once; `notable` = a new IR, events, presentations, investor-day, press or news section, matched on whole path words) | app |
