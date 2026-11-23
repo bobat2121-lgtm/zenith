@@ -1,6 +1,6 @@
 # Auxiliary rubric: outside-company news grader
 
-Version 1.1, 2026-11-23. Read once per run, in the auxiliary pass (grader/GRADER.md). It applies only to items claimed with `aux-claim`; core.md and the company sheets do not apply to them except where this file cites them. The analyst reads these grades on the Auxiliary Names page: a short, quick view of the outside news that matters.
+Version 1.2, 2026-11-23 (adds the headline and tag, section 8). Read once per run, in the auxiliary pass (grader/GRADER.md). It applies only to items claimed with `aux-claim`; core.md and the company sheets do not apply to them except where this file cites them. The analyst reads these grades on the Auxiliary Names page: a short, quick view of the outside news that matters.
 
 **The test:** would someone who follows this outside company (or program) want to know about this event today? Score how much the event matters **to that company or program itself**, not to a covered ticker. Read-through to covered tickers is a side note (section 6) and never moves the score. **Bad news ranks like good news of the same size**: a lost contract, failed test, recall, layoff, down round or shutdown ranks like the matching win.
 
@@ -84,13 +84,16 @@ One JSON object per claimed item, in a JSON array, nothing else:
 [{"item_id":4812,"entity":"AeroVironment","score":91,"band":"lead","event_type":"contract",
   "why":"Army awarded AeroVironment a single-award Switchblade IDIQ, $990M ceiling, five years.",
   "reads_through":[{"ticker":"PDYN","direction":"-"}],"flags":["reason:material","ceiling_only"],
-  "confidence":0.85,"read_source":true,"dup_of":null,"covered_ticker":null},
+  "confidence":0.85,"read_source":true,"dup_of":null,"covered_ticker":null,
+  "headline":"Army awards AeroVironment a Switchblade IDIQ with a $990M ceiling over five years.","tag":"Contract notice"},
  {"item_id":4813,"entity":"AeroVironment","score":null,"band":"duplicate","event_type":"duplicate",
   "why":"Trade-press copy of the Army Switchblade IDIQ release; no new facts.",
-  "reads_through":[],"flags":["reason:duplicate"],"confidence":0.9,"read_source":true,"dup_of":4812,"covered_ticker":null},
+  "reads_through":[],"flags":["reason:duplicate"],"confidence":0.9,"read_source":true,"dup_of":4812,"covered_ticker":null,
+  "headline":"Army awards AeroVironment a Switchblade IDIQ with a $990M ceiling.","tag":"News"},
  {"item_id":4814,"entity":"Red Cat","score":null,"band":"covered","event_type":"covered",
   "why":"Contract notice for Teal Drones Black Widow systems.",
-  "reads_through":[],"flags":["reason:covered_name"],"confidence":0.9,"read_source":true,"dup_of":null,"covered_ticker":"RCAT"}]
+  "reads_through":[],"flags":["reason:covered_name"],"confidence":0.9,"read_source":true,"dup_of":null,"covered_ticker":"RCAT",
+  "headline":"Contract notice for Teal Drones Black Widow systems.","tag":"Contract notice"}]
 ```
 
 - **item_id:** the id the claim printed. Every claimed item gets exactly one object.
@@ -105,6 +108,18 @@ One JSON object per claimed item, in a JSON array, nothing else:
 - **read_source:** true only when the facts you graded on are in the excerpt shown or a page you opened.
 - **dup_of:** the canonical auxiliary item id for a duplicate, else null.
 - **covered_ticker:** the covered ticker for `reason:covered_name`, else null.
+- **headline, tag:** below. Both or neither; a bad headline or tag rejects that grade only.
+
+### Headline and tag
+
+Every grade carries a `headline` and a `tag`. The app shows them as the card's title, `<headline> - <tag>`, and keeps the original title in the card's excerpt.
+
+- **headline:** a simple description of what the item highlights: the most important information first, with the figures that matter. One or two short sentences, at most ~110 characters (the API takes 8-140 characters on one line, with no URL). No hype ("soars", "major", "exciting"), no ticker or exchange prefix ("NASDAQ: RCAT"), and no date unless the date is the news (an earnings date, a deadline). Name what a figure measures ("Portfolio NAV", "Q3 revenue", "backlog"), so the headline reads on its own. Every figure must be in the title or the source text; never invent one. Do not repeat the original title: say what it reports.
+- **The owner's model headline:** "RoboStrategy, Inc. Updates Net Asset Value as of October 31, 2026" becomes `"headline": "RoboStrategy Portfolio NAV hits $289 million. Up 4.1% in October."`, `"tag": "Press release"`.
+- **Filings:** an 8-K/A titled "Agility Robotics, Inc.: 8-K/A filed 2026-11-13" gets a headline saying what the filing reports or amends, taken from the excerpt ("Agility Robotics amends its 8-K: <what the amendment changes>"), and `"tag": "8-K/A"`. A bare "8-K filed" title is never the headline.
+- **tag:** for an SEC filing, the SEC form exactly as filed: `8-K`, `8-K/A`, `10-Q`, `10-Q/A`, `10-K`, `10-K/A`, `6-K`, `6-K/A`, `20-F`, `40-F`, `S-1`, `S-1/A`, `S-3`, `S-3/A`, `S-4`, `S-8`, `F-1`, `F-3`, `424B1`-`424B8`, `SC 13D`, `SC 13D/A`, `SC 13G`, `SC 13G/A`, `13F-HR`, `Form 3`, `Form 4`, `Form 5`, `DEF 14A`, `DEFA14A`, `PRE 14A`, `25-NSE`, `NT 10-Q`, `NT 10-K`, `1-U`, `1-K`, `C`, `D`. Otherwise exactly one of: `Press release` (the company's own release), `Presentation` (a deck or investor presentation), `Shareholder letter`, `Event` (an event, webcast or conference notice), `Contract notice` (an award notice: war.gov contracts, FPDS, SAM), `Program notice` (a program office or agency post: DIU, NGA, Drone Dominance), `News` (a media article), `Blog`, `Video`, `Filing` (a filing that is not an SEC form on the list: an exchange, court or foreign regulator filing), `Report` (a research, analyst or government report), `Interview`.
+- Name the entity the item is about, as `entity` does, and state its event: "Anduril raises $2.5 billion Series G at a $30.5 billion valuation." A duplicate or `covered_name` grade still carries a headline and tag.
+
 
 | `reason:` | Use for | Score |
 |---|---|---|

@@ -165,6 +165,9 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
   const why = clip(raw.why, 400);
   if (!why) return { ok: false, error: "why is required" };
   const reason = reasons[0].slice(7);
+  // Optional headline and tag; a bad one rejects this grade only.
+  const head = normalizeHeadline(raw);
+  if (!head.ok) return head;
 
   // Timeliness runs from news-monitor's first sighting, never the grading time
   // (core.md 4.5): a late_first_sighting flag needs the event to have been
@@ -239,8 +242,60 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
       reason: reasons[0].slice(7),
       read_source: raw.read_source ? 1 : 0,
       flags: JSON.stringify([...new Set(flags)]),
+      headline: head.headline,
+      headline_tag: head.tag,
     },
   };
+}
+
+// --- Headlines (core.md section 10, aux.md section 8) ---------------------------
+// A plain-language headline and a tag saying what the item is, written by the
+// grader with each grade (optional: old grader runs send neither) or in the
+// headline-only pass. Stored on the item; the app shows "<headline> - <tag>".
+export const HEADLINE_MIN = 8;
+export const HEADLINE_MAX = 140;
+// The tag: the SEC form exactly as filed, else one of HEADLINE_TAGS.
+export const SEC_FORM_RE = /^(8-K|8-K\/A|10-Q|10-Q\/A|10-K|10-K\/A|6-K|6-K\/A|20-F|40-F|S-1|S-1\/A|S-3|S-3\/A|S-4|S-8|F-1|F-3|424B[1-8]|SC 13D|SC 13D\/A|SC 13G|SC 13G\/A|13F-HR|Form 3|Form 4|Form 5|DEF 14A|DEFA14A|PRE 14A|25-NSE|NT 10-Q|NT 10-K|1-U|1-K|C|D)$/;
+export const HEADLINE_TAGS = ["Press release", "Presentation", "Shareholder letter", "Event", "Contract notice", "Program notice", "News", "Blog",
+  "Video", "Filing", "Report", "Interview"];
+const LINE_BREAK_RE = /[\r\n\u0085\u2028\u2029]/;
+// A URL: any scheme (https://, ftp://, s3+ssh://), a www. host, or a domain
+// followed by a path (sec.gov/Archives/..., ir.redcat.red/news/1). The last
+// domain label must start with two letters, so "$0.12/share" or "U.S./Canada" pass.
+const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9-]+\.[a-z]|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2}[a-z0-9-]*\/\S/i;
+// C0 and C1 controls and the bidi embeddings, overrides and isolates. Python's
+// str.splitlines breaks on U+001C-U+001E, so they would split the app's one line.
+const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
+const present = (v) => v !== null && v !== undefined && v !== "";
+
+// Validates a grade's (or a headline-pass entry's) headline and tag. Both are
+// optional, but one needs the other. Returns { ok: true, headline, tag } (both
+// null when absent) or { ok: false, error }. A headline that repeats the
+// original title is allowed (the rubric discourages it).
+export function normalizeHeadline(raw, { required = false } = {}) {
+  const bad = (error) => ({ ok: false, error });
+  const hasHeadline = present(raw?.headline), hasTag = present(raw?.tag);
+  if (!hasHeadline && !hasTag) {
+    return required ? bad("headline and tag are required") : { ok: true, headline: null, tag: null };
+  }
+  if (!hasHeadline) return bad("tag needs a headline: send both, or neither");
+  if (!hasTag) return bad("headline needs a tag: the SEC form exactly as filed (8-K, 8-K/A, 10-Q, 424B5, SC 13G, Form 4 ...) or one of " + HEADLINE_TAGS.join(", "));
+  if (typeof raw.headline !== "string") return bad("headline must be a string");
+  if (LINE_BREAK_RE.test(raw.headline.trim())) return bad("headline must be one line: no line breaks");
+  const headline = raw.headline.replace(/\s+/g, " ").trim();
+  if (headline.length < HEADLINE_MIN || headline.length > HEADLINE_MAX) {
+    return bad(`headline must be ${HEADLINE_MIN}-${HEADLINE_MAX} characters (got ${headline.length}); aim for at most ~110`);
+  }
+  if (CONTROL_RE.test(headline)) return bad("headline must not contain control characters or bidi overrides");
+  if (URL_RE.test(headline)) return bad("headline must not contain a URL");
+  if (typeof raw.tag !== "string") return bad("tag must be a string");
+  const given = raw.tag.replace(/\s+/g, " ").trim();
+  const vocab = HEADLINE_TAGS.find((t) => t.toLowerCase() === given.toLowerCase());
+  const tag = SEC_FORM_RE.test(given) ? given : vocab;
+  if (!tag) {
+    return bad(`unknown tag "${given.slice(0, 40)}": use the SEC form exactly as filed (8-K, 8-K/A, 10-Q, 6-K, S-1, 424B5, SC 13D, Form 4 ...) or one of ${HEADLINE_TAGS.join(", ")}`);
+  }
+  return { ok: true, headline, tag };
 }
 
 // Splits a list into chunks (D1 allows at most 100 bound parameters).

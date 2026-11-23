@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -173,6 +174,34 @@ def one_line(text) -> str:
     return " ".join(str(text or "").split())
 
 
+# SEC forms as zenith-core's tag vocabulary names them. A title "names" a form when it
+# has news-monitor's EDGAR shape "<company>: <form>[ [Items ...]] filed <date>"
+# ("Agility Robotics, Inc.: 8-K/A filed 2026-11-13", "Aurora: 8-K [Items 7.01, 9.01] filed ...").
+# Anchoring on ": " keeps prose such as "Series D filed with ..." from reading as Form D.
+SEC_FORMS = (r"8-K/A|8-K|10-Q/A|10-Q|10-K/A|10-K|6-K/A|6-K|20-F|40-F|S-1/A|S-1|S-3/A|S-3|S-4|S-8|F-1|F-3|424B[1-8]"
+             r"|SC 13D/A|SC 13D|SC 13G/A|SC 13G|13F-HR|Form 3|Form 4|Form 5|DEF 14A|DEFA14A|PRE 14A|25-NSE"
+             r"|NT 10-Q|NT 10-K|1-U|1-K|C|D")
+TITLE_FORM = re.compile(rf":\s+({SEC_FORMS})(?:\s+\[Items[^\]]*\])?\s+filed\b")
+
+
+def title_form(title) -> str | None:
+    """The SEC form an EDGAR title says was filed ("Acme: 8-K/A [Items 5.02] filed ..." -> "8-K/A"), else None."""
+    m = TITLE_FORM.search(one_line(title))
+    return m.group(1) if m else None
+
+
+def link_text(it: dict) -> str:
+    """Plain (unescaped) text of the card's title link: "<headline> - <tag>" once the
+    grader wrote a headline; until then the original title, with " - <form>" when the
+    title says which SEC form was filed."""
+    headline, tag = one_line(it.get("headline")), one_line(it.get("headline_tag"))
+    if headline:
+        return f"{headline} - {tag}" if tag else headline
+    title = one_line(it.get("title"))
+    form = title_form(title)
+    return f"{title} - {form}" if form and not title.endswith(f" - {form}") else title
+
+
 def band_badge(it: dict) -> str:
     band, score = it.get("band"), it.get("score")
     if not band:
@@ -203,7 +232,8 @@ def read_through_chips(value) -> str:
 
 
 def card_html(page: FeedPage, it: dict) -> str:
-    """Line 1: name, source/status tag, score · band, age. Line 2: the title.
+    """Line 1: name, source/status tag, score · band, age. Line 2: the link text
+    (headline - tag, else the original title; see link_text).
     Line 3: the grader's one-line why (clamped by CSS); auxiliary read-through chips."""
     name = html.escape(shown_name(page, it))
     if page.kind == "aux":
@@ -218,7 +248,7 @@ def card_html(page: FeedPage, it: dict) -> str:
     event = f'<span class="z-age">· event {html.escape(short_date(it["event_date"]))}</span>' if it.get("event_date") else ""
     head = (f'<b class="z-name">{name}</b><span class="z-badge src">{html.escape(tag)}</span>'
             f'{band_badge(it)}{age}{event}{extra}')
-    title_text = html.escape(one_line(it.get("title")))
+    title_text = html.escape(link_text(it))
     title = (f'<a href="{html.escape(str(it["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">{title_text}</a>'
              if safe_url(it.get("url")) else title_text)
     why = f'<div class="z-why">{html.escape(one_line(it["why"]))}</div>' if it.get("why") else ""
@@ -427,15 +457,33 @@ def card_key(page: FeedPage, it: dict) -> str:
     return f"cov-lbl-{it['item_id']}-{shown_name(page, it)}"
 
 
+def excerpt_lines(it: dict) -> tuple[str | None, list[str]]:
+    """(expander label, plain-text lines) for the card's Excerpt expander, or (None, []).
+    The original title comes first ("Original: ..."), so it stays readable once the
+    link shows the grader's headline; a card with only a note hook keeps "Note hook"."""
+    title = one_line(it.get("title"))
+    if it.get("snippet") or (one_line(it.get("headline")) and title):
+        lines = [f"Original: {title}"] if title else []
+        label = "Excerpt"
+    elif it.get("note_hook"):
+        lines, label = [], "Note hook"
+    else:
+        return None, []
+    if it.get("note_hook"):
+        lines.append(f"Note hook: {it['note_hook']}")
+    if it.get("snippet"):
+        lines.append(str(it["snippet"]))
+    return label, lines
+
+
 def render_card(page: FeedPage, it: dict) -> None:
     st.markdown(card_html(page, it), unsafe_allow_html=True)
-    if it.get("snippet") or it.get("note_hook"):
-        with st.expander("Excerpt" if it.get("snippet") else "Note hook", expanded=False):
-            # Third-party and grader text: never rendered as Markdown.
-            if it.get("note_hook"):
-                st.text(f"Note hook: {it['note_hook']}")
-            if it.get("snippet"):
-                st.text(it["snippet"])
+    label, lines = excerpt_lines(it)
+    if label:
+        with st.expander(label, expanded=False):
+            # Third-party and grader text: st.text, never Markdown or HTML.
+            for line in lines:
+                st.text(line)
     choices = label_choices(it)
     if not choices:
         return

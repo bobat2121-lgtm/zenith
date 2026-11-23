@@ -24,7 +24,8 @@ a { color: var(--z-red-text) !important; }
 .z-head { color: var(--z-dim); font-size: .8rem; display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
 .z-name { color: var(--z-text); font-weight: 800; font-size: .88rem; letter-spacing: .01em; }
 .z-age { color: var(--z-dim); font-size: .78rem; }
-.z-title { font-size: 1rem; line-height: 1.36; margin: .18rem 0 .2rem 0; font-weight: 600; }
+.z-title { font-size: 1rem; line-height: 1.36; margin: .18rem 0 .2rem 0; font-weight: 600;
+  overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
 .z-title a { color: var(--z-text) !important; text-decoration: none; }
 .z-title a:hover { text-decoration: underline; }
 .z-why { color: var(--z-soft); font-size: .88rem; line-height: 1.35;

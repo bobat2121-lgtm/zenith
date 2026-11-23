@@ -1,6 +1,6 @@
 # Core rubric: covered-company news grader
 
-Version 3.1, 2026-11-18. Read on every run. Replaces Zenith `firm-core.md` v2 and the legacy `ranking_policy.md`/`ranking_brief.md`. Company sheets (`companies/<TICKER>.md`, section 12) add detail. The more specific rule wins, within the hard rules in section 12. Where old grader behaviour and the owner's grades conflict, follow the owner.
+Version 3.2, 2026-11-23 (adds the headline and tag, section 10). Read on every run. Replaces Zenith `firm-core.md` v2 and the legacy `ranking_policy.md`/`ranking_brief.md`. Company sheets (`companies/<TICKER>.md`, section 12) add detail. The more specific rule wins, within the hard rules in section 12. Where old grader behaviour and the owner's grades conflict, follow the owner.
 
 **The test:** within 24 hours, would the covering analyst change a model line (revenue, backlog, share count, runway, guidance) or a thesis bullet, or write a sentence in a note? Score how strongly the answer is yes for this event in this window, not for the company. **Bad news ranks like good news of the same size**: a lost contract, guidance cut, slip, recall, failed test or miss on a core program ranks like the matching win.
 
@@ -334,7 +334,8 @@ One JSON object per item, nothing else:
  "magnitude_pct_of_base":null,"thesis_drivers_hit":["srr"],
  "why":"Army selected Teal Drones for SRR manufacturing-readiness assessment; selection, not award; no value stated.",
  "note_hook":"SRR: Teal advances to manufacturing-readiness assessment.",
- "confidence":0.85,"read_source":true,"flags":["reason:material","floor:selection"]}
+ "confidence":0.85,"read_source":true,"flags":["reason:material","floor:selection"],
+ "headline":"Army selects Teal Drones for SRR manufacturing-readiness assessment. No value stated.","tag":"Press release"}
 ```
 
 - **item_id:** the input id. The item's own grade always uses the bare id. A covered-to-covered event also gets one object for each *other* covered ticker, with id `<item_id>#<TICKER>` and the flag `also:<TICKER>`.
@@ -350,6 +351,17 @@ One JSON object per item, nothing else:
 - **read_source:** true only if you read the source text: the URL or document you opened, or the Worker-captured excerpt of it (`EXCERPT (ok)`) when the facts you graded on are in that excerpt. Required for EDGAR items above 39, cryptic titles, and items scoring 70+ whose captured text lacks figures. The API caps confidence at 0.5 when it is false.
 - **thesis_drivers_hit / resolves:** only ids present in the sheet's front matter. If the block is missing, emit `[]` and no `resolves:`, and flag `sheet_incomplete`.
 - **flags:** exactly one `reason:` from `material`, `primary_source`, `new_information`, `calendar_card`, `below_materiality`, `stale`, `late_repost`, `already_covered`, `duplicate`, `insufficient_evidence`, `source_quality`, `off_entity`, `out_of_scope`, `promotional`. Plus any of: `group:<key>`, `dup_of:<id>`, `also:<TICKER>`, `floor:<id>`, `resolves:<id>`, `ceiling_only`, `estimate`, `company_reported`, `no_figures`, `pct_is_dilution`, `pct_is_holdings`, `pct_is_units`, `alt_base`, `archive_burst`, `source_repair`, `late_first_sighting`, `event_predates_publication`, `sheet_stale`, `sheet_incomplete`, `no_sheet`, `needs_owner`.
+- **headline, tag:** below. Both or neither; a bad headline or tag rejects that grade only.
+
+### Headline and tag
+
+Every grade carries a `headline` and a `tag`. The app shows them as the card's title, `<headline> - <tag>`, and keeps the original title in the card's excerpt.
+
+- **headline:** a simple description of what the item highlights: the most important information first, with the figures that matter. One or two short sentences, at most ~110 characters (the API takes 8-140 characters on one line, with no URL). No hype ("soars", "major", "exciting"), no ticker or exchange prefix ("NASDAQ: RCAT"), and no date unless the date is the news (an earnings date, a deadline). Name what a figure measures ("Portfolio NAV", "Q3 revenue", "backlog"), so the headline reads on its own. Every figure must be in the title or the source text; never invent one. Do not repeat the original title: say what it reports.
+- **The owner's model headline:** "RoboStrategy, Inc. Updates Net Asset Value as of October 31, 2026" becomes `"headline": "RoboStrategy Portfolio NAV hits $289 million. Up 4.1% in October."`, `"tag": "Press release"`.
+- **Filings:** an 8-K/A titled "Agility Robotics, Inc.: 8-K/A filed 2026-11-13" gets a headline saying what the filing reports or amends, taken from the excerpt ("Agility Robotics amends its 8-K: <what the amendment changes>"), and `"tag": "8-K/A"`. A bare "8-K filed" title is never the headline.
+- **tag:** for an SEC filing, the SEC form exactly as filed: `8-K`, `8-K/A`, `10-Q`, `10-Q/A`, `10-K`, `10-K/A`, `6-K`, `6-K/A`, `20-F`, `40-F`, `S-1`, `S-1/A`, `S-3`, `S-3/A`, `S-4`, `S-8`, `F-1`, `F-3`, `424B1`-`424B8`, `SC 13D`, `SC 13D/A`, `SC 13G`, `SC 13G/A`, `13F-HR`, `Form 3`, `Form 4`, `Form 5`, `DEF 14A`, `DEFA14A`, `PRE 14A`, `25-NSE`, `NT 10-Q`, `NT 10-K`, `1-U`, `1-K`, `C`, `D`. Otherwise exactly one of: `Press release` (the company's own release), `Presentation` (a deck or investor presentation), `Shareholder letter`, `Event` (an event, webcast or conference notice), `Contract notice` (an award notice: war.gov contracts, FPDS, SAM), `Program notice` (a program office or agency post: DIU, NGA, Drone Dominance), `News` (a media article), `Blog`, `Video`, `Filing` (a filing that is not an SEC form on the list: an exchange, court or foreign regulator filing), `Report` (a research, analyst or government report), `Interview`.
+- A duplicate or `already_covered` grade still carries a headline and tag. A `<item_id>#<TICKER>` grade may carry the same pair; the item's own grade sets the card's headline, and a `#TICKER` grade's pair is kept only when the item has none.
 
 ## 11. Calibration anchors
 
