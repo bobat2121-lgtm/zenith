@@ -1,0 +1,1154 @@
+{
+  "generated_from": "news-monitor SOURCES after src/priority.js (every polled source outside covered.json sources), with entity names and statuses from rubric/peers.json",
+  "sources": {
+    "aevex": {
+      "entity": "aevex",
+      "name": "AEVEX (NYSE: AVEX)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "agco_humanoid": {
+      "entity": "agco_humanoid",
+      "name": "AGCO (AGCO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "airo": {
+      "entity": "airo",
+      "name": "AIRO Group (AIRO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "anduril": {
+      "entity": "anduril",
+      "name": "Anduril (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "apld": {
+      "entity": "apld",
+      "name": "Applied Digital (APLD)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "appliedintuition": {
+      "entity": "appliedintuition",
+      "name": "Applied Intuition (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "apptronik": {
+      "entity": "apptronik",
+      "name": "Apptronik (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "archer": {
+      "entity": "archer",
+      "name": "Archer Aviation (ACHR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "arkelectronics": {
+      "entity": "arkelectronics",
+      "name": "ARK Electronics (arkelectron.com; drone flight controllers, ESCs, GNSS)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "arriveai": {
+      "entity": "arriveai",
+      "name": "Arrive AI (ARAI)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "atlas": {
+      "entity": "atlas",
+      "name": "Atlas Energy Solutions (AESI)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "aumovio": {
+      "entity": "aumovio",
+      "name": "AUMOVIO (FRA: AMV0)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "auterion": {
+      "entity": "auterion",
+      "name": "Auterion (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "autostore": {
+      "entity": "autostore",
+      "name": "AutoStore (OSE: AUTO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "avav": {
+      "entity": "avav",
+      "name": "AeroVironment (AVAV)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "avride": {
+      "entity": "avride",
+      "name": "Avride (Nebius subsidiary)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "beta": {
+      "entity": "beta",
+      "name": "BETA Technologies (NYSE: BETA)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "bitmine": {
+      "entity": "bitmine",
+      "name": "Bitmine Immersion Technologies (NYSE American: BMNR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "blacksky": {
+      "entity": "blacksky",
+      "name": "BlackSky (NYSE: BKSY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "bostondynamics": {
+      "entity": "bostondynamics",
+      "name": "Boston Dynamics (Hyundai Motor Group subsidiary)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "botauto": {
+      "entity": "botauto",
+      "name": "Bot Auto",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "brinc": {
+      "entity": "brinc",
+      "name": "Brinc Drones (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "coco": {
+      "entity": "coco",
+      "name": "Coco Robotics (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "coreweave": {
+      "entity": "coreweave",
+      "name": "CoreWeave (Nasdaq: CRWV)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "daimler_newsroom": {
+      "entity": "daimler",
+      "name": "Daimler Truck (ETR: DTG)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "dematic": {
+      "entity": "dematic",
+      "name": "Dematic (KION Group subsidiary, ETR: KGX)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "detmar_av": {
+      "entity": "detmar_av",
+      "name": "Detmar Logistics",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "dexterity_sc": {
+      "entity": "dexterity_sc",
+      "name": "Dexterity-SC Japan (Dexterity/Sumitomo JV, private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "diu": {
+      "entity": "diu",
+      "name": "DIU",
+      "status": "program",
+      "lane": "strategic_noncompany"
+    },
+    "doordash": {
+      "entity": "doordash",
+      "name": "DoorDash (Nasdaq: DASH)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "droneshield": {
+      "entity": "droneshield",
+      "name": "DroneShield (ASX: DRO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "duos": {
+      "entity": "duos",
+      "name": "Duos Technologies (Nasdaq: DUOT)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "dxyz": {
+      "entity": "dxyz",
+      "name": "Destiny Tech100 Inc.",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "eaglenxt": {
+      "entity": "eaglenxt",
+      "name": "EagleNXT (NYSE American: UAVS)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "ehang": {
+      "entity": "ehang",
+      "name": "EHang (EH)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "einride": {
+      "entity": "einride",
+      "name": "Einride (ENRD)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "einride_sec": {
+      "entity": "einride",
+      "name": "Einride (ENRD)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "electra": {
+      "entity": "electra",
+      "name": "ELECTRA AI (pending Nasdaq: AIBR)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "epirus": {
+      "entity": "epirus",
+      "name": "Epirus (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "equinix": {
+      "entity": "equinix",
+      "name": "Equinix (EQIX)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "eve": {
+      "entity": "eve",
+      "name": "Eve Air Mobility (EVEX)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "exol_press": {
+      "entity": "exol_press",
+      "name": "Exol (GreenBox Systems, Symbotic-SoftBank JV)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "exotec": {
+      "entity": "exotec",
+      "name": "Exotec (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "exyn": {
+      "entity": "exyn",
+      "name": "Exyn Technologies (EXYN)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "faraday": {
+      "entity": "faraday",
+      "name": "Faraday Future (FFAI)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "figure": {
+      "entity": "figure",
+      "name": "Figure AI (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "firmus": {
+      "entity": "firmus",
+      "name": "Firmus Technologies (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "flock": {
+      "entity": "flock",
+      "name": "Flock Safety (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "fort": {
+      "entity": "fort",
+      "name": "FORT Robotics (private; pending Nasdaq: FROB)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "forterra": {
+      "entity": "forterra",
+      "name": "Forterra (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "gatik": {
+      "entity": "gatik",
+      "name": "Gatik (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "gecko": {
+      "entity": "gecko",
+      "name": "Gecko Robotics (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "geekplus": {
+      "entity": "geekplus",
+      "name": "Geek+ (2590.HK)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "greyorange": {
+      "entity": "greyorange",
+      "name": "GreyOrange Inc.",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "gxo_humanoid": {
+      "entity": "gxo_humanoid",
+      "name": "GXO Logistics (GXO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "havoc": {
+      "entity": "havoc",
+      "name": "Havoc, formerly HavocAI (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "heo": {
+      "entity": "heo",
+      "name": "HEO (HEO Robotics)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "iceye": {
+      "entity": "iceye",
+      "name": "ICEYE (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "index_nasdaq100": {
+      "entity": "index_nasdaq100",
+      "name": "Nasdaq, Inc. (Nasdaq-100 index announcements)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "index_spdji": {
+      "entity": "index_spdji",
+      "name": "S&P Dow Jones Indices LLC",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "international": {
+      "entity": "international",
+      "name": "International Motors, formerly Navistar (Traton subsidiary)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "intrinsic": {
+      "entity": "intrinsic",
+      "name": "Intrinsic (Google unit; Alphabet GOOGL)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "iren": {
+      "entity": "iren",
+      "name": "IREN (IREN)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "joby": {
+      "entity": "joby",
+      "name": "Joby (JOBY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "knapp": {
+      "entity": "knapp",
+      "name": "KNAPP (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "knightscope": {
+      "entity": "knightscope",
+      "name": "Knightscope (KSCP)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "kopin": {
+      "entity": "kopin",
+      "name": "Kopin (KOPN)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "kratos": {
+      "entity": "kratos",
+      "name": "Kratos (KTOS)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "lambda": {
+      "entity": "lambda",
+      "name": "Lambda (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "lantronix": {
+      "entity": "lantronix",
+      "name": "Lantronix (LTRX)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "larsentoubro": {
+      "entity": "larsentoubro",
+      "name": "Larsen & Toubro (NSE: LT)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "leidos_strike": {
+      "entity": "leidos_strike",
+      "name": "Leidos Holdings, Inc. (Black Arrow / AGM-190A small cruise missile)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "libertydefense": {
+      "entity": "libertydefense",
+      "name": "Liberty Defense Holdings, Ltd. (HEXWAVE)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "locus": {
+      "entity": "locus",
+      "name": "Locus Robotics (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "lucid": {
+      "entity": "lucid",
+      "name": "Lucid Group (LCID)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "mach": {
+      "entity": "mach",
+      "name": "Mach Industries (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "matternet": {
+      "entity": "matternet",
+      "name": "Matternet (MTTN, OTCQB)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "maymobility_ir": {
+      "entity": "maymobility",
+      "name": "May Mobility (private; pending Nasdaq: MAY)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "maymobility_news": {
+      "entity": "maymobility",
+      "name": "May Mobility (private; pending Nasdaq: MAY)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "maymobility_sec": {
+      "entity": "maymobility",
+      "name": "May Mobility (private; pending Nasdaq: MAY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "medline": {
+      "entity": "medline",
+      "name": "Medline (MDLN)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "meli_robotics": {
+      "entity": "meli_robotics",
+      "name": "MercadoLibre (MELI)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "metaplanet": {
+      "entity": "metaplanet",
+      "name": "Metaplanet (TSE: 3350; OTC: MTPLF)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "mobileye": {
+      "entity": "mobileye",
+      "name": "Mobileye (MBLY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "mobilicom": {
+      "entity": "mobilicom",
+      "name": "Mobilicom (MOB)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "motive": {
+      "entity": "motive",
+      "name": "Motive Technologies (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "motorola": {
+      "entity": "motorola",
+      "name": "Motorola Solutions (MSI)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "mujin": {
+      "entity": "mujin",
+      "name": "Mujin (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "mythos": {
+      "entity": "mythos",
+      "name": "Mythos AI (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "nauticus": {
+      "entity": "nauticus",
+      "name": "Nauticus Robotics (KITT)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "nebius": {
+      "entity": "nebius",
+      "name": "Nebius Group (NBIS)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "neros": {
+      "entity": "neros",
+      "name": "Neros Technologies (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "neura": {
+      "entity": "neura",
+      "name": "NEURA Robotics GmbH",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "neutradc": {
+      "entity": "neutradc",
+      "name": "NeutraDC (Telkom Indonesia subsidiary; parent TLKM IDX / TLK NYSE)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "nga": {
+      "entity": "nga",
+      "name": "NGA",
+      "status": "program",
+      "lane": "strategic_noncompany"
+    },
+    "nslr": {
+      "entity": "nslr",
+      "name": "Neostellar Capital Corp. (formerly SuRo Capital Corp.)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "nuro": {
+      "entity": "nuro",
+      "name": "Nuro (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "ocado": {
+      "entity": "ocado",
+      "name": "Ocado Group (LSE: OCDO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "opengate": {
+      "entity": "opengate",
+      "name": "CEIA OpenGate (private, Italy)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "overland": {
+      "entity": "overland",
+      "name": "Overland AI (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "paccar": {
+      "entity": "paccar",
+      "name": "PACCAR (PCAR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "paccar_nasdaq": {
+      "entity": "paccar",
+      "name": "PACCAR (PCAR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "palantir": {
+      "entity": "palantir",
+      "name": "Palantir Technologies (PLTR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "parrot": {
+      "entity": "parrot",
+      "name": "Parrot (Euronext Paris: PARRO)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "pdw": {
+      "entity": "pdw",
+      "name": "Performance Drone Works (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "perennial": {
+      "entity": "perennial",
+      "name": "Perennial Autonomy (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "pi": {
+      "entity": "pi",
+      "name": "Physical Intelligence (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "pixxel": {
+      "entity": "pixxel",
+      "name": "Pixxel Space Technologies (Pixxel)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "plus": {
+      "entity": "plus",
+      "name": "PlusAI (private; pending Nasdaq listing)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "pony": {
+      "entity": "pony",
+      "name": "Pony.ai (PONY; also HKEX-listed)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "qumulus": {
+      "entity": "qumulus",
+      "name": "QumulusAI (QMLS)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "ratel": {
+      "entity": "ratel",
+      "name": "Ratel Robotics (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "redwire": {
+      "entity": "redwire",
+      "name": "Redwire (RDW)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "rekor": {
+      "entity": "rekor",
+      "name": "Rekor Systems (NASDAQ: REKR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "richtech": {
+      "entity": "richtech",
+      "name": "Richtech Robotics (RR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "robotcom": {
+      "entity": "robotcom",
+      "name": "Robot.com (private; formerly Kiwibot)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "rocketlab": {
+      "entity": "rocketlab",
+      "name": "Rocket Lab (RKLB)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "roush": {
+      "entity": "roush",
+      "name": "Roush Industries (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "saildrone": {
+      "entity": "saildrone",
+      "name": "Saildrone (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "sanctuary": {
+      "entity": "sanctuary",
+      "name": "Sanctuary AI (Sanctuary Cognitive Systems Corp.)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "saronic": {
+      "entity": "saronic",
+      "name": "Saronic Technologies (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "sharonai_news": {
+      "entity": "sharonai",
+      "name": "Sharon AI (SHAZ)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "shieldai": {
+      "entity": "shieldai",
+      "name": "Shield AI (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "silvia": {
+      "entity": "silvia",
+      "name": "Silvia (SVIA)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "skild": {
+      "entity": "skild",
+      "name": "Skild AI (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "skydio": {
+      "entity": "skydio",
+      "name": "Skydio (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "skyryse": {
+      "entity": "skyryse",
+      "name": "Skyryse, Inc.",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "spaceeyes": {
+      "entity": "spaceeyes",
+      "name": "Space-Eyes (pending SPAC with McKinley Acquisition, MKLY; planned CUAS)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "spaceeyes_sec": {
+      "entity": "spaceeyes",
+      "name": "Space-Eyes (pending SPAC with McKinley Acquisition, MKLY; planned CUAS)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "spire": {
+      "entity": "spire",
+      "name": "Spire Global (SPIR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "starship": {
+      "entity": "starship",
+      "name": "Starship Technologies (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "swarmer": {
+      "entity": "swarmer",
+      "name": "Swarmer (SWMR)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "teledyne": {
+      "entity": "teledyne",
+      "name": "Teledyne FLIR Defense (TDY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "teradyne": {
+      "entity": "teradyne",
+      "name": "Teradyne Robotics / Universal Robots (TER)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "tesla": {
+      "entity": "tesla",
+      "name": "Tesla (TSLA)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "tfvector": {
+      "entity": "tfvector",
+      "name": "Vector (tfvector.com; Bluffdale, Utah)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "torc": {
+      "entity": "torc",
+      "name": "Torc Robotics (Daimler Truck subsidiary; DTG.DE)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "twentyone": {
+      "entity": "twentyone",
+      "name": "Twenty One Capital (XXI)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "ubtech": {
+      "entity": "ubtech",
+      "name": "UBTech Robotics (9880.HK)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "unitree": {
+      "entity": "unitree",
+      "name": "Unitree Robotics (688836.SH)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "vantor": {
+      "entity": "vantor",
+      "name": "Vantor (private; ex-Maxar Intelligence)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "vatn": {
+      "entity": "vatn",
+      "name": "Vatn Systems (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "verkada": {
+      "entity": "verkada",
+      "name": "Verkada (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "verkada_updates": {
+      "entity": "verkada",
+      "name": "Verkada (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "volatus": {
+      "entity": "volatus",
+      "name": "Volatus Aerospace Inc.",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "volvo": {
+      "entity": "volvo",
+      "name": "Volvo Group (VOLV-B Stockholm; VLVLY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "volvo_autonomous": {
+      "entity": "volvo",
+      "name": "Volvo Group (VOLV-B Stockholm; VLVLY)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "waabi": {
+      "entity": "waabi",
+      "name": "Waabi (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "walmart": {
+      "entity": "walmart",
+      "name": "Walmart (WMT)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "wargov_contracts": {
+      "entity": "wargov_contracts",
+      "name": "War.gov Contracts",
+      "status": "program",
+      "lane": "strategic_fast_noncompany"
+    },
+    "waymo": {
+      "entity": "waymo",
+      "name": "Waymo (Alphabet subsidiary)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "wayve": {
+      "entity": "wayve",
+      "name": "Wayve (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "weride": {
+      "entity": "weride",
+      "name": "WeRide (WRD; 0800.HK)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "wing": {
+      "entity": "wing",
+      "name": "Wing (Alphabet subsidiary)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "wrap": {
+      "entity": "wrap",
+      "name": "Wrap Technologies (WRAP)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "xtech_announcements": {
+      "entity": "xtech_announcements",
+      "name": "U.S. Army xTech",
+      "status": "program",
+      "lane": "strategic_noncompany"
+    },
+    "xtend": {
+      "entity": "xtend",
+      "name": "XTEND AI Robotics (XTND)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "xtend_jfb": {
+      "entity": "xtend",
+      "name": "XTEND AI Robotics (XTND)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "xti": {
+      "entity": "xti",
+      "name": "XTI Aerospace (XTIA)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "yotta": {
+      "entity": "yotta",
+      "name": "Yotta Data Services (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "zenatech": {
+      "entity": "zenatech",
+      "name": "ZenaTech (ZENA)",
+      "status": "public",
+      "lane": "public_adjacent"
+    },
+    "zeroeyes": {
+      "entity": "zeroeyes",
+      "name": "ZeroEyes (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "zipline": {
+      "entity": "zipline",
+      "name": "Zipline (private)",
+      "status": "private",
+      "lane": "private_adjacent"
+    },
+    "zoox": {
+      "entity": "zoox",
+      "name": "Zoox (Amazon subsidiary)",
+      "status": "private",
+      "lane": "private_adjacent"
+    }
+  },
+  "exclude": {
+    "aglt_rel": "coverage_subject",
+    "airbus_space": "coverage_subject",
+    "albertsons": "coverage_subject",
+    "amazon_humanoid": "coverage_subject",
+    "asst_rel": "coverage_subject",
+    "aur_rel": "coverage_subject",
+    "avispl_autonomy": "coverage_subject",
+    "awg": "coverage_subject",
+    "bedrock_robotics": "coverage_subject",
+    "bot_rel": "coverage_subject",
+    "boutiqueair": "coverage_subject",
+    "braincorp": "coverage_subject",
+    "caesars_mbai": "coverage_subject",
+    "canada_dnd_drones": "coverage_subject",
+    "capeair": "coverage_subject",
+    "cariberoyale_mbai": "coverage_subject",
+    "ceiia_atlantic": "coverage_subject",
+    "charger_av": "coverage_subject",
+    "contour": "coverage_subject",
+    "cswg": "coverage_subject",
+    "dpro_rel": "coverage_subject",
+    "dronedominance": "coverage_subject",
+    "dronedominance_lists": "coverage_subject",
+    "dsv_autonomy": "coverage_subject",
+    "dtl_kdk": "coverage_subject",
+    "edgar_latest": "ops",
+    "evlv_rel": "coverage_subject",
+    "fedreg_av_trucking": "coverage_subject",
+    "fmv_planet": "coverage_subject",
+    "fpds_axon": "coverage_subject",
+    "fpds_onds": "coverage_subject",
+    "fpds_pdyn": "coverage_subject",
+    "fpds_pl": "coverage_subject",
+    "fpds_pusa": "coverage_subject",
+    "fpds_satl": "coverage_subject",
+    "fpds_spai": "coverage_subject",
+    "fpl_drones": "coverage_subject",
+    "freyr_ai": "coverage_subject",
+    "garrett_security": "coverage_subject",
+    "google_suncatcher": "coverage_subject",
+    "grrr_rel": "coverage_subject",
+    "grubhub_robots": "coverage_subject",
+    "hirschbach_av": "coverage_subject",
+    "ikea_supply": "coverage_subject",
+    "index_ftserussell": "coverage_subject",
+    "jsat_eo": "coverage_subject",
+    "kdk_rel": "coverage_subject",
+    "legistar_oakland_axon": "coverage_subject",
+    "mbai_rel": "coverage_subject",
+    "mclane_av": "coverage_subject",
+    "mgm_mbai": "coverage_subject",
+    "modalai": "coverage_subject",
+    "mohegan_mbai": "coverage_subject",
+    "mrln_rel": "coverage_subject",
+    "msci_mstr": "coverage_subject",
+    "msgvenues": "coverage_subject",
+    "mstr_rel": "coverage_subject",
+    "nhtsa_sgo_ads": "coverage_subject",
+    "omnilert": "coverage_subject",
+    "onds_rel": "coverage_subject",
+    "one_x_tech": "coverage_subject",
+    "onr_slingshot": "coverage_subject",
+    "orqa": "coverage_subject",
+    "pdyn_cust_iai": "coverage_subject",
+    "pdyn_rel": "coverage_subject",
+    "pl_rel": "coverage_subject",
+    "probe_aglt_ir_home": "ops",
+    "probe_aglt_ir_news_rss": "ops",
+    "probe_aglt_press_page": "ops",
+    "probe_axon_newsroom": "ops",
+    "probe_axon_sitemap": "ops",
+    "probe_bw_legacy_feed": "ops",
+    "probe_bw_pl_release": "ops",
+    "probe_gnw_bot_rss": "ops",
+    "probe_gnw_bot_www": "ops",
+    "probe_gnw_sym_rss": "ops",
+    "probe_kdk_ir_events": "ops",
+    "probe_kdk_ir_news_rss": "ops",
+    "probe_kdk_ir_presentations": "ops",
+    "probe_mrln_ir_events": "ops",
+    "probe_mrln_ir_news_rss": "ops",
+    "probe_mrln_ir_presentations": "ops",
+    "probe_pdyn_ir_news_rss": "ops",
+    "probe_pdyn_ir_presentations": "ops",
+    "probe_pi_sitemap": "ops",
+    "probe_satl_ir_events_rss": "ops",
+    "probe_satl_ir_news_rss": "ops",
+    "probe_satl_ir_presentations": "ops",
+    "probe_serv_ir_events_rss": "ops",
+    "probe_serv_ir_news_rss": "ops",
+    "probe_sym_ir_events_page": "ops",
+    "probe_sym_ir_events_rss": "ops",
+    "probe_sym_ir_news_page": "ops",
+    "probe_sym_ir_news_rss": "ops",
+    "probe_xtraf_ir_events_rss": "ops",
+    "probe_xtraf_ir_presentations": "ops",
+    "pudu": "coverage_subject",
+    "pusa_rel": "coverage_subject",
+    "rcat_rel": "coverage_subject",
+    "rcat_rel_steyr": "coverage_subject",
+    "regulations_eas_srfm": "coverage_subject",
+    "reliable": "coverage_subject",
+    "roehl_kdk": "coverage_subject",
+    "rogue_fires": "coverage_subject",
+    "safetyact_awards": "coverage_subject",
+    "satl_rel": "coverage_subject",
+    "schaeffler_humanoid": "coverage_subject",
+    "serv_rel": "coverage_subject",
+    "sikorsky_matrix": "coverage_subject",
+    "site_agility": "ops",
+    "site_aurora": "ops",
+    "site_aurora_ir": "ops",
+    "site_draganfly": "ops",
+    "site_draganfly_ir": "ops",
+    "site_evolv_ir": "ops",
+    "site_gorilla": "ops",
+    "site_kodiak": "ops",
+    "site_maymobility": "ops",
+    "site_mbody": "ops",
+    "site_mbody_ir": "ops",
+    "site_merlin": "ops",
+    "site_ondas": "ops",
+    "site_palladyne": "ops",
+    "site_planet": "ops",
+    "site_powerus": "ops",
+    "site_powerus_ir": "ops",
+    "site_redcat": "ops",
+    "site_redcat_ir": "ops",
+    "site_robostrategy": "ops",
+    "site_safepro": "ops",
+    "site_satellogic": "ops",
+    "site_serve": "ops",
+    "site_strive": "ops",
+    "site_surfair": "ops",
+    "site_symbotic": "ops",
+    "site_unusual": "ops",
+    "site_xtractone": "ops",
+    "skycutter": "coverage_subject",
+    "skywest_eas": "coverage_subject",
+    "southernglazers": "coverage_subject",
+    "spai_rel": "coverage_subject",
+    "sphere_security": "coverage_subject",
+    "srfm_rel": "coverage_subject",
+    "sse_drone": "coverage_subject",
+    "swarmdefense": "coverage_subject",
+    "sym_rel": "coverage_subject",
+    "synmax": "coverage_subject",
+    "taoyuan_airport": "coverage_subject",
+    "tasl_satellites": "coverage_subject",
+    "toyota_humanoid": "coverage_subject",
+    "uber": "coverage_subject",
+    "umac_rel": "coverage_subject",
+    "unfi": "coverage_subject",
+    "uvision": "coverage_subject",
+    "valuetruck_av": "coverage_subject",
+    "vcx": "coverage_subject",
+    "walmart_sym": "coverage_subject",
+    "wargov_contracts_matched": "coverage_subject",
+    "werner_av": "coverage_subject",
+    "westfraser_kdk": "coverage_subject",
+    "wheelsup": "coverage_subject",
+    "witron": "coverage_subject",
+    "xtraf_rel": "coverage_subject"
+  }
+}
