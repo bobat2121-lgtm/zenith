@@ -404,8 +404,9 @@ export default {
         return;
       }
       try { console.log("ingest", JSON.stringify(await ingest(env))); } catch (e) { console.error("ingest failed", e?.stack || e); }
-      try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
+      // Delivery before enrich: a slow excerpt or PDF read must never cost a tick's Lead pushes.
       try { console.log("delivery", JSON.stringify(await deliveryTick(env, COVERED))); } catch (e) { console.error("delivery failed", e?.stack || e); }
+      try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
     })());
   },
 };

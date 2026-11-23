@@ -58,6 +58,7 @@
     "axon_nasdaq": "AXON",
     "evlv_nasdaq": "EVLV",
     "umac_events": "UMAC",
+    "umac_presentations": "UMAC",
     "axon_ir_docs": "AXON",
     "aur_presentations": "AUR",
     "pl_pulse": "PL",
@@ -108,7 +109,24 @@
     "palladyne_wp": "PDYN",
     "xtractone_news": "XTRAF",
     "merlin_news": "MRLN",
-    "draganfly_wp": "DPRO"
+    "draganfly_wp": "DPRO",
+    "sym_presentations": "SYM",
+    "sym_events": "SYM",
+    "satl_releases": "SATL",
+    "satl_presentations": "SATL",
+    "satl_events": "SATL",
+    "mrln_presentations": "MRLN",
+    "mrln_events": "MRLN",
+    "pdyn_presentations": "PDYN",
+    "pdyn_events": "PDYN",
+    "kdk_presentations": "KDK",
+    "kdk_events": "KDK",
+    "serv_events": "SERV",
+    "xtraf_presentations": "XTRAF",
+    "xtraf_events": "XTRAF",
+    "aglt_releases": "AGLT",
+    "aglt_presentations": "AGLT",
+    "aglt_events": "AGLT"
   },
   "counterparty": {
     "volvo_autonomous": {
@@ -839,25 +857,25 @@
         "PDYN"
       ]
     },
-    "usaspending_pusa": {
+    "fpds_pusa": {
       "role": "customer",
       "affects": [
         "PUSA"
       ]
     },
-    "usaspending_pl": {
+    "fpds_pl": {
       "role": "customer",
       "affects": [
         "PL"
       ]
     },
-    "usaspending_satl": {
+    "fpds_satl": {
       "role": "customer",
       "affects": [
         "SATL"
       ]
     },
-    "usaspending_axon": {
+    "fpds_axon": {
       "role": "customer",
       "affects": [
         "AXON"
