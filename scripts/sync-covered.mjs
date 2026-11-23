@@ -12,13 +12,21 @@
 //
 // Also writes worker/src/aux-sources.json: every other polled company or program
 // source (auxiliary names, graded on their own page) with its entity, display
-// name and status, and the sources left out of both (ops probes, and
-// counterparty filters that only exist to watch a covered company). Not
+// name and status, and the ops sources left out of both. Counterparty filters
+// built to watch a covered company (co-mention searches, FPDS feeds, Drone
+// Dominance) are auxiliary too, marked coverage_subject with the covered
+// tickers they affect: the grader names the outside company each item is about,
+// and an item only about a covered company stays on the Coverage page. Not
 // "aux.json": AUX is a reserved Windows device name and Git for Windows
 // cannot add a file named aux.<anything>.
+//
+// And worker/src/site-sources.json (scripts/site-sources.mjs): the site-structure
+// watchers and egress probes with the covered ticker each one watches, for the
+// Coverage page's Site changes and source-health strip.
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
+import { buildSiteSources } from "./site-sources.mjs";
 
 export const ROLES = ["relationship", "customer", "program", "rival", "index_event"];
 const upper = (t) => String(t ?? "").trim().toUpperCase();
@@ -68,8 +76,9 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
 export const OPS_ADAPTERS = ["probe", "site_structure", "edgar_latest"];
 // Counterparty adapters that filter a third-party feed down to items about a
 // covered company (keyword RSS, contract and docket searches, lists). Their
-// items belong on the Coverage page only; any other adapter is the outside
-// company's own channel and is also an auxiliary name.
+// items are graded on the Coverage page and are also coverage_subject
+// auxiliary entries; any other adapter is the outside company's own channel
+// and a plain auxiliary name.
 export const FILTER_ADAPTERS = [
   "rss_filtered", "rss_body_filter", "fpds_atom", "legistar_matters", "wargov_contract_paragraphs",
   "js_list_diff", "js_announcements", "safetyact_awards", "regulations_gov", "federal_register", "csv_filter",
@@ -88,6 +97,14 @@ export function shortName(name) {
   return String(name ?? "").split(/ [—–-] |: /)[0].trim();
 }
 
+// Program and search names for coverage-subject sources whose own name is the
+// covered company's: the FPDS award feeds share one program entity, and a
+// covered ticker's co-mention search (aglt_rel) is "<company> partner mentions".
+export const FPDS = { entity: "fpds", name: "FPDS contracts" };
+const COMENTION_KEY = /^([a-z]+)_rel$/;
+// "Agility Robotics (AGLT)" -> "Agility Robotics".
+const withoutTicker = (name) => name.replace(/\s*\([A-Z.]{1,6}\)\s*$/, "").trim();
+
 // sources: news-monitor's SOURCES after priority.js ran. covered: buildCovered's
 // result. peers: rubric/peers.json. Returns { sources, exclude } for aux-sources.json.
 export function buildAux(sourceList, covered, peers = []) {
@@ -96,6 +113,9 @@ export function buildAux(sourceList, covered, peers = []) {
   const tickers = new Set((covered?.tickers || []).map((t) => String(t).toLowerCase()));
   const exclude = {};
   const aux = new Map();
+  // Coverage-subject sources (counterparty filters built to watch a covered
+  // company) -> the covered tickers they affect.
+  const subject = new Map();
   for (const s of sourceList) {
     const key = s.key;
     if (!key || coveredKeys.has(key) || aux.has(key) || exclude[key]) continue;   // S1
@@ -106,18 +126,22 @@ export function buildAux(sourceList, covered, peers = []) {
     if (counterparty[key]) {                                                       // S3
       const channel = !FILTER_ADAPTERS.includes(s.adapter);
       const namesCovered = key.split("_").some((t) => tickers.has(t));
-      if (!channel || namesCovered) { exclude[key] = "coverage_subject"; continue; }
+      if (!channel || namesCovered) subject.set(key, [...counterparty[key].affects]);
     }
     aux.set(key, s);                                                               // S4
   }
   const peerByKey = new Map(peers.filter((p) => p?.key).map((p) => [p.key, p]));
+  // A company or program source never takes its entity from a coverage-subject
+  // source; a coverage-subject source may (dronedominance_lists -> dronedominance).
+  const plainKeys = [...aux.keys()].filter((k) => !subject.has(k));
   const entityOf = (key) => {
     if (peerByKey.has(key)) return key;
+    if (subject.has(key) && aux.get(key).adapter === "fpds_atom") return FPDS.entity;
     // The longest peers key or other auxiliary source key that prefixes this
     // one: maymobility_news -> maymobility, einride_sec -> einride. A prefix that
     // is itself a source resolves to its own entity.
     let best = null;
-    for (const k of [...peerByKey.keys(), ...aux.keys()]) {
+    for (const k of [...peerByKey.keys(), ...(subject.has(key) ? aux.keys() : plainKeys)]) {
       if (k !== key && key.startsWith(k + "_") && (!best || k.length > best.length)) best = k;
     }
     if (!best) return key;
@@ -131,14 +155,23 @@ export function buildAux(sourceList, covered, peers = []) {
     // The entity's own source names it when peers.json does not (verkada_updates
     // takes Verkada's name, not "Verkada Product Updates").
     const named = aux.get(entity) || s;
-    const name = peer?.name || shortName(named.name) || humanize(entity);
+    const name = peer?.name || programName(entity, named, tickers) || shortName(named.name) || humanize(entity);
     const status = COMPANY_STATUS.includes(peer?.status) ? peer.status
       : COMPANY_STATUS.includes(s.companyStatus) ? s.companyStatus
       : LANE_STATUS[s.lane] || "program";
     sources[key] = { entity, name, status, lane: s.lane };
+    if (subject.has(key)) Object.assign(sources[key], { coverage_subject: true, affects: subject.get(key) });
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
   return { sources, exclude: sortedExclude };
+}
+
+// The FPDS program, or a covered ticker's co-mention search; else null.
+function programName(entity, named, tickers) {
+  if (entity === FPDS.entity) return FPDS.name;
+  const m = COMENTION_KEY.exec(named.key || "");
+  const company = m && tickers.has(m[1]) ? withoutTicker(shortName(named.name)) : "";
+  return company ? `${company} partner mentions` : null;
 }
 
 async function main(repo) {
@@ -173,7 +206,17 @@ async function main(repo) {
   const count = (values) => values.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {});
   const fmt = (m) => Object.entries(m).map(([k, n]) => `${k} ${n}`).join(", ");
   const entries = Object.values(aux.sources);
-  console.log(`wrote ${entries.length} auxiliary sources for ${new Set(entries.map((e) => e.entity)).size} entities (${fmt(count(entries.map((e) => e.status)))}) and ${Object.keys(aux.exclude).length} exclusions (${fmt(count(Object.values(aux.exclude)))}) -> ${auxTarget}`);
+  const subject = entries.filter((e) => e.coverage_subject).length;
+  console.log(`wrote ${entries.length} auxiliary sources for ${new Set(entries.map((e) => e.entity)).size} entities (${fmt(count(entries.map((e) => e.status)))}; ${subject} coverage_subject) and ${Object.keys(aux.exclude).length} exclusions (${fmt(count(Object.values(aux.exclude)))}) -> ${auxTarget}`);
+
+  // Site-structure watchers and egress probes -> covered tickers (Coverage page health strip and Site changes).
+  const site = buildSiteSources(SOURCES, tickers);
+  const siteTarget = join(root, "worker", "src", "site-sources.json");
+  writeFileSync(siteTarget, JSON.stringify({
+    generated_from: "news-monitor SOURCES after src/priority.js: site_structure watchers (src/site-structure-sources.js) and probes (src/probe-sources.js), config.ticker kept when covered",
+    ...site,
+  }, null, 2) + "\n");
+  console.log(`wrote ${Object.keys(site.sites).length} site watchers and ${Object.keys(site.probes).length} probes -> ${siteTarget}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -109,6 +109,20 @@ test("aux-claim posts limit, the shared run id and model with the grader token, 
   assert.match(r.stdout, /### item_id=102 entity=War\.gov contracts \[wargov_contracts, program\] source=wargov_contracts first_seen=\S+ published=- seen_after_days=unknown\n.*\n.*\nEXCERPT: none \(no feed text\)/);
 });
 
+test("aux-claim prints COVERAGE_SUBJECT affects=... under a coverage-subject item and nothing under the others", async () => {
+  const cwd = workdir();
+  const subject = { item_id: 103, source_key: "dronedominance", entity_key: "dronedominance", entity_name: "Drone Dominance", status: "program",
+    title: "Phase 2 vendors include Anduril", url: "https://example.com/d", published: null, first_seen: "2026-11-21T20:00:00Z", seen_after_days: null,
+    excerpt: null, excerpt_status: null, coverage_subject: true, affects: ["RCAT", "DPRO", "PUSA", "UMAC"] };
+  const plain = { ...CLAIM.items[0], coverage_subject: false, affects: [] };
+  routes.set("POST /v1/aux/claim", () => ({ json: { ...CLAIM, items: [plain, subject] } }));
+  const r = await run(cwd, ["aux-claim"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /### item_id=103 entity=Drone Dominance \[dronedominance, program\] source=dronedominance [^\n]*\nCOVERAGE_SUBJECT affects=RCAT,DPRO,PUSA,UMAC \([^\n]*OUTSIDE company[^\n]*reason:covered_name with covered_ticker\)\nTITLE: Phase 2 vendors include Anduril\n/);
+  assert.equal(r.stdout.match(/COVERAGE_SUBJECT/g).length, 1, "only the coverage-subject item");
+  assert.match(r.stdout, /### item_id=101 [^\n]*\nTITLE: Anduril raises/);
+});
+
 test("aux-claim sends the stored auxiliary rubric version and clamps the limit to 1..40", async () => {
   const cwd = workdir();
   mkdirSync(zen(cwd, "rubric"), { recursive: true });
@@ -457,6 +471,18 @@ test("rubric/auxiliary.md reason ranges and examples agree with the score scale"
   }
   // The API rejects an empty entity: the rubric must say what to use when no company or program is named.
   assert.match(auxMd, /no company or program is named[^.\n]*routed `entity=` name/i);
+});
+
+test("rubric/auxiliary.md and GRADER.md: a coverage-subject item is auxiliary only when mainly about an outside company", () => {
+  const md = readFileSync(join(root, "grader", "GRADER.md"), "utf8");
+  const step5 = /^5\. [\s\S]*?(?=^6\. )/m.exec(md)[0];
+  assert.match(step5, /`COVERAGE_SUBJECT affects=<TICKERS>`[\s\S]*mainly about an OUTSIDE\s+company or program[\s\S]*reason:covered_name`?\s+with `covered_ticker`/);
+  const rule = /\*\*Coverage-subject items\.\*\*[^\n]*/.exec(auxMd)?.[0] || "";
+  assert.match(rule, /`COVERAGE_SUBJECT affects=<TICKERS>`/);
+  assert.match(rule, /mainly about an \*\*outside\*\* company or program: `entity` is that real company/);
+  assert.match(rule, /never the routed feed name/);
+  assert.match(rule, /mainly about a covered company[^.]*`reason:covered_name`, `covered_ticker`/);
+  assert.match(auxMd, /\| `COVERAGE_SUBJECT affects=PL`: [^|]+\| null `covered_name` \| `covered_ticker: "PL"`/);
 });
 
 test("GRADER.md hands an empty coverage claim on to the auxiliary pass", () => {

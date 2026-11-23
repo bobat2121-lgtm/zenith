@@ -76,16 +76,20 @@ after(async () => {
   if (cwd) rmSync(cwd, { recursive: true, force: true });
 });
 
-test("aux ingest stores auxiliary names only: peer newsroom, runtime managed_* and ia_media_* keys; archive seeds skipped", async () => {
+test("aux ingest stores auxiliary names only: peer newsroom, runtime managed_* and ia_media_* keys, coverage subjects; archive seeds skipped", async () => {
   const r = await http("POST", "/v1/admin/aux-ingest", "admin", {});
   assert.equal(r.status, 200);
   assert.equal(r.body.scanned, newsRows().length);
-  const stored = rows("SELECT source_key, entity_key, entity_name, status, state, skip_reason, excerpt_status FROM aux_items ORDER BY id");
+  const stored = rows("SELECT source_key, entity_key, entity_name, status, state, skip_reason, excerpt_status, coverage_subject, affects FROM aux_items ORDER BY id");
   const live = stored.filter((x) => x.state === "pending");
   assert.deepEqual(live.map((x) => x.source_key),
-    ["anduril", "skydio", "managed_fort_robotics_news", "nga", "anduril", "ia_media_dronelife"]);
-  // Covered, counterparty co-mention, ops and covered-duplicate keys never become auxiliary rows.
-  for (const key of ["redcat", "fpds_pl", "site_kodiak", "managed_draganfly_news"]) {
+    ["fpds_pl", "anduril", "skydio", "managed_fort_robotics_news", "nga", "anduril", "ia_media_dronelife"]);
+  // A filter built for a covered company is auxiliary as a coverage subject, with the tickers it affects.
+  assert.deepEqual([live[0].entity_key, live[0].entity_name, live[0].status, live[0].coverage_subject, live[0].affects],
+    ["fpds", "FPDS contracts", "program", 1, "PL"]);
+  assert.ok(live.slice(1).every((x) => x.coverage_subject === 0 && x.affects === null));
+  // Covered, ops and covered-duplicate keys never become auxiliary rows.
+  for (const key of ["redcat", "site_kodiak", "managed_draganfly_news"]) {
     assert.ok(!stored.some((x) => x.source_key === key), `${key} is not auxiliary`);
   }
   assert.deepEqual(stored.filter((x) => x.source_key === "zoox").map((x) => [x.state, x.skip_reason]), Array(6).fill(["skipped", "archive_seed"]));
@@ -112,12 +116,16 @@ test("grader CLI: aux-rubric writes the served rubric, aux-claim prints the batc
   const c = await grader("aux-claim", "40");
   assert.equal(c.code, 0, c.stderr);
   claim = JSON.parse(readFileSync(zen("aux-claim.json"), "utf8"));
-  assert.equal(claim.items.length, 6);
+  assert.equal(claim.items.length, 7);
   assert.equal(claim.remaining, 0);
   assert.equal(claim.rubric_version, AUX_RUBRIC_VERSION);
-  assert.deepEqual(claim.items.map((i) => i.source_key), ["ia_media_dronelife", "anduril", "nga", "managed_fort_robotics_news", "skydio", "anduril"],
-    "newest first");
-  assert.match(c.stdout, new RegExp(`^aux claim ${claim.claim_id} \\(run ${claim.run_id}\\): 6 item\\(s\\), 0 more waiting\\. Rubric ${AUX_RUBRIC_VERSION}\\.`));
+  assert.deepEqual(claim.items.map((i) => i.source_key),
+    ["ia_media_dronelife", "anduril", "nga", "managed_fort_robotics_news", "skydio", "anduril", "fpds_pl"], "newest first");
+  assert.match(c.stdout, new RegExp(`^aux claim ${claim.claim_id} \\(run ${claim.run_id}\\): 7 item\\(s\\), 0 more waiting\\. Rubric ${AUX_RUBRIC_VERSION}\\.`));
+  // A coverage subject says which covered companies its feed was built for; other items say nothing.
+  assert.deepEqual([claim.items[6].coverage_subject, claim.items[6].affects], [true, ["PL"]]);
+  assert.match(c.stdout, /entity=FPDS contracts \[fpds, program\] source=fpds_pl [^\n]*\nCOVERAGE_SUBJECT affects=PL /);
+  assert.equal(c.stdout.match(/COVERAGE_SUBJECT/g).length, 1);
   assert.match(c.stdout, /entity=Anduril \(private\) \[anduril, private\] source=anduril /);
   assert.match(c.stdout, /entity=Fort Robotics \[fort_robotics, unknown\] source=managed_fort_robotics_news /);
   assert.match(c.stdout, /entity=Industry media \[media_dronelife, media\] source=ia_media_dronelife /);
@@ -131,7 +139,7 @@ test("grader CLI: aux-rubric writes the served rubric, aux-claim prints the batc
   assert.match(one.stdout, new RegExp(`- item_id=${ids.lead} \\d{4}-\\d\\d-\\d\\d ungraded \\[Anduril \\(private\\)\\] Anduril raises`));
   const all = await grader("aux-recent", "-");
   assert.equal(all.code, 0, all.stderr);
-  assert.match(all.stdout, /^6 auxiliary item\(s\) for every entity in the last 14 days:/);
+  assert.match(all.stdout, /^7 auxiliary item\(s\) for every entity in the last 14 days:/);
 });
 
 test("aux-submit: contract errors are rejected with the fix and left NOT YET GRADED; the corrected file is accepted; a resubmit is idempotent", async () => {
@@ -141,7 +149,7 @@ test("aux-submit: contract errors are rejected with the fix and left NOT YET GRA
   writeFileSync(join(cwd, "bad.json"), JSON.stringify(bad));
   const r1 = await grader("aux-submit", "bad.json");
   assert.equal(r1.code, 2, r1.stderr);
-  assert.match(r1.stdout, /^accepted 2, already accepted 0, rejected 5/);
+  assert.match(r1.stdout, /^accepted 3, already accepted 0, rejected 5/);
   assert.match(r1.stdout, new RegExp(`REJECTED item ${ids.lead}: band must be "lead" for score 92`));
   assert.match(r1.stdout, new RegExp(`REJECTED item ${ids.fort}: reads_through ticker TSLA is not a covered ticker`));
   assert.match(r1.stdout, new RegExp(`REJECTED item ${ids.media}: dup_of must be another item`));
@@ -154,21 +162,22 @@ test("aux-submit: contract errors are rejected with the fix and left NOT YET GRA
   writeFileSync(join(cwd, "good.json"), JSON.stringify({ grades: good }));
   const r2 = await grader("aux-submit", "good.json");
   assert.equal(r2.code, 0, r2.stdout + r2.stderr);
-  assert.match(r2.stdout, /^accepted 4, already accepted 2, rejected 0/);
+  assert.match(r2.stdout, /^accepted 4, already accepted 3, rejected 0/);
   assert.doesNotMatch(r2.stdout, /NOT YET GRADED/);
   const r3 = await grader("aux-submit", "good.json");
-  assert.match(r3.stdout, /^accepted 0, already accepted 6, rejected 0/);
+  assert.match(r3.stdout, /^accepted 0, already accepted 7, rejected 0/);
 
   const graded = rows(`SELECT i.id, i.state, i.claim_id, g.run_id, g.band, g.score, g.model, g.rubric_version, g.dup_of, g.covered_ticker
     FROM aux_items i JOIN aux_grades g ON g.id = i.grade_id ORDER BY i.id`);
-  assert.equal(graded.length, 6);
-  assert.equal(rows("SELECT COUNT(*) AS n FROM aux_grades")[0].n, 6, "one grade per item and run");
+  assert.equal(graded.length, 7);
+  assert.equal(rows("SELECT COUNT(*) AS n FROM aux_grades")[0].n, 7, "one grade per item and run");
   for (const g of graded) {
     assert.deepEqual([g.state, g.claim_id, g.run_id, g.model, g.rubric_version], ["graded", null, claim.run_id, "e2e-model", AUX_RUBRIC_VERSION]);
   }
   const of = Object.fromEntries(graded.map((g) => [g.id, g]));
   assert.deepEqual([of[ids.media].band, of[ids.media].dup_of], ["duplicate", ids.lead]);
   assert.deepEqual([of[ids.nga].band, of[ids.nga].covered_ticker], ["covered", "PL"]);
+  assert.deepEqual([of[ids.fpds].band, of[ids.fpds].covered_ticker], ["covered", "PL"]);
 
   const again = await grader("aux-claim");
   assert.equal(again.code, 0, again.stderr);
@@ -220,8 +229,8 @@ test("app: For You vs Latest, the entity filter, labels and Unlabeled only on /v
 
   const aux = (await http("GET", "/v1/stats", "app")).body.aux;
   const n = (list, k, v) => list.find((x) => x[k] === v)?.n ?? 0;
-  assert.deepEqual(["graded", "pending", "skipped"].map((s) => n(aux.by_state, "state", s)), [6, 1, 6]);
-  assert.deepEqual(["lead", "digest", "borderline", "reject", "duplicate", "covered"].map((b) => n(aux.by_band, "band", b)), [1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(["graded", "pending", "skipped"].map((s) => n(aux.by_state, "state", s)), [7, 1, 6]);
+  assert.deepEqual(["lead", "digest", "borderline", "reject", "duplicate", "covered"].map((b) => n(aux.by_band, "band", b)), [1, 1, 1, 1, 1, 2]);
   assert.deepEqual(aux.entities[0], { name: "Anduril", n: 2 });
   assert.deepEqual(aux.entities.map((e) => e.name).sort(), ["Anduril", "FORT Robotics", "Skydio"], "duplicate and covered grades are not names");
   assert.equal(aux.rubric_version, AUX_RUBRIC_VERSION);

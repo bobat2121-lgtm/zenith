@@ -3,7 +3,8 @@
 //   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items
 //   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers|/aux], GET /v1/labels, GET /v1/recent,
 //           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels
-//   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/aux/feed, POST /v1/aux/feedback
+//   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/aux/feed, POST /v1/aux/feedback,
+//           GET /v1/site-changes, GET /v1/source-health (news-monitor ops signals; source-signals.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
@@ -14,6 +15,7 @@ import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
+import { siteChanges, sourceHealth } from "./source-signals.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -38,6 +40,9 @@ const ALLOW = {
   "GET /v1/aux/feed": ["app", "admin"],
   "POST /v1/aux/feedback": ["app", "admin"],
   "POST /v1/admin/aux-ingest": ["admin"],
+  // Coverage-page signals read from news-monitor-db (SELECT only).
+  "GET /v1/site-changes": ["app", "admin"],
+  "GET /v1/source-health": ["app", "admin"],
 };
 
 async function readJson(request) {
@@ -423,6 +428,8 @@ export default {
       case "GET /v1/aux/feed": return auxFeed(env, url);
       case "POST /v1/aux/feedback": return auxFeedback(env, await readJson(request));
       case "POST /v1/admin/aux-ingest": return json(await ingestAux(env));
+      case "GET /v1/site-changes": return siteChanges(env, url);
+      case "GET /v1/source-health": return sourceHealth(env);
     }
     return json({ error: "not found" }, 404);
   },

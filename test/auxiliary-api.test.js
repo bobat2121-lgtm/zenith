@@ -27,11 +27,13 @@ const SHIELD = { source_key: "shieldai", entity_key: "shieldai", entity_name: "S
 const NGA = { source_key: "nga", entity_key: "nga", entity_name: "NGA", status: "program" };
 function addAux(env, over = {}) {
   const it = { ...ANDURIL, url: `https://news.example.com/a/${++rowid}`, title: `Auxiliary item ${rowid}`, published: iso(2 * HOUR),
-    nm_first_seen: iso(HOUR), state: "pending", skip_reason: null, excerpt: null, excerpt_status: null, attempts: 0, claim_id: null, claimed_until: null, ...over };
+    nm_first_seen: iso(HOUR), state: "pending", skip_reason: null, excerpt: null, excerpt_status: null, attempts: 0, claim_id: null, claimed_until: null,
+    coverage_subject: 0, affects: null, ...over };
   const r = env.DB.db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
-      ingested_at, state, skip_reason, excerpt, excerpt_status, attempts, claim_id, claimed_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      ingested_at, state, skip_reason, excerpt, excerpt_status, attempts, claim_id, claimed_until, coverage_subject, affects)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(rowid, it.source_key, it.entity_key, it.entity_name, it.status, it.url, it.title, it.published, it.nm_first_seen, iso(), it.state,
-      it.skip_reason, it.excerpt, it.excerpt_status, it.attempts, it.claim_id, it.claimed_until);
+      it.skip_reason, it.excerpt, it.excerpt_status, it.attempts, it.claim_id, it.claimed_until, it.coverage_subject, it.affects);
   return Number(r.lastInsertRowid);
 }
 // A stored auxiliary grade; current: true makes it the item's grade.
@@ -125,9 +127,10 @@ test("claim: newest first under a 45-minute lease; concurrent claims never share
   const c1 = await claimAux(env, { limit: 2, run_id: "run-a", model: "m", rubric_version: "a-x" });
   assert.deepEqual(c1.items.map((i) => i.item_id), [ids[4], ids[3]], "newest first; skipped and graded items are never claimed");
   assert.deepEqual([c1.run_id, c1.rubric_version, c1.lease_minutes, c1.remaining], ["run-a", AUX_RUBRIC_VERSION, LEASE_MINUTES, 3]);
-  assert.deepEqual(Object.keys(c1.items[0]).sort(), ["entity_key", "entity_name", "excerpt", "excerpt_status", "first_seen", "item_id", "published",
-    "seen_after_days", "source_key", "status", "title", "url"]);
+  assert.deepEqual(Object.keys(c1.items[0]).sort(), ["affects", "coverage_subject", "entity_key", "entity_name", "excerpt", "excerpt_status", "first_seen",
+    "item_id", "published", "seen_after_days", "source_key", "status", "title", "url"]);
   assert.deepEqual([c1.items[0].entity_name, c1.items[0].status, c1.items[0].seen_after_days], ["Anduril (private)", "private", 1]);
+  assert.deepEqual([c1.items[0].coverage_subject, c1.items[0].affects], [false, []], "a company's own channel is not a coverage subject");
   const lease = rows(env, "SELECT claim_id, claimed_until, attempts, state FROM aux_items WHERE id = ?", ids[4])[0];
   assert.equal(lease.claim_id, c1.claim_id);
   assert.equal(lease.state, "claimed");
@@ -156,6 +159,17 @@ test("claim: newest first under a 45-minute lease; concurrent claims never share
   assert.equal(count(env, "runs"), 0, "aux claims never count as a coverage grading run (heartbeat, stats, brief)");
   const covClaim = (await request(worker, env, "POST", "/v1/queue/claim", { role: "grader", body: { limit: 50 } })).body;
   assert.deepEqual(covClaim.items.map((i) => i.item_id), [cov]);
+});
+
+test("claim: a coverage-subject item carries coverage_subject true and the covered tickers its feed affects", async () => {
+  const env = newEnv();
+  const dd = addAux(env, { source_key: "dronedominance", entity_key: "dronedominance", entity_name: "Drone Dominance", status: "program",
+    coverage_subject: 1, affects: "RCAT,DPRO,PUSA,UMAC", nm_first_seen: iso(2 * HOUR) });
+  const plain = addAux(env, { nm_first_seen: iso(HOUR) });
+  const c = await claimAux(env, { limit: 5 });
+  const by = Object.fromEntries(c.items.map((i) => [i.item_id, i]));
+  assert.deepEqual([by[dd].coverage_subject, by[dd].affects, by[dd].entity_name], [true, ["RCAT", "DPRO", "PUSA", "UMAC"], "Drone Dominance"]);
+  assert.deepEqual([by[plain].coverage_subject, by[plain].affects], [false, []]);
 });
 
 test("claim limits: 1 to 40, default 30", async () => {
