@@ -25,7 +25,7 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `worker/` | zenith-core: `src/ingest.js` (cursor over news-monitor-db), `src/excerpt.js` (opening text of each release), `src/index.js` (API), `migrations/`. |
 | `grader/` | What the hourly routine runs: `GRADER.md` (procedure) and `zenith.mjs` (API CLI). |
 | `app/` | Streamlit feed. Views: For you (≥70), Latest, Label queue, Lead only. Labels High/Medium/Low/Noise and Too high/Too low, recorded against the grade on the card, plus a "why it matters" note feed back to the grader. |
-| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`. |
+| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`, and `worker/src/aux-sources.json` (every other company or program source, as auxiliary names). |
 
 ## API (bearer tokens: ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN)
 
