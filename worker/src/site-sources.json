@@ -1,0 +1,297 @@
+{
+  "generated_from": "news-monitor SOURCES after src/priority.js: site_structure watchers (src/site-structure-sources.js) and probes (src/probe-sources.js), config.ticker kept when covered",
+  "sites": {
+    "site_agility": {
+      "ticker": "AGLT",
+      "domain": "www.agilityrobotics.com",
+      "label": "AGLT Agility Robotics (www.agilityrobotics.com)"
+    },
+    "site_aurora": {
+      "ticker": "AUR",
+      "domain": "aurora.tech",
+      "label": "AUR Aurora (aurora.tech)"
+    },
+    "site_aurora_ir": {
+      "ticker": "AUR",
+      "domain": "ir.aurora.tech",
+      "label": "AUR Aurora IR (ir.aurora.tech)"
+    },
+    "site_draganfly": {
+      "ticker": "DPRO",
+      "domain": "draganfly.com",
+      "label": "DPRO Draganfly (draganfly.com)"
+    },
+    "site_draganfly_ir": {
+      "ticker": "DPRO",
+      "domain": "investor.draganfly.com",
+      "label": "DPRO Draganfly IR (investor.draganfly.com)"
+    },
+    "site_evolv_ir": {
+      "ticker": "EVLV",
+      "domain": "ir.evolvtechnology.com",
+      "label": "EVLV Evolv IR (ir.evolvtechnology.com)"
+    },
+    "site_gorilla": {
+      "ticker": "GRRR",
+      "domain": "www.gorilla-technology.com",
+      "label": "GRRR Gorilla Technology (www.gorilla-technology.com)"
+    },
+    "site_kodiak": {
+      "ticker": "KDK",
+      "domain": "kodiak.ai",
+      "label": "KDK Kodiak (kodiak.ai)"
+    },
+    "site_maymobility": {
+      "ticker": null,
+      "domain": "maymobility.com",
+      "label": "May Mobility (maymobility.com)"
+    },
+    "site_mbody": {
+      "ticker": "MBAI",
+      "domain": "mbody.ai",
+      "label": "MBAI MBody AI (mbody.ai)"
+    },
+    "site_mbody_ir": {
+      "ticker": "MBAI",
+      "domain": "ir.mbody.ai",
+      "label": "MBAI MBody AI IR (ir.mbody.ai)"
+    },
+    "site_merlin": {
+      "ticker": "MRLN",
+      "domain": "merlinlabs.com",
+      "label": "MRLN Merlin (merlinlabs.com)"
+    },
+    "site_ondas": {
+      "ticker": "ONDS",
+      "domain": "www.ondas.com",
+      "label": "ONDS Ondas (www.ondas.com)"
+    },
+    "site_palladyne": {
+      "ticker": "PDYN",
+      "domain": "www.palladyneai.com",
+      "label": "PDYN Palladyne AI (www.palladyneai.com)"
+    },
+    "site_planet": {
+      "ticker": "PL",
+      "domain": "www.planet.com",
+      "label": "PL Planet (www.planet.com)"
+    },
+    "site_powerus": {
+      "ticker": "PUSA",
+      "domain": "www.power.us",
+      "label": "PUSA Powerus (www.power.us)"
+    },
+    "site_powerus_ir": {
+      "ticker": "PUSA",
+      "domain": "ir.power.us",
+      "label": "PUSA Powerus IR (ir.power.us)"
+    },
+    "site_redcat": {
+      "ticker": "RCAT",
+      "domain": "redcat.red",
+      "label": "RCAT Red Cat (redcat.red)"
+    },
+    "site_redcat_ir": {
+      "ticker": "RCAT",
+      "domain": "ir.redcatholdings.com",
+      "label": "RCAT Red Cat IR (ir.redcatholdings.com)"
+    },
+    "site_robostrategy": {
+      "ticker": "BOT",
+      "domain": "robostrategy.co",
+      "label": "BOT RoboStrategy (robostrategy.co)"
+    },
+    "site_safepro": {
+      "ticker": "SPAI",
+      "domain": "safeprogroup.com",
+      "label": "SPAI Safe Pro Group (safeprogroup.com)"
+    },
+    "site_satellogic": {
+      "ticker": "SATL",
+      "domain": "satellogic.com",
+      "label": "SATL Satellogic (satellogic.com)"
+    },
+    "site_serve": {
+      "ticker": "SERV",
+      "domain": "serverobotics.com",
+      "label": "SERV Serve Robotics (serverobotics.com)"
+    },
+    "site_strive": {
+      "ticker": "ASST",
+      "domain": "strive.com",
+      "label": "ASST Strive (strive.com)"
+    },
+    "site_surfair": {
+      "ticker": "SRFM",
+      "domain": "www.surfair.com",
+      "label": "SRFM Surf Air Mobility (www.surfair.com)"
+    },
+    "site_symbotic": {
+      "ticker": "SYM",
+      "domain": "www.symbotic.com",
+      "label": "SYM Symbotic (www.symbotic.com)"
+    },
+    "site_unusual": {
+      "ticker": "UMAC",
+      "domain": "www.unusualmachines.com",
+      "label": "UMAC Unusual Machines (www.unusualmachines.com)"
+    },
+    "site_xtractone": {
+      "ticker": "XTRAF",
+      "domain": "xtractone.com",
+      "label": "XTRAF Xtract One (xtractone.com)"
+    }
+  },
+  "probes": {
+    "probe_aglt_ir_home": {
+      "ticker": "AGLT",
+      "label": "AGLT home",
+      "expect": null
+    },
+    "probe_aglt_ir_news_rss": {
+      "ticker": "AGLT",
+      "label": "AGLT news",
+      "expect": "feed"
+    },
+    "probe_aglt_press_page": {
+      "ticker": "AGLT",
+      "label": "AGLT press page",
+      "expect": null
+    },
+    "probe_axon_newsroom": {
+      "ticker": "AXON",
+      "label": "AXON newsroom",
+      "expect": null
+    },
+    "probe_axon_sitemap": {
+      "ticker": "AXON",
+      "label": "AXON sitemap",
+      "expect": "sitemap"
+    },
+    "probe_bw_legacy_feed": {
+      "ticker": null,
+      "label": "bw legacy feed",
+      "expect": "feed"
+    },
+    "probe_bw_pl_release": {
+      "ticker": "PL",
+      "label": "PL bw release",
+      "expect": null
+    },
+    "probe_gnw_bot_rss": {
+      "ticker": "BOT",
+      "label": "BOT gnw",
+      "expect": "feed"
+    },
+    "probe_gnw_bot_www": {
+      "ticker": "BOT",
+      "label": "BOT gnw www",
+      "expect": "feed"
+    },
+    "probe_gnw_sym_rss": {
+      "ticker": "SYM",
+      "label": "SYM gnw",
+      "expect": "feed"
+    },
+    "probe_kdk_ir_events": {
+      "ticker": "KDK",
+      "label": "KDK events",
+      "expect": null
+    },
+    "probe_kdk_ir_news_rss": {
+      "ticker": "KDK",
+      "label": "KDK news",
+      "expect": "feed"
+    },
+    "probe_kdk_ir_presentations": {
+      "ticker": "KDK",
+      "label": "KDK presentations",
+      "expect": null
+    },
+    "probe_mrln_ir_events": {
+      "ticker": "MRLN",
+      "label": "MRLN events",
+      "expect": null
+    },
+    "probe_mrln_ir_news_rss": {
+      "ticker": "MRLN",
+      "label": "MRLN news",
+      "expect": "feed"
+    },
+    "probe_mrln_ir_presentations": {
+      "ticker": "MRLN",
+      "label": "MRLN presentations",
+      "expect": null
+    },
+    "probe_pdyn_ir_news_rss": {
+      "ticker": "PDYN",
+      "label": "PDYN news",
+      "expect": "feed"
+    },
+    "probe_pdyn_ir_presentations": {
+      "ticker": "PDYN",
+      "label": "PDYN presentations",
+      "expect": null
+    },
+    "probe_pi_sitemap": {
+      "ticker": null,
+      "label": "pi sitemap",
+      "expect": "sitemap"
+    },
+    "probe_satl_ir_events_rss": {
+      "ticker": "SATL",
+      "label": "SATL events",
+      "expect": "feed"
+    },
+    "probe_satl_ir_news_rss": {
+      "ticker": "SATL",
+      "label": "SATL news",
+      "expect": "feed"
+    },
+    "probe_satl_ir_presentations": {
+      "ticker": "SATL",
+      "label": "SATL presentations",
+      "expect": null
+    },
+    "probe_serv_ir_events_rss": {
+      "ticker": "SERV",
+      "label": "SERV events",
+      "expect": "feed"
+    },
+    "probe_serv_ir_news_rss": {
+      "ticker": "SERV",
+      "label": "SERV news",
+      "expect": "feed"
+    },
+    "probe_sym_ir_events_page": {
+      "ticker": "SYM",
+      "label": "SYM events page",
+      "expect": null
+    },
+    "probe_sym_ir_events_rss": {
+      "ticker": "SYM",
+      "label": "SYM events",
+      "expect": "feed"
+    },
+    "probe_sym_ir_news_page": {
+      "ticker": "SYM",
+      "label": "SYM news page",
+      "expect": null
+    },
+    "probe_sym_ir_news_rss": {
+      "ticker": "SYM",
+      "label": "SYM news",
+      "expect": "feed"
+    },
+    "probe_xtraf_ir_events_rss": {
+      "ticker": "XTRAF",
+      "label": "XTRAF events",
+      "expect": "feed"
+    },
+    "probe_xtraf_ir_presentations": {
+      "ticker": "XTRAF",
+      "label": "XTRAF presentations",
+      "expect": null
+    }
+  }
+}

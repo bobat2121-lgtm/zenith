@@ -3,7 +3,8 @@
 Coverage Universe (default): the covered universe, from zenith-core's /v1/feed,
 labels to /v1/feedback. Auxiliary Names: material news on every other company
 or program news-monitor follows, from /v1/aux/feed, labels to
-/v1/aux/feedback. Both read /v1/stats. These are the only routes the app token
+/v1/aux/feedback. Both read /v1/stats; the Coverage page also reads
+/v1/source-health and /v1/site-changes. These are the only routes the app token
 may use. Shared code lives in zenith_feed.py; the pages are in views/.
 Configure with .streamlit/secrets.toml (ZENITH_API, ZENITH_APP_TOKEN) or the
 same names as environment variables.

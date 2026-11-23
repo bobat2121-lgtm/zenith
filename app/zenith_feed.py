@@ -229,6 +229,116 @@ def card_html(page: FeedPage, it: dict) -> str:
             f'<div class="z-title">{title}</div>{why}{rt}</div>')
 
 
+# ---- Coverage page: source health and site changes (unit tested) ----------------
+# From /v1/source-health and /v1/site-changes: news-monitor's EDGAR fast trigger,
+# its Worker-egress probes and its site-structure watchers. Coverage page only.
+SITE_DAYS = 14
+SITE_LIMIT = 50
+STRIP_NAMES = 4
+PROBE_STALE_HOURS = 36
+SITE_KIND = {
+    "section_new": "New section", "section_gone": "Section gone", "child_new": "New sitemap",
+    "child_gone": "Sitemap gone", "child_404": "Sitemap 404", "index_moved": "Sitemap moved", "index_gone": "No sitemap",
+}
+
+
+def _ago_text(iso: str | None) -> str:
+    # "2h ago" for recent times; ago() gives a date ("Nov 12") past a week.
+    a = ago(iso)
+    return f"{a} ago" if a[:-1].isdigit() and a[-1:] in ("m", "h", "d") else a
+
+
+def probes_stale(checked_at: str | None, now: datetime | None = None) -> bool:
+    """True when the newest probe check is over PROBE_STALE_HOURS old (probes run once a day)."""
+    if not checked_at:
+        return False
+    try:
+        t = datetime.fromisoformat(str(checked_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (now or datetime.now(timezone.utc)) - t > timedelta(hours=PROBE_STALE_HOURS)
+
+
+def health_strip_html(health: dict) -> str:
+    """One line: "SEC fast path: last 2h ago · IR probes: 2 failing (SYM events, KDK news)",
+    failing names in red. Every value is escaped."""
+    edgar = health.get("edgar_fast_path")
+    if not isinstance(edgar, dict):
+        sec = "unavailable"
+    elif edgar.get("last_match_at"):
+        sec = f"last {html.escape(_ago_text(edgar['last_match_at']))}"
+    else:
+        sec = "no matches yet"
+    probes = health.get("ir_probes")
+    if not isinstance(probes, dict):
+        ir = "unavailable"
+    elif probes_stale(probes.get("checked_at")):
+        # Probes run daily: an old check says nothing about today (details in the popover).
+        ir = f'<span class="z-bad">last checked {html.escape(_ago_text(probes["checked_at"]))}</span>'
+    else:
+        failing = [f for f in probes.get("failing") or [] if isinstance(f, dict)]
+        if failing:
+            names = [f'<span class="z-bad">{html.escape(str(f.get("label") or f.get("key") or "?"))}</span>'
+                     for f in failing[:STRIP_NAMES]]
+            more = f", +{len(failing) - STRIP_NAMES} more" if len(failing) > STRIP_NAMES else ""
+            ir = f'<span class="z-bad">{len(failing)} failing</span> ({", ".join(names)}{more})'
+        elif probes.get("ok"):
+            ir = f"all {html.escape(str(probes['ok']))} OK"
+        else:
+            ir = "no checks yet"
+    return f'<div class="z-health">SEC fast path: {sec} · IR probes: {ir}</div>'
+
+
+def health_details(health: dict) -> list[str]:
+    """Plain-text lines for the strip's popover (rendered with st.text, never Markdown)."""
+    lines = []
+    edgar = health.get("edgar_fast_path")
+    if isinstance(edgar, dict):
+        last = edgar.get("last_match_at")
+        lines.append(f"SEC fast path (EDGAR latest-filings trigger): {edgar.get('matches_24h', 0)} filings matched in 24h, "
+                     f"{edgar.get('matches_7d', 0)} in 7 days; last match {str(last)[:16].replace('T', ' ') + ' UTC' if last else 'none'}.")
+    else:
+        lines.append("SEC fast path: no data (edgar_latest_matches unavailable).")
+    probes = health.get("ir_probes")
+    if isinstance(probes, dict):
+        failing = [f for f in probes.get("failing") or [] if isinstance(f, dict)]
+        checked = probes.get("checked_at")
+        lines.append(f"IR probes: {probes.get('ok', 0)} OK, {len(failing)} failing"
+                     + (f"; last checked {_ago_text(checked)}." if checked else "."))
+        for f in failing:
+            since = str(f.get("since") or "")[:16].replace("T", " ")
+            lines.append(f"  {f.get('label') or f.get('key')} ({f.get('key')}): {f.get('error') or 'failing'}"
+                         + (f", failing as of {since} UTC" if since else ""))
+    else:
+        lines.append("IR probes: no data (probe results unavailable).")
+    return lines
+
+
+def site_changes_for(items, tickers) -> list[dict]:
+    """The changes for the shown companies: notable first, then newest first."""
+    shown = {str(t).upper() for t in tickers or []}
+    rows = [c for c in items or [] if isinstance(c, dict) and str(c.get("ticker") or "").upper() in shown]
+    rows.sort(key=lambda c: (str(c.get("detected_at") or ""), c.get("id") or 0), reverse=True)
+    return sorted(rows, key=lambda c: not c.get("notable"))
+
+
+def site_change_html(ch: dict) -> str:
+    """Ticker · notable mark · kind · age, then the section and news-monitor's change text. Escaped."""
+    ticker = html.escape(str(ch.get("ticker") or ""))
+    kind = html.escape(SITE_KIND.get(str(ch.get("kind") or ""), str(ch.get("kind") or "change")))
+    mark = '<span class="z-badge lead">notable</span>' if ch.get("notable") else ""
+    seen = ch.get("detected_at")
+    age = (f'<span class="z-age" title="detected {html.escape(str(seen), quote=True)}">{html.escape(ago(seen))}</span>'
+           if seen else "")
+    section = f'<code>{html.escape(str(ch["section"]))}</code> ' if ch.get("section") else ""
+    detail = html.escape(one_line(ch.get("detail")))
+    cls = " notable" if ch.get("notable") else ""
+    return (f'<div class="z-site{cls}"><div class="z-head"><b class="z-name">{ticker}</b>{mark}'
+            f'<span class="z-badge src">{kind}</span>{age}</div><div class="z-site-detail">{section}{detail}</div></div>')
+
+
 # ---- API ----------------------------------------------------------------------
 @st.cache_data(ttl=30, show_spinner=False)
 def get_json(path: str, params: tuple) -> dict:
@@ -395,6 +505,39 @@ def _metrics(page: FeedPage, stats: dict) -> None:
         st.caption(f"Last auxiliary ingest {ago(last)} ago" if last else "No auxiliary ingest yet")
 
 
+def health_strip() -> None:
+    """Coverage page: the one-line source-health strip, details in a popover."""
+    try:
+        health = get_json("/v1/source-health", ())
+    except Exception:  # noqa: BLE001
+        st.caption("Source health unavailable")
+        return
+    row = st.container(horizontal=True, gap="small", vertical_alignment="center", key="zhealth")
+    row.markdown(health_strip_html(health), unsafe_allow_html=True, width="content")
+    with row.popover("Details", width="content"):
+        for line in health_details(health):
+            st.text(line)
+
+
+def site_changes(tickers) -> None:
+    """Coverage page: the last 14 days of site-structure changes for the shown companies."""
+    # The server filters by ticker before its limit, so a burst on one site cannot
+    # crowd out another company; site_changes_for still filters (older workers ignore it).
+    shown = ",".join(sorted({str(t).upper() for t in tickers or []}))
+    try:
+        items = get_json("/v1/site-changes", (("days", SITE_DAYS), ("limit", SITE_LIMIT), ("tickers", shown)))["items"]
+    except Exception:  # noqa: BLE001
+        return
+    rows = site_changes_for(items, tickers)
+    notable = sum(1 for c in rows if c.get("notable"))
+    label = f"Site changes · last {SITE_DAYS} days ({len(rows)})" + (f" · {notable} notable" if notable else "")
+    with st.expander(label, expanded=False, icon=":material/account_tree:"):
+        if not rows:
+            st.caption(f"No site structure changes for these companies in the last {SITE_DAYS} days.")
+        for ch in rows:
+            st.markdown(site_change_html(ch), unsafe_allow_html=True)
+
+
 def filter_options(page: FeedPage, stats: dict) -> tuple[list[str], dict]:
     """(options, counts) for the sidebar filter: covered tickers, or auxiliary
     names graded in the last 30 days (most first)."""
@@ -419,6 +562,8 @@ def render(page: FeedPage) -> None:
     head.markdown(f"#### {page.title}")
     mode = switch.segmented_control("Sort", MODES, default=MODES[0], required=True, key=f"{page.kind}-mode",
                                     label_visibility="collapsed", width="stretch", persist_state="session") or MODES[0]
+    if page.kind == "cov":
+        health_strip()
 
     with st.sidebar:
         options, counts = filter_options(page, stats)
@@ -440,4 +585,7 @@ def render(page: FeedPage) -> None:
             get_json.clear()
             st.rerun()
 
+    if page.kind == "cov":
+        # The shown companies: the filter's picks, else every covered ticker.
+        site_changes(picked or options)
     feed(page, tuple(sorted(feed_params(mode, min_score, unlabeled).items())), tuple(picked))
