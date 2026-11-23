@@ -1,10 +1,11 @@
 // Auxiliary names: material news about every company or program news-monitor
 // follows outside the covered universe (worker/src/aux-sources.json, routed by
 // aux-route.js). A pipeline beside the coverage one, with its own tables
-// (aux_items, aux_grades, aux_feedback: migration 0008), cursor, claim and
+// (aux_items, aux_grades, aux_feedback: migrations 0008, 0009), cursor, claim and
 // grade API, and feed. Nothing here reads or writes items, grades, feedback or
 // runs, so no coverage count, alert, brief or grade can change.
-//   cron  : ingestAux after the coverage ingest and enrich (and POST /v1/admin/aux-ingest)
+//   cron  : ingestAux after the coverage ingest and enrich (and POST /v1/admin/aux-ingest),
+//           with the one-time coverage-subject catch-up (migration 0009)
 //   grader: POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels
 //   app   : GET /v1/aux/feed, POST /v1/aux/feedback, the aux block of GET /v1/stats
 //
@@ -32,6 +33,14 @@ const STATS_ENTITY_DAYS = 30;
 // skip reasons and archive parking are the coverage ingest's (ingest.js); the
 // excerpt is the feed's own text when it carries the release itself, and an
 // auxiliary page is never fetched.
+//
+// Coverage-subject sources (aux-route.js) joined after aux_nm_cursor had
+// passed their rows, so a one-time catch-up (meta aux_cs_cursor) scans the
+// rows from the 14-day backfill start up to aux_nm_cursor for those sources
+// only, bounded per run like the main scan, and then stops ('done'). A
+// zenith-db whose first auxiliary run routes them already never needs it.
+export const AUX_CS_DONE = "done";
+
 export async function ingestAux(env) {
   const db = env.DB;
   const news = env.NEWS;
@@ -39,18 +48,42 @@ export async function ingestAux(env) {
   let cursor = Number(stored);
   if (stored === null || !Number.isFinite(cursor)) {
     cursor = await initialCursor(news, AUX_BACKFILL_DAYS);
-    await setMeta(db, "aux_nm_cursor", cursor).run();
+    await db.batch([setMeta(db, "aux_nm_cursor", cursor), setMeta(db, "aux_cs_cursor", AUX_CS_DONE)]);
   }
-  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0;
+  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor });
+  const catchUp = await catchUpCoverageSubject(db, news, main.cursor);
+  return { ...main, coverage_subject_catch_up: catchUp };
+}
+
+// The one-time coverage-subject catch-up, up to the main cursor (end). Returns
+// null once done, else what this run scanned.
+async function catchUpCoverageSubject(db, news, end) {
+  const stored = await getMeta(db, "aux_cs_cursor");
+  if (stored === AUX_CS_DONE) return null;
+  let cursor = Number(stored);
+  if (stored === null || !Number.isFinite(cursor)) cursor = await initialCursor(news, AUX_BACKFILL_DAYS);
+  const r = cursor >= end ? { cursor, scanned: 0, matched: 0, inserted: 0, skipped_on_arrival: 0, done: true }
+    : await scanAux(db, news, { cursorKey: "aux_cs_cursor", cursor, end, only: (route) => route.coverage_subject === true });
+  if (r.done) await setMeta(db, "aux_cs_cursor", AUX_CS_DONE).run();
+  return { ...r, done: Boolean(r.done) };
+}
+
+// Scans news-monitor rows after `cursor` (up to `end` when given) in BATCH-row
+// windows, MAX_BATCHES a run, storing every row whose route passes `only`, and
+// keeps the cursor in meta cursorKey with each window. done: the scan reached
+// `end`.
+async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true }) {
+  const bounded = end !== null;
+  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, done = false;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
-    const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
-      .bind(cursor, BATCH).first();
-    if (!win || win.hi == null) break;
+    const win = await news.prepare(`SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ?${bounded ? " AND rowid <= ?" : ""} ORDER BY rowid LIMIT ?)`)
+      .bind(...(bounded ? [cursor, end, BATCH] : [cursor, BATCH])).first();
+    if (!win || win.hi == null) { done = bounded; break; }
     const routed = [];
     for (const r of await newsRows(news, cursor, win.hi)) {
       const route = auxRoute(r.source_key);
-      if (route) routed.push({ r, route });
+      if (route && only(route)) routed.push({ r, route });
     }
     matched += routed.length;
     const rows = routed.map((x) => x.r);
@@ -75,29 +108,32 @@ export async function ingestAux(env) {
       if (reason) skipped++;
       const feed = feedFields(r, { role: null }, now);
       if (feed.status) fromFeed++;
+      const subject = route.coverage_subject === true;
       stmts.push(db.prepare(
         `INSERT OR IGNORE INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
-           ingested_at, state, skip_reason, excerpt, excerpt_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ingested_at, state, skip_reason, excerpt, excerpt_status, coverage_subject, affects)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(r.nm_rowid, r.source_key, route.entity_key, route.entity_name, route.status, r.url || "", r.title || "(untitled)", r.published ?? null,
-        r.category ?? null, r.first_seen, now, reason ? "skipped" : "pending", reason || null, feed.status ? feed.excerpt : null, feed.status));
+        r.category ?? null, r.first_seen, now, reason ? "skipped" : "pending", reason || null, feed.status ? feed.excerpt : null, feed.status,
+        subject ? 1 : 0, subject && route.affects?.length ? route.affects.join(",") : null));
     }
     const n = stmts.length;
-    stmts.push(setMeta(db, "aux_nm_cursor", win.hi));
+    stmts.push(setMeta(db, cursorKey, win.hi));
     stmts.push(setMeta(db, "aux_last_ingest_at", now));
     const res = await db.batch(stmts);
     inserted += res.slice(updates, n).reduce((k, x) => k + (x.meta?.changes || 0), 0);
     parkedEarlier += res.slice(0, updates).reduce((k, x) => k + (x.meta?.changes || 0), 0);
     scanned += win.n;
     cursor = win.hi;
-    if (win.n < BATCH) break;
+    if (win.n < BATCH || (bounded && cursor >= end)) { done = bounded; break; }
   }
-  return { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed };
+  const out = { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed };
+  return bounded ? { ...out, done } : out;
 }
 
 // --- Claim ------------------------------------------------------------------
 const CLAIM_COLS = `i.id AS item_id, i.source_key, i.entity_key, i.entity_name, i.status, i.title, i.url, i.published,
-  i.nm_first_seen AS first_seen, i.excerpt, i.excerpt_status`;
+  i.nm_first_seen AS first_seen, i.excerpt, i.excerpt_status, i.coverage_subject, i.affects`;
 
 // Same lease rules as the coverage claim: a 45-minute lease, attempts + 1, and
 // items that failed grading MAX_ATTEMPTS times leave the queue. Newest first.
@@ -120,7 +156,12 @@ export async function auxClaim(env, body) {
   const items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC, i.id DESC`)
     .bind(claimId).all()).results || [];
   // Timeliness is measured from first sighting, never from grading time.
-  for (const it of items) it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
+  for (const it of items) {
+    it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
+    // From a feed built for these covered companies (aux-route.js).
+    it.coverage_subject = it.coverage_subject === 1;
+    it.affects = it.affects ? String(it.affects).split(",").filter(Boolean) : [];
+  }
   const pending = await env.DB.prepare("SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed')").first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: AUX_RUBRIC_VERSION, items,
     remaining: Math.max(0, (pending?.n || 0) - items.length) };

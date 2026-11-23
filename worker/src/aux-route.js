@@ -1,7 +1,10 @@
 // Auxiliary names: routes a news-monitor source key to the outside company or
 // program its items are about, for the auxiliary pipeline (aux_items). Covered
-// sources, counterparty filters that only watch a covered company, and ops
-// sources route to null and are never stored as auxiliary.
+// sources and ops sources route to null and are never stored as auxiliary.
+// Counterparty filters built to watch a covered company (co-mention searches,
+// FPDS feeds, Drone Dominance) route with coverage_subject: true and the
+// covered tickers they affect, so the grader can tell an item about an outside
+// company from one about the covered company.
 //
 // The static registry is worker/src/aux-sources.json, generated with covered.json by
 // scripts/sync-covered.mjs. Keys news-monitor creates at runtime (managed
@@ -18,14 +21,20 @@ export function humanize(key) {
 }
 
 // aux: aux-sources.json, covered: covered.json. Returns auxRoute(sourceKey) ->
-// { entity_key, entity_name, status } or null.
+// { entity_key, entity_name, status } (plus coverage_subject: true and affects:
+// [covered tickers] for a coverage-subject source) or null.
 export function makeAuxRoute(aux, covered) {
   const sources = aux?.sources || {};
   const exclude = aux?.exclude || {};
   const coveredSources = covered?.sources || {};
-  const entry = (key) => {
+  // subject: whether the key is the source itself, so its coverage_subject
+  // hint applies. A runtime key that only shares its name (managed_uber_news,
+  // ia_uber) is that company's own channel, not a filter built for a covered one.
+  const entry = (key, subject = false) => {
     const e = sources[key];
-    return { entity_key: e.entity, entity_name: e.name, status: e.status };
+    const route = { entity_key: e.entity, entity_name: e.name, status: e.status };
+    if (subject && e.coverage_subject) Object.assign(route, { coverage_subject: true, affects: [...(e.affects || [])] });
+    return route;
   };
   // An entity's own source if it has one (verkada), else its first source
   // (maymobility -> maymobility_ir), so a runtime key named after a known
@@ -48,7 +57,7 @@ export function makeAuxRoute(aux, covered) {
   return function auxRoute(sourceKey) {
     const key = String(sourceKey ?? "").trim();
     if (!key) return null;
-    if (has(sources, key)) return entry(key);
+    if (has(sources, key)) return entry(key, true);
     if (has(exclude, key) || has(coveredSources, key)) return null;
     // Runtime fallback for keys outside the static registry.
     if (/^(probe|site)_/.test(key) || key === "edgar_latest") return null;

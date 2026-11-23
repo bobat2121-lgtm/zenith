@@ -17,8 +17,11 @@ const AUX = {
     verkada: { entity: "verkada", name: "Verkada (private)", status: "private", lane: "private_adjacent" },
     verkada_updates: { entity: "verkada", name: "Verkada (private)", status: "private", lane: "private_adjacent" },
     nga: { entity: "nga", name: "NGA", status: "program", lane: "strategic_noncompany" },
+    aglt_rel: { entity: "aglt_rel", name: "Agility Robotics partner mentions", status: "public", lane: "public_adjacent", coverage_subject: true, affects: ["AGLT"] },
+    fpds_pl: { entity: "fpds", name: "FPDS contracts", status: "program", lane: "strategic_noncompany", coverage_subject: true, affects: ["PL"] },
+    uber: { entity: "uber", name: "Uber", status: "public", lane: "public_adjacent", coverage_subject: true, affects: ["AUR", "SERV"] },
   },
-  exclude: { aglt_rel: "coverage_subject", fpds_pl: "coverage_subject", site_kodiak: "ops" },
+  exclude: { site_kodiak: "ops" },
 };
 const COVERED = {
   tickers: ["DPRO", "MBAI", "RCAT", "SERV"],
@@ -35,8 +38,21 @@ test("aux-sources.json sources route to their entity, name and status", () => {
   assert.deepEqual(route("nga"), { entity_key: "nga", entity_name: "NGA", status: "program" });
 });
 
+test("coverage-subject sources route with coverage_subject and the covered tickers they affect", () => {
+  assert.deepEqual(route("aglt_rel"), { entity_key: "aglt_rel", entity_name: "Agility Robotics partner mentions", status: "public",
+    coverage_subject: true, affects: ["AGLT"] });
+  assert.deepEqual(route("fpds_pl"), { entity_key: "fpds", entity_name: "FPDS contracts", status: "program", coverage_subject: true, affects: ["PL"] });
+  const a = route("uber");
+  a.affects.push("XYZ");
+  assert.deepEqual(route("uber").affects, ["AUR", "SERV"], "each route gets its own affects list");
+  // A runtime key that only shares the name is that company's own channel.
+  assert.deepEqual(route("managed_uber_news"), { entity_key: "uber", entity_name: "Uber", status: "public" });
+  assert.deepEqual(route("ia_uber"), { entity_key: "uber", entity_name: "Uber", status: "public" });
+  assert.equal(route("anduril").coverage_subject, undefined);
+});
+
 test("excluded and covered sources route to null", () => {
-  for (const key of ["aglt_rel", "fpds_pl", "site_kodiak", "redcat", "edgar_rcat", "draganfly"]) assert.equal(route(key), null, key);
+  for (const key of ["site_kodiak", "redcat", "edgar_rcat", "draganfly"]) assert.equal(route(key), null, key);
   assert.equal(route(""), null);
   assert.equal(route(null), null);
 });
@@ -91,16 +107,35 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
     assert.ok(!(key in aux.exclude), key);
     assert.ok(["public", "private", "program"].includes(e.status), `${key} status ${e.status}`);
     assert.ok(e.entity && e.name && e.lane, key);
+    if (e.coverage_subject !== undefined) {
+      // A counterparty filter built for covered companies, affecting only covered tickers.
+      assert.equal(e.coverage_subject, true, key);
+      assert.ok(key in covered.counterparty, `${key} is a counterparty source`);
+      assert.ok(e.affects.length && e.affects.every((t) => covered.tickers.includes(t)), `${key} affects ${e.affects}`);
+      assert.deepEqual(auxRoute(key).affects, e.affects, key);
+    }
   }
   for (const [key, why] of Object.entries(aux.exclude)) {
-    assert.ok(["ops", "coverage_subject"].includes(why), `${key} ${why}`);
+    assert.equal(why, "ops", `${key} ${why}`);
     assert.equal(auxRoute(key), null, key);
   }
   assert.equal(auxRoute("anduril").entity_key, "anduril");
   assert.equal(auxRoute("skydio").status, "private");
   assert.equal(auxRoute("maymobility_news").entity_key, "maymobility");
   assert.equal(auxRoute("nga").status, "program");
-  for (const key of ["aglt_rel", "fpds_pl", "site_kodiak", "dronedominance"]) assert.ok(key in aux.exclude, key);
+  // Round 2: coverage-subject sources are auxiliary; ops sources stay excluded.
+  assert.equal(aux.exclude.site_kodiak, "ops");
+  assert.equal(auxRoute("site_kodiak"), null);
+  const cs = (key) => { const r = auxRoute(key); return [r.entity_key, r.entity_name, r.status, r.coverage_subject, r.affects]; };
+  assert.deepEqual(cs("dronedominance"), ["dronedominance", "Drone Dominance", "program", true, ["RCAT", "DPRO", "PUSA", "UMAC"]]);
+  assert.deepEqual(cs("dronedominance_lists"), ["dronedominance", "Drone Dominance", "program", true, ["RCAT", "DPRO", "PUSA", "UMAC", "ONDS"]]);
+  assert.deepEqual(cs("fpds_pl"), ["fpds", "FPDS contracts", "program", true, ["PL"]]);
+  assert.deepEqual(cs("aglt_rel"), ["aglt_rel", "Agility Robotics partner mentions", "public", true, ["AGLT"]]);
+  assert.equal(auxRoute("wargov_contracts_matched").coverage_subject, true);
+  assert.ok(auxRoute("wargov_contracts_matched").affects.includes("RCAT"));
+  assert.equal(auxRoute("wargov_contracts").coverage_subject, undefined, "the unfiltered contracts feed is a plain program source");
+  assert.equal(auxRoute("skydio").coverage_subject, undefined, "a counterparty company's own channel is a plain auxiliary name");
+  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 104);
 });
 
 test("runtime keys never route a covered company's channel or a blank name to the auxiliary page", () => {

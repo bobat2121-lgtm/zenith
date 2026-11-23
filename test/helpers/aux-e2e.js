@@ -72,7 +72,8 @@ export function newsRows(now = Date.now()) {
   return [
     // Covered company: coverage only.
     { tag: "covered", source_key: "redcat", title: "Red Cat wins Army follow-on order for Black Widow systems", first_seen: iso(now, 6 * HOUR) },
-    // Counterparty co-mention source (FPDS notices naming a covered company): coverage subject, never auxiliary.
+    // Counterparty filter built for a covered company (FPDS notices naming Planet Labs): graded on
+    // Coverage and also auxiliary as a coverage subject; this one is mainly about the covered company.
     { tag: "co_mention", source_key: "fpds_pl", title: "Contract notice: Planet Labs PBC imagery subscription", first_seen: iso(now, 5.5 * HOUR) },
     // Ops: a site-structure watcher.
     { tag: "ops", source_key: "site_kodiak", title: "kodiak.ai sitemap changed", first_seen: iso(now, 5.2 * HOUR) },
@@ -118,6 +119,7 @@ export function gradesFor(claim, coveredTicker, { invalid = false } = {}) {
   const media = by((i) => i.source_key === "ia_media_dronelife");
   const nga = by((i) => i.source_key === "nga");
   const skydio = by((i) => i.source_key === "skydio");
+  const fpds = by((i) => i.source_key === "fpds_pl");
   const base = { reads_through: [], confidence: 0.8, read_source: true, dup_of: null, covered_ticker: null };
   const grades = [
     { ...base, item_id: lead.item_id, entity: "Anduril", score: 92, band: invalid ? "digest" : "lead", event_type: "financing",
@@ -131,6 +133,9 @@ export function gradesFor(claim, coveredTicker, { invalid = false } = {}) {
       why: "NGA imagery agreement with Planet Labs.", flags: ["reason:covered_name"], covered_ticker: invalid ? "XYZ" : "PL" },
     { ...base, item_id: skydio.item_id, entity: "Skydio", score: 55, band: "borderline", event_type: "deployment",
       why: "Two more state police agencies deployed Skydio X10.", flags: ["reason:minor"] },
+    { ...base, item_id: fpds.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
+      why: "FPDS notice for a Planet Labs imagery subscription: the covered company's own award.", flags: ["reason:covered_name"], covered_ticker: "PL" },
   ];
-  return { grades, ids: { lead: lead.item_id, noise: noise.item_id, fort: fort.item_id, media: media.item_id, nga: nga.item_id, skydio: skydio.item_id } };
+  return { grades, ids: { lead: lead.item_id, noise: noise.item_id, fort: fort.item_id, media: media.item_id, nga: nga.item_id, skydio: skydio.item_id,
+    fpds: fpds.item_id } };
 }

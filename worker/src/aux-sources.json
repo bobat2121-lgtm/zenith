@@ -13,11 +13,52 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "aglt_rel": {
+      "entity": "aglt_rel",
+      "name": "Agility Robotics partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "airbus_space": {
+      "entity": "airbus_space",
+      "name": "Airbus SE (Airbus Defence and Space, Space Systems / Earth observation)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PL",
+        "SATL"
+      ]
+    },
     "airo": {
       "entity": "airo",
       "name": "AIRO Group (AIRO)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "albertsons": {
+      "entity": "albertsons",
+      "name": "Albertsons",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
+    },
+    "amazon_humanoid": {
+      "entity": "amazon_humanoid",
+      "name": "Amazon (AMZN)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AGLT"
+      ]
     },
     "anduril": {
       "entity": "anduril",
@@ -61,6 +102,16 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "asst_rel": {
+      "entity": "asst_rel",
+      "name": "Strive partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "ASST"
+      ]
+    },
     "atlas": {
       "entity": "atlas",
       "name": "Atlas Energy Solutions (AESI)",
@@ -72,6 +123,16 @@
       "name": "AUMOVIO (FRA: AMV0)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "aur_rel": {
+      "entity": "aur_rel",
+      "name": "Aurora partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
     },
     "auterion": {
       "entity": "auterion",
@@ -91,11 +152,41 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "avispl_autonomy": {
+      "entity": "avispl_autonomy",
+      "name": "AVI-SPL",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
+    },
     "avride": {
       "entity": "avride",
       "name": "Avride (Nebius subsidiary)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "awg": {
+      "entity": "awg",
+      "name": "Associated Wholesale Grocers (AWG)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
+    },
+    "bedrock_robotics": {
+      "entity": "bedrock_robotics",
+      "name": "Bedrock Robotics",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SERV"
+      ]
     },
     "beta": {
       "entity": "beta",
@@ -121,11 +212,41 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "bot_rel": {
+      "entity": "bot_rel",
+      "name": "RoboStrategy partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "BOT"
+      ]
+    },
     "botauto": {
       "entity": "botauto",
       "name": "Bot Auto",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "boutiqueair": {
+      "entity": "boutiqueair",
+      "name": "Boutique Air, Inc.",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "braincorp": {
+      "entity": "braincorp",
+      "name": "Brain Corporation (Brain Corp)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
     },
     "brinc": {
       "entity": "brinc",
@@ -133,17 +254,98 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "caesars_mbai": {
+      "entity": "caesars_mbai",
+      "name": "Caesars Entertainment",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "canada_dnd_drones": {
+      "entity": "canada_dnd_drones",
+      "name": "Canada National Defence",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "DPRO"
+      ]
+    },
+    "capeair": {
+      "entity": "capeair",
+      "name": "Cape Air (Hyannis Air Service, Inc.)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "cariberoyale_mbai": {
+      "entity": "cariberoyale_mbai",
+      "name": "Caribe Royale Orlando",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "ceiia_atlantic": {
+      "entity": "ceiia_atlantic",
+      "name": "Atlantic Constellation / CEiiA (Portugal)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "SATL"
+      ]
+    },
+    "charger_av": {
+      "entity": "charger_av",
+      "name": "Charger Logistics / Charger USA",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
     "coco": {
       "entity": "coco",
       "name": "Coco Robotics (private)",
       "status": "private",
       "lane": "private_adjacent"
     },
+    "contour": {
+      "entity": "contour",
+      "name": "Contour Airlines (Corporate Flight Management, Inc.)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
     "coreweave": {
       "entity": "coreweave",
       "name": "CoreWeave (Nasdaq: CRWV)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "cswg": {
+      "entity": "cswg",
+      "name": "C&S Wholesale Grocers",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
     },
     "daimler_newsroom": {
       "entity": "daimler",
@@ -181,11 +383,68 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "dpro_rel": {
+      "entity": "dpro_rel",
+      "name": "Draganfly partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "DPRO"
+      ]
+    },
+    "dronedominance": {
+      "entity": "dronedominance",
+      "name": "Drone Dominance",
+      "status": "program",
+      "lane": "strategic_fast_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "DPRO",
+        "PUSA",
+        "UMAC"
+      ]
+    },
+    "dronedominance_lists": {
+      "entity": "dronedominance",
+      "name": "Drone Dominance",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "DPRO",
+        "PUSA",
+        "UMAC",
+        "ONDS"
+      ]
+    },
     "droneshield": {
       "entity": "droneshield",
       "name": "DroneShield (ASX: DRO)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "dsv_autonomy": {
+      "entity": "dsv_autonomy",
+      "name": "DSV",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
+    },
+    "dtl_kdk": {
+      "entity": "dtl_kdk",
+      "name": "DTL Transport",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ]
     },
     "duos": {
       "entity": "duos",
@@ -247,6 +506,16 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "evlv_rel": {
+      "entity": "evlv_rel",
+      "name": "Evolv partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "EVLV"
+      ]
+    },
     "exol_press": {
       "entity": "exol_press",
       "name": "Exol (GreenBox Systems, Symbotic-SoftBank JV)",
@@ -271,6 +540,17 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "fedreg_av_trucking": {
+      "entity": "fedreg_av_trucking",
+      "name": "Federal Register",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
     "figure": {
       "entity": "figure",
       "name": "Figure AI (private)",
@@ -289,6 +569,16 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "fmv_planet": {
+      "entity": "fmv_planet",
+      "name": "FMV (Swedish Defence Materiel Administration)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "PL"
+      ]
+    },
     "fort": {
       "entity": "fort",
       "name": "FORT Robotics (private; pending Nasdaq: FROB)",
@@ -300,6 +590,106 @@
       "name": "Forterra (private)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "fpds_axon": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON"
+      ]
+    },
+    "fpds_onds": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "fpds_pdyn": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "PDYN"
+      ]
+    },
+    "fpds_pl": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "PL"
+      ]
+    },
+    "fpds_pusa": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "PUSA"
+      ]
+    },
+    "fpds_satl": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "SATL"
+      ]
+    },
+    "fpds_spai": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "SPAI"
+      ]
+    },
+    "fpl_drones": {
+      "entity": "fpl_drones",
+      "name": "Florida Power & Light",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SPAI"
+      ]
+    },
+    "freyr_ai": {
+      "entity": "freyr_ai",
+      "name": "Freyr Technology AI (Freyr Singapore)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "garrett_security": {
+      "entity": "garrett_security",
+      "name": "Garrett Electronics, Inc. (Garrett Metal Detectors)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "EVLV"
+      ]
     },
     "gatik": {
       "entity": "gatik",
@@ -319,11 +709,41 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "google_suncatcher": {
+      "entity": "google_suncatcher",
+      "name": "Google Project Suncatcher",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PL"
+      ]
+    },
     "greyorange": {
       "entity": "greyorange",
       "name": "GreyOrange Inc.",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "grrr_rel": {
+      "entity": "grrr_rel",
+      "name": "Gorilla Technology partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "grubhub_robots": {
+      "entity": "grubhub_robots",
+      "name": "Grubhub / Wonder",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SERV"
+      ]
     },
     "gxo_humanoid": {
       "entity": "gxo_humanoid",
@@ -343,11 +763,41 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "hirschbach_av": {
+      "entity": "hirschbach_av",
+      "name": "Hirschbach Motor Lines",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
+    },
     "iceye": {
       "entity": "iceye",
       "name": "ICEYE (private)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "ikea_supply": {
+      "entity": "ikea_supply",
+      "name": "IKEA Supply",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ]
+    },
+    "index_ftserussell": {
+      "entity": "index_ftserussell",
+      "name": "FTSE Russell (LSEG)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MSTR"
+      ]
     },
     "index_nasdaq100": {
       "entity": "index_nasdaq100",
@@ -384,6 +834,26 @@
       "name": "Joby (JOBY)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "jsat_eo": {
+      "entity": "jsat_eo",
+      "name": "SKY Perfect JSAT",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PL"
+      ]
+    },
+    "kdk_rel": {
+      "entity": "kdk_rel",
+      "name": "Kodiak AI partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ]
     },
     "knapp": {
       "entity": "knapp",
@@ -426,6 +896,16 @@
       "name": "Larsen & Toubro (NSE: LT)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "legistar_oakland_axon": {
+      "entity": "legistar_oakland_axon",
+      "name": "Oakland City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON"
+      ]
     },
     "leidos_strike": {
       "entity": "leidos_strike",
@@ -481,6 +961,26 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "mbai_rel": {
+      "entity": "mbai_rel",
+      "name": "MBody AI partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "mclane_av": {
+      "entity": "mclane_av",
+      "name": "McLane Company (Berkshire Hathaway)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
+    },
     "medline": {
       "entity": "medline",
       "name": "Medline (MDLN)",
@@ -499,6 +999,16 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "mgm_mbai": {
+      "entity": "mgm_mbai",
+      "name": "MGM Resorts International",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
+    },
     "mobileye": {
       "entity": "mobileye",
       "name": "Mobileye (MBLY)",
@@ -511,6 +1021,28 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "modalai": {
+      "entity": "modalai",
+      "name": "ModalAI, Inc. (San Diego)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "DPRO"
+      ]
+    },
+    "mohegan_mbai": {
+      "entity": "mohegan_mbai",
+      "name": "Mohegan Sun (Uncasville, CT)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
+    },
     "motive": {
       "entity": "motive",
       "name": "Motive Technologies (private)",
@@ -522,6 +1054,46 @@
       "name": "Motorola Solutions (MSI)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "mrln_rel": {
+      "entity": "mrln_rel",
+      "name": "Merlin partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "msci_mstr": {
+      "entity": "msci_mstr",
+      "name": "MSCI Inc. (index announcements)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "msgvenues": {
+      "entity": "msgvenues",
+      "name": "MSG family (Madison Square Garden, MSG Sports, MSG Entertainment venues)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "XTRAF"
+      ]
+    },
+    "mstr_rel": {
+      "entity": "mstr_rel",
+      "name": "Strategy partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MSTR"
+      ]
     },
     "mujin": {
       "entity": "mujin",
@@ -571,6 +1143,17 @@
       "status": "program",
       "lane": "strategic_noncompany"
     },
+    "nhtsa_sgo_ads": {
+      "entity": "nhtsa_sgo_ads",
+      "name": "NHTSA Standing General Order",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
     "nslr": {
       "entity": "nslr",
       "name": "Neostellar Capital Corp. (formerly SuRo Capital Corp.)",
@@ -589,11 +1172,64 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "omnilert": {
+      "entity": "omnilert",
+      "name": "Omnilert, LLC",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "onds_rel": {
+      "entity": "onds_rel",
+      "name": "Ondas partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "one_x_tech": {
+      "entity": "one_x_tech",
+      "name": "1X Technologies AS",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "onr_slingshot": {
+      "entity": "onr_slingshot",
+      "name": "ONR Slingshot III program",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "SATL"
+      ]
+    },
     "opengate": {
       "entity": "opengate",
       "name": "CEIA OpenGate (private, Italy)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "orqa": {
+      "entity": "orqa",
+      "name": "Orqa d.o.o. (Croatia) and its US subsidiary Orqa U.S.",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "DPRO"
+      ]
     },
     "overland": {
       "entity": "overland",
@@ -631,6 +1267,27 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "pdyn_cust_iai": {
+      "entity": "pdyn_cust_iai",
+      "name": "IAI HARPY/HAROP loitering munitions",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PDYN",
+        "ONDS"
+      ]
+    },
+    "pdyn_rel": {
+      "entity": "pdyn_rel",
+      "name": "Palladyne AI partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PDYN"
+      ]
+    },
     "perennial": {
       "entity": "perennial",
       "name": "Perennial Autonomy (private)",
@@ -649,6 +1306,16 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "pl_rel": {
+      "entity": "pl_rel",
+      "name": "Planet Labs partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PL"
+      ]
+    },
     "plus": {
       "entity": "plus",
       "name": "PlusAI (private; pending Nasdaq listing)",
@@ -660,6 +1327,26 @@
       "name": "Pony.ai (PONY; also HKEX-listed)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "pudu": {
+      "entity": "pudu",
+      "name": "Pudu Robotics (Shenzhen Pudu Technology Co., Ltd.)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MBAI"
+      ]
+    },
+    "pusa_rel": {
+      "entity": "pusa_rel",
+      "name": "Powerus partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "PUSA"
+      ]
     },
     "qumulus": {
       "entity": "qumulus",
@@ -673,17 +1360,57 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "rcat_rel": {
+      "entity": "rcat_rel",
+      "name": "Red Cat partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT"
+      ]
+    },
+    "rcat_rel_steyr": {
+      "entity": "rcat_rel",
+      "name": "Red Cat partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT"
+      ]
+    },
     "redwire": {
       "entity": "redwire",
       "name": "Redwire (RDW)",
       "status": "public",
       "lane": "public_adjacent"
     },
+    "regulations_eas_srfm": {
+      "entity": "regulations_eas_srfm",
+      "name": "DOT Essential Air Service dockets",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
     "rekor": {
       "entity": "rekor",
       "name": "Rekor Systems (NASDAQ: REKR)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "reliable": {
+      "entity": "reliable",
+      "name": "Reliable Robotics (private)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MRLN"
+      ]
     },
     "richtech": {
       "entity": "richtech",
@@ -703,11 +1430,43 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "roehl_kdk": {
+      "entity": "roehl_kdk",
+      "name": "Roehl Transport",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ]
+    },
+    "rogue_fires": {
+      "entity": "rogue_fires",
+      "name": "USMC ROGUE-Fires program (NMESIS on JLTV)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ]
+    },
     "roush": {
       "entity": "roush",
       "name": "Roush Industries (private)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "safetyact_awards": {
+      "entity": "safetyact_awards",
+      "name": "SAFETY Act awards (DHS S&T)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "EVLV",
+        "XTRAF",
+        "AXON"
+      ]
     },
     "saildrone": {
       "entity": "saildrone",
@@ -727,6 +1486,36 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "satl_rel": {
+      "entity": "satl_rel",
+      "name": "Satellogic partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SATL"
+      ]
+    },
+    "schaeffler_humanoid": {
+      "entity": "schaeffler_humanoid",
+      "name": "Schaeffler",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AGLT"
+      ]
+    },
+    "serv_rel": {
+      "entity": "serv_rel",
+      "name": "Serve Robotics partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SERV"
+      ]
+    },
     "sharonai_news": {
       "entity": "sharonai",
       "name": "Sharon AI (SHAZ)",
@@ -738,6 +1527,16 @@
       "name": "Shield AI (private)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "sikorsky_matrix": {
+      "entity": "sikorsky_matrix",
+      "name": "Sikorsky MATRIX autonomy (Sikorsky, a Lockheed Martin company)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "MRLN"
+      ]
     },
     "silvia": {
       "entity": "silvia",
@@ -751,6 +1550,17 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "skycutter": {
+      "entity": "skycutter",
+      "name": "Skycutter Ltd (UK)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "DPRO"
+      ]
+    },
     "skydio": {
       "entity": "skydio",
       "name": "Skydio (private)",
@@ -762,6 +1572,26 @@
       "name": "Skyryse, Inc.",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "skywest_eas": {
+      "entity": "skywest_eas",
+      "name": "SkyWest, Inc.",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "southernglazers": {
+      "entity": "southernglazers",
+      "name": "Southern Glazer's Wine & Spirits",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
     },
     "spaceeyes": {
       "entity": "spaceeyes",
@@ -775,11 +1605,51 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "spai_rel": {
+      "entity": "spai_rel",
+      "name": "Safe Pro partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SPAI"
+      ]
+    },
+    "sphere_security": {
+      "entity": "sphere_security",
+      "name": "Sphere Entertainment (Las Vegas Sphere)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "XTRAF"
+      ]
+    },
     "spire": {
       "entity": "spire",
       "name": "Spire Global (SPIR)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "srfm_rel": {
+      "entity": "srfm_rel",
+      "name": "Surf Air Mobility partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
+    "sse_drone": {
+      "entity": "sse_drone",
+      "name": "SSE plc / SSEN",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "ONDS"
+      ]
     },
     "starship": {
       "entity": "starship",
@@ -787,11 +1657,61 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "swarmdefense": {
+      "entity": "swarmdefense",
+      "name": "Swarm Defense Technologies (Auburn Hills, Michigan)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "DPRO"
+      ]
+    },
     "swarmer": {
       "entity": "swarmer",
       "name": "Swarmer (SWMR)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "sym_rel": {
+      "entity": "sym_rel",
+      "name": "Symbotic partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
+    },
+    "synmax": {
+      "entity": "synmax",
+      "name": "SynMax (Theia)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SATL"
+      ]
+    },
+    "taoyuan_airport": {
+      "entity": "taoyuan_airport",
+      "name": "Taoyuan International Airport",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "tasl_satellites": {
+      "entity": "tasl_satellites",
+      "name": "Tata Advanced Systems (TASL)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SATL"
+      ]
     },
     "teledyne": {
       "entity": "teledyne",
@@ -823,11 +1743,32 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "toyota_humanoid": {
+      "entity": "toyota_humanoid",
+      "name": "Toyota (TMMC parent)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AGLT"
+      ]
+    },
     "twentyone": {
       "entity": "twentyone",
       "name": "Twenty One Capital (XXI)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "uber": {
+      "entity": "uber",
+      "name": "Uber (UBER)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR",
+        "SERV"
+      ]
     },
     "ubtech": {
       "entity": "ubtech",
@@ -835,11 +1776,51 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "umac_rel": {
+      "entity": "umac_rel",
+      "name": "Unusual Machines partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "UMAC"
+      ]
+    },
+    "unfi": {
+      "entity": "unfi",
+      "name": "UNFI",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
+    },
     "unitree": {
       "entity": "unitree",
       "name": "Unitree Robotics (688836.SH)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "uvision": {
+      "entity": "uvision",
+      "name": "UVision (Uvision Air / Uvision Inc.)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "valuetruck_av": {
+      "entity": "valuetruck_av",
+      "name": "Value Truck",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
     },
     "vantor": {
       "entity": "vantor",
@@ -852,6 +1833,16 @@
       "name": "Vatn Systems (private)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "vcx": {
+      "entity": "vcx",
+      "name": "Fundrise Innovation Fund, LLC",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "BOT"
+      ]
     },
     "verkada": {
       "entity": "verkada",
@@ -895,11 +1886,43 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "walmart_sym": {
+      "entity": "walmart",
+      "name": "Walmart (WMT)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
+    },
     "wargov_contracts": {
       "entity": "wargov_contracts",
       "name": "War.gov Contracts",
       "status": "program",
       "lane": "strategic_fast_noncompany"
+    },
+    "wargov_contracts_matched": {
+      "entity": "wargov_contracts",
+      "name": "War.gov Contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "ONDS",
+        "PDYN",
+        "KDK",
+        "SPAI",
+        "AXON",
+        "PL",
+        "SATL",
+        "PUSA",
+        "DPRO",
+        "UMAC",
+        "MRLN",
+        "AGLT"
+      ]
     },
     "waymo": {
       "entity": "waymo",
@@ -919,11 +1942,51 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "werner_av": {
+      "entity": "werner_av",
+      "name": "Werner Enterprises (WERN)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "AUR"
+      ]
+    },
+    "westfraser_kdk": {
+      "entity": "westfraser_kdk",
+      "name": "West Fraser",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ]
+    },
+    "wheelsup": {
+      "entity": "wheelsup",
+      "name": "Wheels Up (UP)",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SRFM"
+      ]
+    },
     "wing": {
       "entity": "wing",
       "name": "Wing (Alphabet subsidiary)",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "witron": {
+      "entity": "witron",
+      "name": "WITRON Logistik + Informatik GmbH (WITRON Group)",
+      "status": "private",
+      "lane": "private_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "SYM"
+      ]
     },
     "wrap": {
       "entity": "wrap",
@@ -954,6 +2017,16 @@
       "name": "XTI Aerospace (XTIA)",
       "status": "public",
       "lane": "public_adjacent"
+    },
+    "xtraf_rel": {
+      "entity": "xtraf_rel",
+      "name": "Xtract One partner mentions",
+      "status": "public",
+      "lane": "public_adjacent",
+      "coverage_subject": true,
+      "affects": [
+        "XTRAF"
+      ]
     },
     "yotta": {
       "entity": "yotta",
@@ -987,72 +2060,7 @@
     }
   },
   "exclude": {
-    "aglt_rel": "coverage_subject",
-    "airbus_space": "coverage_subject",
-    "albertsons": "coverage_subject",
-    "amazon_humanoid": "coverage_subject",
-    "asst_rel": "coverage_subject",
-    "aur_rel": "coverage_subject",
-    "avispl_autonomy": "coverage_subject",
-    "awg": "coverage_subject",
-    "bedrock_robotics": "coverage_subject",
-    "bot_rel": "coverage_subject",
-    "boutiqueair": "coverage_subject",
-    "braincorp": "coverage_subject",
-    "caesars_mbai": "coverage_subject",
-    "canada_dnd_drones": "coverage_subject",
-    "capeair": "coverage_subject",
-    "cariberoyale_mbai": "coverage_subject",
-    "ceiia_atlantic": "coverage_subject",
-    "charger_av": "coverage_subject",
-    "contour": "coverage_subject",
-    "cswg": "coverage_subject",
-    "dpro_rel": "coverage_subject",
-    "dronedominance": "coverage_subject",
-    "dronedominance_lists": "coverage_subject",
-    "dsv_autonomy": "coverage_subject",
-    "dtl_kdk": "coverage_subject",
     "edgar_latest": "ops",
-    "evlv_rel": "coverage_subject",
-    "fedreg_av_trucking": "coverage_subject",
-    "fmv_planet": "coverage_subject",
-    "fpds_axon": "coverage_subject",
-    "fpds_onds": "coverage_subject",
-    "fpds_pdyn": "coverage_subject",
-    "fpds_pl": "coverage_subject",
-    "fpds_pusa": "coverage_subject",
-    "fpds_satl": "coverage_subject",
-    "fpds_spai": "coverage_subject",
-    "fpl_drones": "coverage_subject",
-    "freyr_ai": "coverage_subject",
-    "garrett_security": "coverage_subject",
-    "google_suncatcher": "coverage_subject",
-    "grrr_rel": "coverage_subject",
-    "grubhub_robots": "coverage_subject",
-    "hirschbach_av": "coverage_subject",
-    "ikea_supply": "coverage_subject",
-    "index_ftserussell": "coverage_subject",
-    "jsat_eo": "coverage_subject",
-    "kdk_rel": "coverage_subject",
-    "legistar_oakland_axon": "coverage_subject",
-    "mbai_rel": "coverage_subject",
-    "mclane_av": "coverage_subject",
-    "mgm_mbai": "coverage_subject",
-    "modalai": "coverage_subject",
-    "mohegan_mbai": "coverage_subject",
-    "mrln_rel": "coverage_subject",
-    "msci_mstr": "coverage_subject",
-    "msgvenues": "coverage_subject",
-    "mstr_rel": "coverage_subject",
-    "nhtsa_sgo_ads": "coverage_subject",
-    "omnilert": "coverage_subject",
-    "onds_rel": "coverage_subject",
-    "one_x_tech": "coverage_subject",
-    "onr_slingshot": "coverage_subject",
-    "orqa": "coverage_subject",
-    "pdyn_cust_iai": "coverage_subject",
-    "pdyn_rel": "coverage_subject",
-    "pl_rel": "coverage_subject",
     "probe_aglt_ir_home": "ops",
     "probe_aglt_ir_news_rss": "ops",
     "probe_aglt_press_page": "ops",
@@ -1083,19 +2091,6 @@
     "probe_sym_ir_news_rss": "ops",
     "probe_xtraf_ir_events_rss": "ops",
     "probe_xtraf_ir_presentations": "ops",
-    "pudu": "coverage_subject",
-    "pusa_rel": "coverage_subject",
-    "rcat_rel": "coverage_subject",
-    "rcat_rel_steyr": "coverage_subject",
-    "regulations_eas_srfm": "coverage_subject",
-    "reliable": "coverage_subject",
-    "roehl_kdk": "coverage_subject",
-    "rogue_fires": "coverage_subject",
-    "safetyact_awards": "coverage_subject",
-    "satl_rel": "coverage_subject",
-    "schaeffler_humanoid": "coverage_subject",
-    "serv_rel": "coverage_subject",
-    "sikorsky_matrix": "coverage_subject",
     "site_agility": "ops",
     "site_aurora": "ops",
     "site_aurora_ir": "ops",
@@ -1123,32 +2118,6 @@
     "site_surfair": "ops",
     "site_symbotic": "ops",
     "site_unusual": "ops",
-    "site_xtractone": "ops",
-    "skycutter": "coverage_subject",
-    "skywest_eas": "coverage_subject",
-    "southernglazers": "coverage_subject",
-    "spai_rel": "coverage_subject",
-    "sphere_security": "coverage_subject",
-    "srfm_rel": "coverage_subject",
-    "sse_drone": "coverage_subject",
-    "swarmdefense": "coverage_subject",
-    "sym_rel": "coverage_subject",
-    "synmax": "coverage_subject",
-    "taoyuan_airport": "coverage_subject",
-    "tasl_satellites": "coverage_subject",
-    "toyota_humanoid": "coverage_subject",
-    "uber": "coverage_subject",
-    "umac_rel": "coverage_subject",
-    "unfi": "coverage_subject",
-    "uvision": "coverage_subject",
-    "valuetruck_av": "coverage_subject",
-    "vcx": "coverage_subject",
-    "walmart_sym": "coverage_subject",
-    "wargov_contracts_matched": "coverage_subject",
-    "werner_av": "coverage_subject",
-    "westfraser_kdk": "coverage_subject",
-    "wheelsup": "coverage_subject",
-    "witron": "coverage_subject",
-    "xtraf_rel": "coverage_subject"
+    "site_xtractone": "ops"
   }
 }
