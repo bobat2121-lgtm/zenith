@@ -143,12 +143,12 @@ function backlog(env) {
   ids.covDone = addItem(env, { nm_first_seen: iso(2 * DAY) });
   ids.covPending = addItem(env, { nm_first_seen: iso(3 * DAY) });
   ids.covAncient = addItem(env, { nm_first_seen: iso(40 * DAY) });
-  ids.covDup = addItem(env, { nm_first_seen: iso(5 * DAY) });
+  ids.covMid = addItem(env, { nm_first_seen: iso(5 * DAY) });
   addGrade(env, ids.covNew, { ticker: "BOT", score: 88, band: "digest", why: "NAV update." });
   addGrade(env, ids.covOld, { score: 91, band: "lead" });
   addGrade(env, ids.covDone);
   addGrade(env, ids.covAncient);
-  addGrade(env, ids.covDup, { score: null, band: "duplicate" });
+  addGrade(env, ids.covMid, { score: 50, band: "borderline" }); // duplicates are skipped: see the last test
   env.DB.db.prepare("UPDATE items SET headline = 'Already has one, written earlier.', headline_tag = 'News' WHERE id = ?").run(ids.covDone);
   ids.auxNew = addAux(env, { nm_first_seen: iso(2 * HOUR), excerpt: "Anduril today announced a $2.5 billion Series G." });
   ids.auxOld = addAux(env, { nm_first_seen: iso(20 * DAY) });
@@ -167,7 +167,7 @@ test("headline claim: graded items without a headline, coverage first then auxil
   assert.equal(c1.lease_minutes, LEASE_MINUTES);
   assert.equal(c1.days, 30);
   assert.deepEqual(c1.items.map((i) => [i.kind, i.item_id]),
-    [["coverage", ids.covNew], ["coverage", ids.covDup], ["coverage", ids.covOld], ["aux", ids.auxNew]]);
+    [["coverage", ids.covNew], ["coverage", ids.covMid], ["coverage", ids.covOld], ["aux", ids.auxNew]]);
   const [nav, , , anduril] = c1.items;
   assert.deepEqual(Object.keys(nav).sort(), ["band", "excerpt", "first_seen", "item_id", "kind", "published", "score", "ticker", "title", "url", "why"]);
   assert.deepEqual([nav.ticker, nav.score, nav.band, nav.why, nav.title], ["BOT", 88, "digest", "NAV update.", "RoboStrategy, Inc. Updates Net Asset Value as of October 31, 2026"]);
@@ -179,7 +179,7 @@ test("headline claim: graded items without a headline, coverage first then auxil
   // Grading state is untouched; the lease is on its own columns.
   assert.deepEqual({ items: rows(env, `SELECT ${GRADING_COLS} FROM items ORDER BY id`), aux: rows(env, `SELECT ${GRADING_COLS} FROM aux_items ORDER BY id`) }, gradingBefore);
   const leased = rows(env, "SELECT id, headline_claim_id, headline_claimed_until FROM items WHERE headline_claim_id IS NOT NULL ORDER BY id");
-  assert.deepEqual(leased.map((r) => r.id).sort((p, q) => p - q), [ids.covNew, ids.covOld, ids.covDup].sort((p, q) => p - q));
+  assert.deepEqual(leased.map((r) => r.id).sort((p, q) => p - q), [ids.covNew, ids.covOld, ids.covMid].sort((p, q) => p - q));
   const until = Date.parse(leased[0].headline_claimed_until);
   assert.ok(Math.abs(until - (Date.now() + LEASE_MINUTES * 60_000)) < 60_000);
 
@@ -227,7 +227,7 @@ test("headline submit: validated like a grade's, items from the claim only, and 
     { kind: "coverage", item_id: String(ids.covOld), headline: H.order, tag: "8-K" },
     { kind: "aux", item_id: ids.auxNew, headline: "Anduril raises $2.5 billion Series G.", tag: "press release" },
     { kind: "aux", item_id: ids.auxOld, headline: "Skydio adds two state police agencies.", tag: "Tweet" },
-    { kind: "coverage", item_id: ids.covDup, headline: H.order },
+    { kind: "coverage", item_id: ids.covMid, headline: H.order },
     { kind: "coverage", item_id: ids.covDone, headline: H.order, tag: "News" },
     { kind: "coverage", item_id: ids.covPending, headline: H.order, tag: "News" },
     { kind: "news", item_id: ids.covNew, headline: H.order, tag: "News" },
@@ -243,7 +243,7 @@ test("headline submit: validated like a grade's, items from the claim only, and 
   const why = r.body.rejected.map((x) => `${x.kind}:${x.item_id} ${x.error}`);
   assert.equal(why.length, 9);
   assert.match(why[0], new RegExp(`^aux:${ids.auxOld} unknown tag "Tweet"`));
-  assert.match(why[1], new RegExp(`^coverage:${ids.covDup} headline needs a tag`));
+  assert.match(why[1], new RegExp(`^coverage:${ids.covMid} headline needs a tag`));
   assert.match(why[2], new RegExp(`^coverage:${ids.covDone} coverage item ${ids.covDone} is not in headline claim ${claim.claim_id}`));
   assert.match(why[3], new RegExp(`^coverage:${ids.covPending} coverage item ${ids.covPending} is not in headline claim`));
   assert.match(why[4], /^news:\d+ kind must be "coverage" or "aux"/);
@@ -343,4 +343,17 @@ test("a grade landing between the headline submit's check and its write is not o
   assert.match(res.body.rejected[0].error, /left headline claim .* before this write \(a grade wrote its headline\); nothing was changed/);
   assert.equal(headlineOf(env, "items", ids.covOld).headline, "Fresh grade headline from the regrade");
   assert.equal(headlineOf(env, "items", ids.covNew).headline, H.nav);
+});
+
+test("headline backfill skips cards the app never shows: duplicates, covered-name aux items, dropped tickers", async () => {
+  const env = newEnv();
+  const shown = addItem(env); addGrade(env, shown);
+  const dup = addItem(env); addGrade(env, dup, { score: null, band: "duplicate" });
+  const dropped = addItem(env, { source_key: "soundthinking", ticker: "SSTI" }); addGrade(env, dropped, { ticker: "SSTI" });
+  const auxShown = addAux(env); addAuxGrade(env, auxShown);
+  const auxCovered = addAux(env); addAuxGrade(env, auxCovered, { score: null, band: "covered" });
+  const auxDup = addAux(env); addAuxGrade(env, auxDup, { score: null, band: "duplicate" });
+  const r = (await call(env, "POST", "/v1/headlines/claim", { limit: 40 })).body;
+  assert.deepEqual(r.items.map((i) => `${i.kind}:${i.item_id}`).sort(), [`aux:${auxShown}`, `coverage:${shown}`].sort());
+  assert.equal(r.remaining, 0, "skipped cards are not counted as waiting");
 });

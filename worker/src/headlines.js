@@ -9,7 +9,8 @@
 // or writes state, claim_id, claimed_until, attempts, grade_id or any grade: a
 // grading claim and a headline claim can hold the same item at once, and
 // nothing here can change a score, band or state.
-import { json, nowIso, chunk, normalizeHeadline, LEASE_MINUTES } from "./lib.js";
+import COVERED from "./covered.json";
+import { json, nowIso, chunk, normalizeHeadline, universeSql, LEASE_MINUTES } from "./lib.js";
 
 export const HEADLINE_MAX_CLAIM = 60;
 const HEADLINE_DEFAULT_CLAIM = 40;
@@ -18,21 +19,26 @@ const HEADLINE_MAX_DAYS = 60;
 export const EXCERPT_CHARS = 1200;
 
 // kind -> table and the columns the claim prints for it.
+// shown: only cards the app can show get a backfilled headline, so the pass
+// never spends its batches on duplicates, covered-name auxiliary items or
+// tickers dropped from coverage (SSTI, REKR).
 const KINDS = {
-  coverage: { table: "items", grades: "grades", name: "i.ticker" },
-  aux: { table: "aux_items", grades: "aux_grades", name: "COALESCE(g.entity, i.entity_name) AS entity" },
+  coverage: { table: "items", grades: "grades", name: "i.ticker",
+    shown: `ticker IN ${universeSql(COVERED.tickers)} AND (SELECT band FROM grades WHERE grades.id = items.grade_id) IS NOT 'duplicate'` },
+  aux: { table: "aux_items", grades: "aux_grades", name: "COALESCE(g.entity, i.entity_name) AS entity",
+    shown: "(SELECT band FROM aux_grades WHERE aux_grades.id = aux_items.grade_id) NOT IN ('duplicate', 'covered')" },
 };
 
 const clampInt = (v, lo, hi, dflt) => Math.max(lo, Math.min(hi, Math.trunc(Number(v)) || dflt));
-const WAITING = "state = 'graded' AND grade_id IS NOT NULL AND headline IS NULL AND nm_first_seen >= ?";
+const waiting = (k) => `state = 'graded' AND grade_id IS NOT NULL AND headline IS NULL AND nm_first_seen >= ? AND ${k.shown}`;
 const FREE = "(headline_claimed_until IS NULL OR headline_claimed_until < ?)";
 
 // Leases up to `limit` items of one kind; returns how many it took.
-async function lease(env, { table }, claimId, until, since, now, limit) {
+async function lease(env, k, claimId, until, since, now, limit) {
   if (limit <= 0) return 0;
   const r = await env.DB.prepare(
-    `UPDATE ${table} SET headline_claim_id = ?, headline_claimed_until = ?
-      WHERE id IN (SELECT id FROM ${table} WHERE ${WAITING} AND ${FREE} ORDER BY nm_first_seen DESC, id DESC LIMIT ?)
+    `UPDATE ${k.table} SET headline_claim_id = ?, headline_claimed_until = ?
+      WHERE id IN (SELECT id FROM ${k.table} WHERE ${waiting(k)} AND ${FREE} ORDER BY nm_first_seen DESC, id DESC LIMIT ?)
         AND headline IS NULL AND ${FREE}`,
   ).bind(claimId, until, since, now, limit, now).run();
   return r.meta?.changes || 0;
@@ -58,7 +64,7 @@ export async function headlineClaim(env, body) {
         WHERE i.headline_claim_id = ? AND i.headline IS NULL ORDER BY i.nm_first_seen DESC, i.id DESC`,
     ).bind(claimId).all()).results || [];
     items.push(...rows);
-    const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${k.table} WHERE ${WAITING} AND ${FREE}`).bind(since, now).first();
+    const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${k.table} WHERE ${waiting(k)} AND ${FREE}`).bind(since, now).first();
     remaining += left?.n || 0;
   }
   return { claim_id: claimId, lease_minutes: LEASE_MINUTES, days, items, remaining };
