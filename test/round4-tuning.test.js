@@ -29,7 +29,7 @@ function addItem(env, over = {}) {
     nm_first_seen: iso(HOUR), state: "pending", skip_reason: null, claim_id: null, claimed_until: null, attempts: 0, role: null, affects: null, ...over };
   const r = env.DB.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state,
       skip_reason, claim_id, claimed_until, attempts, role, affects) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(rowid, it.source_key, it.ticker, it.url, it.title, it.published, it.nm_first_seen, iso(), it.state, it.skip_reason, it.claim_id, it.claimed_until,
+    .run(it.nm_rowid ?? rowid, it.source_key, it.ticker, it.url, it.title, it.published, it.nm_first_seen, iso(), it.state, it.skip_reason, it.claim_id, it.claimed_until,
       it.attempts, it.role, it.affects);
   return Number(r.lastInsertRowid);
 }
@@ -47,7 +47,7 @@ function addAux(env, over = {}) {
     claimed_until: null, coverage_subject: 0, affects: null, ...over };
   const r = env.DB.db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
       ingested_at, state, skip_reason, attempts, claim_id, claimed_until, coverage_subject, affects) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(rowid, it.source_key, it.entity_key, it.entity_name, it.status, it.url, it.title, it.published, it.nm_first_seen, iso(), it.state, it.skip_reason,
+    .run(it.nm_rowid ?? rowid, it.source_key, it.entity_key, it.entity_name, it.status, it.url, it.title, it.published, it.nm_first_seen, iso(), it.state, it.skip_reason,
       it.attempts, it.claim_id, it.claimed_until, it.coverage_subject, it.affects);
   return Number(r.lastInsertRowid);
 }
@@ -286,6 +286,11 @@ test("Z7 source prefs: roles, known keys, never SEC or a covered company's own c
     assert.match(r.body.error, re);
   }
   assert.equal(prefRefusal("redcat") != null, true);
+  // SEC filing sources are refused whatever the key: aux entries marked sec (adapter edgar).
+  for (const key of ["einride_sec", "maymobility_sec", "spaceeyes_sec", "paccar", "palantir"]) assert.match(prefRefusal(key) || "", /SEC source/, key);
+  const sec = await post(env, "/v1/source-prefs", { source_key: "einride_sec", action: "mute" });
+  assert.equal(sec.status, 400);
+  assert.match(sec.body.error, /SEC filings are never muted/);
   for (const key of ["anduril", "tfvector", "skydio", "nga", "aglt_rel", "managed_fort_robotics_news", "ia_somecompany"]) assert.equal(prefRefusal(key), null, key);
   assert.equal((await post(env, "/v1/source-prefs", { source_key: "tfvector", action: "demote", note: "mostly hiring" })).status, 200);
   assert.equal((await post(env, "/v1/source-prefs", { source_key: "managed_fort_robotics_news", action: "mute" })).status, 200);
@@ -416,6 +421,9 @@ test("Z8 source yield: latest grade per item, sorted by graded, with suggestions
   assert.equal(suggestFor({ source_key: "skydio", graded: 5, high: 0, reject: 5, duplicate: 0, pref: null }), null, "too few grades");
   assert.equal(suggestFor({ source_key: "edgar_rcat", graded: 20, high: 0, reject: 20, duplicate: 0, pref: null }), null);
   assert.equal(suggestFor({ source_key: "skydio", graded: 10, high: 1, reject: 9, duplicate: 0, pref: null }), "demote", "a high grade rules out mute");
+  assert.equal(suggestFor({ source_key: "tfvector", graded: 8, high: 0, reject: 7, duplicate: 0, pref: "mute" }), null, "a muted source is never suggested for demote");
+  assert.equal(suggestFor({ source_key: "tfvector", graded: 12, high: 0, reject: 12, duplicate: 0, pref: "demote" }), "mute", "a demoted one may still be suggested for mute");
+  for (const key of ["einride_sec", "paccar"]) assert.equal(suggestFor({ source_key: key, graded: 12, high: 0, reject: 12, duplicate: 0, pref: null }), null, key);
 });
 
 // --- Z9 ------------------------------------------------------------------------
@@ -458,6 +466,46 @@ test("Z9 left out: skipped items newest first with counts; archive_seed only by 
   await post(env, "/v1/source-prefs", { source_key: "tfvector", action: "normal" });
   assert.equal((await post(env, "/v1/left-out/grade", { kind: "aux", id: muted })).status, 200);
   assert.equal(one(env, "SELECT state FROM aux_items WHERE id = ?", muted).state, "pending");
+});
+
+test("Z9 grade it: never puts one item on both pages; kind must be coverage or aux", async () => {
+  const env = newEnv();
+  // A rival item the gate dropped on Coverage, whose aux copy (Z11) is pending.
+  const rival = addItem(env, { source_key: "tfvector", ticker: "DPRO", state: "skipped", skip_reason: "rival_no_key_account" });
+  const rivalNm = rowid;
+  const rivalAux = addAux(env, { nm_rowid: rivalNm, source_key: "tfvector", entity_key: "tfvector", entity_name: "Vector", coverage_subject: 1, affects: "DPRO" });
+  const r = await post(env, "/v1/left-out/grade", { kind: "coverage", id: rival });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /on the aux page as aux item \d+ \(pending\): one item is never on both pages/);
+  assert.equal(one(env, "SELECT state FROM items WHERE id = ?", rival).state, "skipped");
+  assert.equal(one(env, "SELECT state FROM aux_items WHERE id = ?", rivalAux).state, "pending");
+  // Graded on the aux page too: still refused.
+  addAuxGrade(env, rivalAux, { score: 40, entity: "Vector" });
+  assert.equal((await post(env, "/v1/left-out/grade", { kind: "coverage", id: rival })).status, 400);
+  // An aux copy graded 'covered' is hidden there, so the Coverage copy can be rescued.
+  const cov = addItem(env, { source_key: "tfvector", ticker: "DPRO", state: "skipped", skip_reason: "rival_no_key_account" });
+  addAuxGrade(env, addAux(env, { nm_rowid: rowid, source_key: "tfvector", entity_key: "tfvector", entity_name: "Vector" }), { score: 60, band: "covered", entity: "Vector" });
+  assert.equal((await post(env, "/v1/left-out/grade", { kind: "coverage", id: cov })).status, 200);
+  // An aux copy that is itself skipped does not block.
+  const both = addItem(env, { source_key: "tfvector", ticker: "DPRO", state: "skipped", skip_reason: "stale_on_arrival" });
+  addAux(env, { nm_rowid: rowid, source_key: "tfvector", entity_key: "tfvector", entity_name: "Vector", state: "skipped", skip_reason: "stale_on_arrival" });
+  assert.equal((await post(env, "/v1/left-out/grade", { kind: "coverage", id: both })).status, 200);
+
+  // The other way: an aux row parked on_coverage while its Coverage copy is pending or graded.
+  const kept = addItem(env, { source_key: "tfvector", ticker: "DPRO", title: "Vector wins a DPRO-integrated order" });
+  const parked = addAux(env, { nm_rowid: rowid, source_key: "tfvector", entity_key: "tfvector", entity_name: "Vector", state: "skipped", skip_reason: "on_coverage", coverage_subject: 1 });
+  const a = await post(env, "/v1/left-out/grade", { kind: "aux", id: parked });
+  assert.equal(a.status, 400);
+  assert.match(a.body.error, new RegExp(`on the coverage page as coverage item ${kept} \\(pending\\)`));
+  addGrade(env, kept, { score: 75 });
+  assert.equal((await post(env, "/v1/left-out/grade", { kind: "aux", id: parked })).status, 400);
+  assert.equal(one(env, "SELECT state, skip_reason FROM aux_items WHERE id = ?", parked).skip_reason, "on_coverage");
+
+  // Object.prototype names are not kinds.
+  for (const kind of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+    assert.equal((await get(env, `/v1/left-out?kind=${kind}`)).status, 400, kind);
+    assert.equal((await post(env, "/v1/left-out/grade", { kind, id: rival })).status, 400, kind);
+  }
 });
 
 // --- Z10 -----------------------------------------------------------------------

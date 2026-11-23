@@ -36,11 +36,13 @@ export function knownSource(key) {
   return /^(managed|ia)_./.test(key) && auxRoute(key) != null;
 }
 // Whether a source may be muted, demoted or suggested for either: never an SEC
-// source (edgar_*) or a covered company's own channel (a covered.json source
-// with no role). Returns null when it may, else the reason it may not.
+// source (edgar_*, or an auxiliary source marked sec: an SEC filing adapter
+// such as einride_sec or paccar) or a covered company's own channel (a
+// covered.json source with no role). Returns null when it may, else the reason
+// it may not.
 export function prefRefusal(key) {
   if (typeof key !== "string" || !/^[A-Za-z0-9_.:-]{1,120}$/.test(key)) return "source_key must be a source key";
-  if (key.startsWith("edgar_")) return `${key} is an SEC source: SEC filings are never muted or demoted`;
+  if (key.startsWith("edgar_") || (has(AUX.sources, key) && AUX.sources[key].sec === true)) return `${key} is an SEC source: SEC filings are never muted or demoted`;
   if (!knownSource(key)) return `unknown source ${key}: use a coverage or auxiliary source key`;
   if (has(COVERED.sources, key)) return `${key} is ${COVERED.sources[key]}'s own channel: a covered company's own sources are never muted or demoted`;
   return null;
@@ -98,9 +100,10 @@ export async function postSourcePrefs(env, body) {
 // --- Source yield (Z8) ----------------------------------------------------------
 // suggest: mute when graded >= 10 with no score >= 70 and reject + duplicate
 // >= 90%; demote when graded >= 6 with reject >= 75%; never for a source
-// prefRefusal refuses, nor one already set that way.
+// prefRefusal refuses, nor one already set that way, nor a muted one (a
+// demote suggestion there would unmute it).
 export function suggestFor(row) {
-  if (prefRefusal(row.source_key)) return null;
+  if (prefRefusal(row.source_key) || row.pref === "mute") return null;
   let s = null;
   if (row.graded >= 10 && row.high === 0 && (row.reject + row.duplicate) >= 0.9 * row.graded) s = "mute";
   else if (row.graded >= 6 && row.reject >= 0.75 * row.graded) s = "demote";
@@ -138,8 +141,18 @@ export async function sourceYield(env, url) {
 
 // --- Left out (Z9) ------------------------------------------------------------
 const LEFT = {
-  coverage: { table: "items", name: "i.ticker AS ticker", where: `i.ticker IN ${IN_UNIVERSE}` },
-  aux: { table: "aux_items", name: "i.entity_name AS entity", where: "1" },
+  coverage: { table: "items", name: "i.ticker AS ticker", where: `i.ticker IN ${IN_UNIVERSE}`, other: "aux" },
+  aux: { table: "aux_items", name: "i.entity_name AS entity", where: "1", other: "coverage" },
+};
+const leftKind = (kind) => (has(LEFT, kind) ? LEFT[kind] : null);
+// The same news-monitor item's row in the other pipeline when it shows there:
+// any coverage row not skipped, or an aux row not skipped and not graded
+// 'covered' (the aux page hides those). Rescuing an item with such a twin
+// would put it on both pages (Z11).
+const TWIN_SQL = {
+  coverage: "SELECT i.id, i.state FROM items i WHERE i.nm_rowid = ? AND i.state != 'skipped'",
+  aux: `SELECT i.id, i.state FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id
+         WHERE i.nm_rowid = ? AND i.state != 'skipped' AND (g.band IS NULL OR g.band != 'covered')`,
 };
 
 // Skipped items, newest first, with counts per skip reason over the window.
@@ -147,7 +160,7 @@ const LEFT = {
 export async function leftOut(env, url) {
   const q = url.searchParams;
   const kind = q.get("kind") || "coverage";
-  const k = LEFT[kind];
+  const k = leftKind(kind);
   if (!k) return json({ error: "kind must be coverage or aux" }, 400);
   const reason = q.get("reason") || "";
   if (reason && !/^[a-z_]{1,40}$/.test(reason)) return json({ error: "reason must be a skip_reason such as muted_source or stale_on_arrival" }, 400);
@@ -167,18 +180,22 @@ export async function leftOut(env, url) {
 }
 
 // One skipped item back to pending (attempts 0, claim cleared), so the next
-// grader run grades it. A muted_source item waits while its source is muted.
+// grader run grades it. A muted_source item waits while its source is muted,
+// and an item already shown on the other page (rival_no_key_account on
+// Coverage with its aux copy, on_coverage in aux) stays where it is.
 export async function leftOutGrade(env, body) {
-  const k = LEFT[body?.kind];
+  const k = leftKind(body?.kind);
   if (!k) return json({ error: "kind must be coverage or aux" }, 400);
   const id = Number(body?.id);
   if (!Number.isInteger(id) || id <= 0) return json({ error: "id must be the item id" }, 400);
-  const item = await env.DB.prepare(`SELECT id, state, skip_reason, source_key FROM ${k.table} WHERE id = ?`).bind(id).first();
+  const item = await env.DB.prepare(`SELECT id, nm_rowid, state, skip_reason, source_key FROM ${k.table} WHERE id = ?`).bind(id).first();
   if (!item) return json({ error: `unknown ${body.kind} item ${id}` }, 404);
   if (item.state !== "skipped") return json({ error: `${body.kind} item ${id} is ${item.state}, not skipped` }, 400);
   if (item.skip_reason === "muted_source" && (await mutedSources(env.DB)).has(item.source_key)) {
     return json({ error: `${item.source_key} is still muted: set it back to normal first` }, 400);
   }
+  const twin = await env.DB.prepare(TWIN_SQL[k.other]).bind(item.nm_rowid).first();
+  if (twin) return json({ error: `${body.kind} item ${id} is on the ${k.other} page as ${k.other} item ${twin.id} (${twin.state}): one item is never on both pages` }, 400);
   const r = await env.DB.prepare(
     `UPDATE ${k.table} SET state = 'pending', skip_reason = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL WHERE id = ? AND state = 'skipped'`,
   ).bind(id).run();
