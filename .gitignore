@@ -9,3 +9,4 @@ worker/.wrangler/
 app/.venv/
 __pycache__/
 .zenith/
+.streamlit/secrets.toml
