@@ -52,5 +52,11 @@ cd worker && npx wrangler deploy # deploy (rubric is bundled at build time)
 Run the app locally: `app/.venv/Scripts/python -m streamlit run app/streamlit_app.py`
 with `app/.streamlit/secrets.toml` holding `ZENITH_API` and `ZENITH_APP_TOKEN`.
 
+Hosted on Streamlit Community Cloud (for labelling from any device):
+- New app → repository `bobat2121-lgtm/zenith`, branch `main`, main file `app/streamlit_app.py`, Python 3.12.
+- App settings → Secrets: `ZENITH_API` and `ZENITH_APP_TOKEN` in TOML, as in `app/.streamlit/secrets.toml`.
+- The repository is private, so the app is private: only the owner and invited viewers can open it. The app token reaches only feed, stats and feedback.
+- The theme comes from `.streamlit/config.toml` at the repository root (a copy of `app/.streamlit/config.toml`, which local runs use).
+
 Secrets live only in Worker secrets, the routine's environment variables and git-ignored
 local files. Excerpts are fetched only for the grader and shown as short snippets.
