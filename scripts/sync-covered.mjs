@@ -16,9 +16,14 @@
 // counterparty filters that only exist to watch a covered company). Not
 // "aux.json": AUX is a reserved Windows device name and Git for Windows
 // cannot add a file named aux.<anything>.
+//
+// And worker/src/site-sources.json (scripts/site-sources.mjs): the site-structure
+// watchers and egress probes with the covered ticker each one watches, for the
+// Coverage page's Site changes and source-health strip.
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
+import { buildSiteSources } from "./site-sources.mjs";
 
 export const ROLES = ["relationship", "customer", "program", "rival", "index_event"];
 const upper = (t) => String(t ?? "").trim().toUpperCase();
@@ -174,6 +179,15 @@ async function main(repo) {
   const fmt = (m) => Object.entries(m).map(([k, n]) => `${k} ${n}`).join(", ");
   const entries = Object.values(aux.sources);
   console.log(`wrote ${entries.length} auxiliary sources for ${new Set(entries.map((e) => e.entity)).size} entities (${fmt(count(entries.map((e) => e.status)))}) and ${Object.keys(aux.exclude).length} exclusions (${fmt(count(Object.values(aux.exclude)))}) -> ${auxTarget}`);
+
+  // Site-structure watchers and egress probes -> covered tickers (Coverage page health strip and Site changes).
+  const site = buildSiteSources(SOURCES, tickers);
+  const siteTarget = join(root, "worker", "src", "site-sources.json");
+  writeFileSync(siteTarget, JSON.stringify({
+    generated_from: "news-monitor SOURCES after src/priority.js: site_structure watchers (src/site-structure-sources.js) and probes (src/probe-sources.js), config.ticker kept when covered",
+    ...site,
+  }, null, 2) + "\n");
+  console.log(`wrote ${Object.keys(site.sites).length} site watchers and ${Object.keys(site.probes).length} probes -> ${siteTarget}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
