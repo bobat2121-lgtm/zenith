@@ -1,11 +1,14 @@
-// zenith-core — graded research feed for the covered universe.
-//   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts
-//   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers], GET /v1/labels, GET /v1/recent
-//   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats
-//   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue (and grade without a claim)
+// zenith-core — graded research feed for the covered universe, plus auxiliary
+// names (every other company or program news-monitor follows; auxiliary.js).
+//   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items
+//   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers|/aux], GET /v1/labels, GET /v1/recent,
+//           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels
+//   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/aux/feed, POST /v1/aux/feedback
+//   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
 import COVERED from "./covered.json";
-import { RUBRIC_VERSION, CORE, COMPANIES, PEERS } from "./rubric.generated.js";
+import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
+import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
 import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 import { deliveryTick } from "./delivery.js";
@@ -27,6 +30,14 @@ const ALLOW = {
   "POST /v1/admin/ingest": ["admin"],
   "POST /v1/admin/enrich": ["admin"],
   "POST /v1/admin/requeue": ["admin"],
+  // Auxiliary names (GET /v1/rubric/aux is under GET /v1/rubric).
+  "POST /v1/aux/claim": ["grader", "admin"],
+  "POST /v1/aux/grades": ["grader", "admin"],
+  "GET /v1/aux/recent": ["grader", "admin"],
+  "GET /v1/aux/labels": ["grader", "admin"],
+  "GET /v1/aux/feed": ["app", "admin"],
+  "POST /v1/aux/feedback": ["app", "admin"],
+  "POST /v1/admin/aux-ingest": ["admin"],
 };
 
 async function readJson(request) {
@@ -290,13 +301,20 @@ async function stats(env) {
   const oldestPending = await env.DB.prepare("SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed')").first();
   const labelCount = await env.DB.prepare("SELECT COUNT(DISTINCT item_id) AS n FROM feedback").first();
   const meta = Object.fromEntries(((await env.DB.prepare("SELECT key, value FROM meta").all()).results || []).map((r) => [r.key, r.value]));
+  // The auxiliary block never takes the coverage stats down with it.
+  let aux = null;
+  try { aux = await auxStats(env); } catch (e) { console.error("aux stats failed", e?.stack || e); }
   return json({ rubric_version: RUBRIC_VERSION, tickers: COVERED.tickers, by_state: byState, by_band: byBand, last_run: lastRun,
     oldest_pending_first_seen: oldestPending?.t || null, labels: labelCount?.n || 0, last_ingest_at: meta.last_ingest_at || null,
-    sec_excerpts: Boolean(env.CONTACT_EMAIL) });
+    sec_excerpts: Boolean(env.CONTACT_EMAIL), aux });
 }
 
 function rubric(url) {
   const ticker = url.pathname.split("/")[3]?.toUpperCase();
+  // The auxiliary-names rubric, with its own version (RUBRIC_VERSION does not cover it).
+  if (ticker === "AUX") {
+    return AUX_RUBRIC ? json({ rubric_version: AUX_RUBRIC_VERSION, aux: AUX_RUBRIC }) : json({ error: "aux rubric not built" }, 503);
+  }
   if (!CORE) return json({ error: "rubric not built" }, 503);
   if (ticker === "PEERS") {
     return PEERS ? json({ rubric_version: RUBRIC_VERSION, peers: PEERS }) : json({ error: "no peer notes" }, 404);
@@ -398,6 +416,13 @@ export default {
       case "POST /v1/admin/ingest": return json(await ingest(env));
       case "POST /v1/admin/enrich": return json(await enrich(env));
       case "POST /v1/admin/requeue": return requeue(env, await readJson(request));
+      case "POST /v1/aux/claim": return json(await auxClaim(env, await readJson(request)));
+      case "POST /v1/aux/grades": return submitAuxGrades(env, await readJson(request), role);
+      case "GET /v1/aux/recent": return auxRecent(env, url);
+      case "GET /v1/aux/labels": return auxLabels(env, url);
+      case "GET /v1/aux/feed": return auxFeed(env, url);
+      case "POST /v1/aux/feedback": return auxFeedback(env, await readJson(request));
+      case "POST /v1/admin/aux-ingest": return json(await ingestAux(env));
     }
     return json({ error: "not found" }, 404);
   },
@@ -412,6 +437,8 @@ export default {
       // Delivery before enrich: a slow excerpt or PDF read must never cost a tick's Lead pushes.
       try { console.log("delivery", JSON.stringify(await deliveryTick(env, COVERED))); } catch (e) { console.error("delivery failed", e?.stack || e); }
       try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
+      // Auxiliary names last, on their own: coverage is always served first.
+      try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
     })());
   },
 };

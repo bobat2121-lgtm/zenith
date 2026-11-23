@@ -22,10 +22,10 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | Path | What |
 |---|---|
 | `rubric/core.md`, `rubric/companies/<TICKER>.md` | The grading rubric. Bundled into the Worker at deploy (`npm run build:rubric`); its content hash is the rubric version stamped on every grade. |
-| `worker/` | zenith-core: `src/ingest.js` (cursor over news-monitor-db), `src/excerpt.js` (opening text of each release), `src/index.js` (API), `migrations/`. |
+| `worker/` | zenith-core: `src/ingest.js` (cursor over news-monitor-db), `src/excerpt.js` (opening text of each release), `src/index.js` (API), `src/auxiliary.js` (auxiliary names: own tables, cursor, claim, grades and feed; never touches coverage rows), `migrations/`. |
 | `grader/` | What the hourly routine runs: `GRADER.md` (procedure) and `zenith.mjs` (API CLI). |
 | `app/` | Streamlit feed. Views: For you (≥70), Latest, Label queue, Lead only. Labels High/Medium/Low/Noise and Too high/Too low, recorded against the grade on the card, plus a "why it matters" note feed back to the grader. |
-| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`. |
+| `scripts/sync-covered.mjs` | Regenerates `worker/src/covered.json` from news-monitor's lane policy, `coveredTicker` sources and every source's `role`/`affects`, and `worker/src/aux-sources.json` (every other company or program source, as auxiliary names). |
 
 ## API (bearer tokens: ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN)
 
@@ -38,7 +38,13 @@ zenith-core Worker (Cloudflare, D1 zenith-db)
 | `GET /v1/labels?since=` | grader |
 | `GET /v1/feed?limit&before_id&ticker&min_score&state&unlabeled&order=newest` (recent Leads first, then newest; page with `before_id` = the last page's `next_before_id`, passed back unchanged: it is negative while the pinned Leads continue) | app |
 | `POST /v1/feedback` `{item_id, label, note, ticker or grade_id}` | app |
-| `GET /v1/stats` | grader, app |
+| `GET /v1/stats` (an `aux` block: by_state, by_band, entities, last_ingest_at) | grader, app |
+| `GET /v1/rubric/aux` (auxiliary rubric, own `rubric_version`; 503 until built) | grader |
+| `POST /v1/aux/claim` `{limit 1-40, run_id}`, `POST /v1/aux/grades` `{claim_id, run_id, rubric_version, model, grades[]}` | grader |
+| `GET /v1/aux/recent?entity&days`, `GET /v1/aux/labels?limit&days` (labels the current grade falls outside of) | grader |
+| `GET /v1/aux/feed?limit&before_id&entity&min_score&state&unlabeled&order=newest&pin_lead_hours` (same paging as `/v1/feed`; hides skipped, duplicate and covered) | app |
+| `POST /v1/aux/feedback` `{item_id, label, note}` | app |
+| `POST /v1/admin/aux-ingest` (the cron runs it after the coverage ingest and enrich) | admin |
 | `POST /v1/admin/ingest`, `/v1/admin/enrich`, `/v1/admin/requeue` `{item_ids}` or `{mode: "late_flags"}` or `{mode: "sec_excerpts", retry_failed?}` (covered tickers only; repeat until `remaining` is 0, `waiting` counts items in retry backoff) | admin |
 
 ## Operate
