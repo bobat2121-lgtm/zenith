@@ -9,12 +9,14 @@ import { pathToFileURL } from "node:url";
 
 const SRC = new URL("../../worker/src/", import.meta.url);
 
-export async function loadWorker() {
+// patch(file, code) -> code, optional: rewrites a module before it is loaded
+// (e.g. a test's own rubric.generated.js constants).
+export async function loadWorker({ patch } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "zenith-worker-"));
   for (const f of readdirSync(SRC).filter((f) => f.endsWith(".js"))) {
     const code = readFileSync(new URL(f, SRC), "utf8")
       .replace(/from\s+"\.\/([^"]+\.json)"/g, (m, rel) => `from "${new URL(rel, SRC).href}" with { type: "json" }`);
-    writeFileSync(join(dir, f), code);
+    writeFileSync(join(dir, f), patch ? patch(f, code) : code);
   }
   return (await import(pathToFileURL(join(dir, "index.js")).href)).default;
 }
