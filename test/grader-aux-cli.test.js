@@ -125,6 +125,32 @@ test("aux-claim sends the stored auxiliary rubric version and clamps the limit t
   assert.equal(readJson(zen(cwd, "run.json")).id, [...ids][0]);
 });
 
+test("aux-claim truncates a fractional limit and copes with a response without remaining", async () => {
+  const cwd = workdir();
+  const { remaining, ...noRemaining } = CLAIM;
+  routes.set("POST /v1/aux/claim", () => ({ json: noRemaining }));
+  const r = await run(cwd, ["aux-claim", "2.5"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(requests[0].body.limit, 2);
+  assert.match(r.stdout, /^aux claim aux-claim-1 \(run run-cov-1\): 2 item\(s\), \? more waiting\./);
+  assert.doesNotMatch(r.stdout, /undefined/);
+});
+
+// The auxiliary pass starts where an empty coverage claim used to end the run:
+// that message must end only the coverage pass.
+test("an empty coverage claim ends only the coverage pass and points to the auxiliary pass", async () => {
+  const cwd = workdir();
+  const empty = { claim_id: "cov-claim-0", run_id: "r", rubric_version: "r-1", items: [], remaining: 0 };
+  routes.set("POST /v1/queue/claim", () => ({ json: empty }));
+  const r = await run(cwd, ["claim", "20"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(requests[0].path, "/v1/queue/claim");
+  assert.equal(requests[0].body.limit, 20);
+  assert.match(r.stdout, /^NOTHING WAITING: no coverage items to grade\. The coverage pass is done; do not load the coverage rubric or labels; go on to the auxiliary pass \(GRADER\.md step 5\)\.\n$/);
+  assert.doesNotMatch(r.stdout, /Stop this run/);
+  assert.deepEqual(readJson(zen(cwd, "claim.json")), empty);
+});
+
 test("aux-claim prints NOTHING WAITING and exits 0 when the queue is empty", async () => {
   const cwd = workdir();
   const empty = { claim_id: "aux-claim-2", run_id: "r", rubric_version: "a-1", items: [], remaining: 0 };
@@ -230,6 +256,26 @@ test("aux-labels lists labels the current grade falls outside of, widest gap fir
 
   assert.equal((await run(cwd, ["aux-labels", "10"])).code, 0);
   assert.equal(requests[1].path, "/v1/aux/labels?limit=10");
+});
+
+test("aux-labels leaves out labels the grade agrees with and grades with no score to compare", async () => {
+  const cwd = workdir();
+  routes.set("GET /v1/aux/labels", () => ({ json: { labels: [
+    // Inside the analyst's range: no lesson.
+    { item_id: 1, entity: "Wing", title: "Wing expands", label: "medium", graded_score: 70, current_score: 75, current_band: "digest" },
+    // Now a duplicate (no score): a HIGH label is not a lesson to score higher.
+    { item_id: 2, entity: "Zoox", title: "Zoox copy", label: "high", graded_score: 85, current_score: null, current_band: "duplicate", note: "dup now" },
+    // Directional label on a grade the analyst saw without a score.
+    { item_id: 3, entity: "Waymo", title: "Waymo covered", label: "too_low", graded_score: null, current_score: 50, current_band: "borderline" },
+    // Outside the range: the one lesson.
+    { item_id: 4, entity: "Skydio", title: "Skydio Army order", label: "high", graded_score: 50, current_score: 55, current_band: "borderline" },
+  ] } }));
+  const r = await run(cwd, ["aux-labels"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^1 auxiliary item\(s\) whose current grade is outside the analyst's label/);
+  const lines = r.stdout.split("\n").filter((l) => l.startsWith("- "));
+  assert.deepEqual(lines, ["- [Skydio] item_id=4 analyst=HIGH (80-100) grade now=55 (borderline) :: Skydio Army order"]);
+  assert.deepEqual(readJson(zen(cwd, "aux-labels.json")).map((l) => [l.item_id, l.gap]), [[4, 25]]);
 });
 
 function claimDir() {
@@ -391,4 +437,17 @@ test("rubric/auxiliary.md uses the API's reason flags, bands and output fields",
     assert.ok(g.event_type.length <= 40 && g.why.length <= 400);
     for (const rt of g.reads_through) assert.ok(covered.tickers.includes(rt.ticker) && ["+", "-", "±"].includes(rt.direction));
   }
+});
+
+test("GRADER.md hands an empty coverage claim on to the auxiliary pass", () => {
+  const md = readFileSync(join(root, "grader", "GRADER.md"), "utf8");
+  const step = (n) => new RegExp(`^${n}\\. [\\s\\S]*?(?=^${n + 1}\\. |^## )`, "m").exec(md)[0];
+  assert.match(step(1), /NOTHING WAITING[\s\S]*auxiliary pass \(step 5\)/);
+  assert.doesNotMatch(step(1), /report "nothing to grade"/);
+  // A coverage grade given up on after two resubmits must not block the auxiliary pass.
+  assert.match(step(5), /given up on after two\s+resubmits/);
+  // The grader reads the served rubric, which carries the version recorded on each grade.
+  const intro = md.slice(0, md.indexOf("## Procedure"));
+  assert.match(intro, /`\.zenith\/rubric\/aux\.md`/);
+  assert.doesNotMatch(intro, /`rubric\/auxiliary\.md`/);
 });
