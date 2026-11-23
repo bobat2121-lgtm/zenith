@@ -109,11 +109,22 @@ export async function submitHeadlines(env, body, role) {
     const key = `${kind}|${id}`;
     if (seen.has(key)) { no(`${kind} item ${id} is listed twice; send one headline per item`); continue; }
     seen.add(key);
-    stmts.push(env.DB.prepare(`UPDATE ${KINDS[kind].table} SET headline = ?, headline_tag = ?, headline_at = ?, headline_claimed_until = NULL WHERE id = ?`)
-      .bind(head.headline, head.tag, now, id));
-    results.push({ kind, item_id: id, headline: head.headline, tag: head.tag });
+    // A grade that writes a headline clears headline_claim_id (index.js,
+    // auxiliary.js), so the guard keeps a grade that lands after the check
+    // above. This pass's own write keeps the claim id, so a resubmit still works.
+    const guard = claimId ? " AND headline_claim_id = ?" : "";
+    stmts.push(env.DB.prepare(`UPDATE ${KINDS[kind].table} SET headline = ?, headline_tag = ?, headline_at = ?, headline_claimed_until = NULL WHERE id = ?${guard}`)
+      .bind(head.headline, head.tag, now, id, ...(claimId ? [claimId] : [])));
+    results.push({ kind, item_id: id, ref, headline: head.headline, tag: head.tag });
   }
   // All-or-nothing: a failure part-way through commits nothing, so a retry is safe.
-  if (stmts.length) await env.DB.batch(stmts);
-  return json({ accepted: results.length, rejected, results });
+  const out = stmts.length ? await env.DB.batch(stmts) : [];
+  const written = [];
+  results.forEach((r, i) => {
+    const { ref, ...entry } = r;
+    if (out[i]?.meta?.changes === 0) {
+      rejected.push({ kind: r.kind, item_id: ref, error: `${r.kind} item ${r.item_id} left headline claim ${claimId} before this write (a grade wrote its headline); nothing was changed` });
+    } else written.push(entry);
+  });
+  return json({ accepted: written.length, rejected, results: written });
 }

@@ -59,6 +59,30 @@ test("headline: a trimmed string of 8-140 characters on one line, without a URL"
   ok({ headline: "Amazon.com expands Prime Air drone delivery to two cities.", tag: "News" });
 });
 
+test("a URL without http(s) or www is still a URL: any scheme, or a domain followed by a path", () => {
+  for (const u of ["Read more at sec.gov/Archives/edgar/data/1", "Details at ir.redcat.red/news-releases/1", "Shares: ftp://x.example/a",
+    "Filed at SEC.GOV/cgi-bin/browse-edgar", "Watch on youtu.be/abc123 now", "Open sftp://files.example.com", "Join at s3+ssh://host"]) {
+    err({ headline: u, tag: "News" }, /must not contain a URL/);
+  }
+  // Figures with a slash, abbreviations and plain domain-like names are not URLs.
+  for (const h of ["EPS of $0.12/share beats by $0.03.", "Revenue up 2.5x/year since 2024.", "U.S./Canada sales rise 12%.",
+    "Amazon.com expands Prime Air to two cities.", "Ratio 3:1 approved; Q3/Q4 guidance kept.", "Inc./LLC merger closes at $4.10 per share."]) {
+    ok({ headline: h, tag: "News" });
+  }
+});
+
+test("headline: no control characters or bidi overrides (Python splitlines treats U+001C-U+001E as line breaks)", () => {
+  for (const h of ["Line one\u001cLine two here", "abc\u0000defghij", "NAV hits ‮$289 million", "Red Cat\u001d wins order", "Red Cat\u001e wins order",
+    "Red Cat\u001f wins order", "Red Cat\u007f wins order", "Red Cat\u009b wins order", "Red Cat ‪wins‬ order", "Red Cat ⁦wins⁩ order",
+    "Red Cat\u0008 wins order"]) {
+    err({ headline: h, tag: "News" }, /headline must not contain control characters/);
+  }
+  // A tab, vertical tab or form feed is whitespace: it collapses to a space.
+  assert.equal(ok({ headline: "Red Cat\u000bwins\u000can order.", tag: "News" }).headline, "Red Cat wins an order.");
+  // Ordinary non-ASCII text is fine.
+  ok({ headline: "Señal raises €12 million — up 4.1%.", tag: "News" });
+});
+
 test("a headline that repeats the original title is allowed (the rubric discourages it)", () => {
   ok({ headline: "RoboStrategy, Inc. Updates Net Asset Value as of October 31, 2026", tag: "Press release" });
 });

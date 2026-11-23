@@ -259,7 +259,13 @@ export const SEC_FORM_RE = /^(8-K|8-K\/A|10-Q|10-Q\/A|10-K|10-K\/A|6-K|6-K\/A|20
 export const HEADLINE_TAGS = ["Press release", "Presentation", "Shareholder letter", "Event", "Contract notice", "Program notice", "News", "Blog",
   "Video", "Filing", "Report", "Interview"];
 const LINE_BREAK_RE = /[\r\n\u0085\u2028\u2029]/;
-const URL_RE = /\bhttps?:\/\/|\bwww\.[a-z0-9-]+\.[a-z]/i;
+// A URL: any scheme (https://, ftp://, s3+ssh://), a www. host, or a domain
+// followed by a path (sec.gov/Archives/..., ir.redcat.red/news/1). The last
+// domain label must start with two letters, so "$0.12/share" or "U.S./Canada" pass.
+const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9-]+\.[a-z]|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2}[a-z0-9-]*\/\S/i;
+// C0 and C1 controls and the bidi embeddings, overrides and isolates. Python's
+// str.splitlines breaks on U+001C-U+001E, so they would split the app's one line.
+const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
 const present = (v) => v !== null && v !== undefined && v !== "";
 
 // Validates a grade's (or a headline-pass entry's) headline and tag. Both are
@@ -280,6 +286,7 @@ export function normalizeHeadline(raw, { required = false } = {}) {
   if (headline.length < HEADLINE_MIN || headline.length > HEADLINE_MAX) {
     return bad(`headline must be ${HEADLINE_MIN}-${HEADLINE_MAX} characters (got ${headline.length}); aim for at most ~110`);
   }
+  if (CONTROL_RE.test(headline)) return bad("headline must not contain control characters or bidi overrides");
   if (URL_RE.test(headline)) return bad("headline must not contain a URL");
   if (typeof raw.tag !== "string") return bad("tag must be a string");
   const given = raw.tag.replace(/\s+/g, " ").trim();

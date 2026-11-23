@@ -316,8 +316,11 @@ export async function submitAuxGrades(env, body, role) {
       "UPDATE aux_items SET state='graded', grade_id=(SELECT id FROM aux_grades WHERE item_id=?1 AND run_id=?2), claim_id=NULL, claimed_until=NULL WHERE id=?1",
     ).bind(item.id, runId));
     // The headline lives on the item; a grade without one keeps the item's.
+    // Writing one ends any headline-pass lease, so that pass cannot overwrite it.
     if (g.headline) {
-      stmts.push(env.DB.prepare("UPDATE aux_items SET headline=?, headline_tag=?, headline_at=? WHERE id=?").bind(g.headline, g.headline_tag, now, item.id));
+      stmts.push(env.DB.prepare(
+        "UPDATE aux_items SET headline=?, headline_tag=?, headline_at=?, headline_claim_id=NULL, headline_claimed_until=NULL WHERE id=?",
+      ).bind(g.headline, g.headline_tag, now, item.id));
     }
     accepted.push({ item_id: raw.item_id, entity: g.entity, score: g.score, band: g.band });
   }

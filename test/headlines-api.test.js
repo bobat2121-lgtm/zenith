@@ -278,3 +278,69 @@ test("headline routes: grader and admin only; claim_id required for the grader; 
   const r = await call(env, "POST", "/v1/headlines", { headlines: [{ kind: "coverage", item_id: ids.covDone, headline: H.filing, tag: "8-K/A" }] }, "admin");
   assert.deepEqual([r.body.accepted, headlineOf(env, "items", ids.covDone).headline_tag], [1, "8-K/A"]);
 });
+
+test("a grade that writes a headline while the item is in a headline claim wins: the backfill is then rejected, never an overwrite", async () => {
+  const env = newEnv();
+  const ids = backlog(env);
+  const extra = addItem(env, { nm_first_seen: iso(4 * DAY) });
+  addGrade(env, extra);
+  const claim = (await call(env, "POST", "/v1/headlines/claim", { limit: 60 })).body;
+  const leased = new Set(claim.items.map((i) => `${i.kind}|${i.item_id}`));
+  for (const k of [`coverage|${ids.covOld}`, `coverage|${ids.covNew}`, `coverage|${extra}`, `aux|${ids.auxNew}`]) assert.ok(leased.has(k), k);
+  // Regrades with a headline (own-ticker, cross-ticker on an item with none, auxiliary); one without a headline keeps the lease.
+  const fresh = "Fresh grade headline from the regrade";
+  let r = await call(env, "POST", "/v1/grades", { run_id: "run-r", grades: [
+    covGrade(ids.covOld, { headline: fresh, tag: "News" }),
+    covGrade(`${extra}#UMAC`, { headline: H.cross, tag: "Press release", flags: ["reason:material", "also:UMAC"] }),
+    covGrade(ids.covNew, { score: 70 }),
+  ] }, "admin");
+  assert.equal(r.body.accepted, 3, JSON.stringify(r.body.rejected));
+  r = await call(env, "POST", "/v1/aux/grades", { run_id: "aux-r", grades: [auxGrade(ids.auxNew, { headline: "Anduril regrade headline, fresh.", tag: "News" })] }, "admin");
+  assert.equal(r.body.accepted, 1, JSON.stringify(r.body.rejected));
+  const lease = (table, id) => rows(env, `SELECT headline_claim_id, headline_claimed_until FROM ${table} WHERE id = ?`, id)[0];
+  for (const [t, id] of [["items", ids.covOld], ["items", extra], ["aux_items", ids.auxNew]]) {
+    assert.deepEqual(lease(t, id), { headline_claim_id: null, headline_claimed_until: null }, `${t} ${id}: a grade's headline ends the headline lease`);
+  }
+  assert.equal(lease("items", ids.covNew).headline_claim_id, claim.claim_id, "a grade without a headline leaves the lease");
+
+  const res = await call(env, "POST", "/v1/headlines", { claim_id: claim.claim_id, headlines: [
+    { kind: "coverage", item_id: ids.covOld, headline: "Backfill headline overwrite", tag: "News" },
+    { kind: "coverage", item_id: extra, headline: "Backfill headline overwrite", tag: "News" },
+    { kind: "aux", item_id: ids.auxNew, headline: "Backfill headline overwrite", tag: "News" },
+    { kind: "coverage", item_id: ids.covNew, headline: H.nav, tag: "Press release" },
+  ] });
+  assert.equal(res.body.accepted, 1);
+  assert.deepEqual(res.body.rejected.map((x) => [x.kind, x.item_id]), [["coverage", ids.covOld], ["coverage", extra], ["aux", ids.auxNew]]);
+  for (const x of res.body.rejected) assert.match(x.error, /is not in headline claim/);
+  assert.equal(headlineOf(env, "items", ids.covOld).headline, fresh);
+  assert.equal(headlineOf(env, "items", extra).headline, H.cross);
+  assert.equal(headlineOf(env, "aux_items", ids.auxNew).headline, "Anduril regrade headline, fresh.");
+  assert.equal(headlineOf(env, "items", ids.covNew).headline, H.nav);
+});
+
+test("a grade landing between the headline submit's check and its write is not overwritten, and the entry is reported rejected", async () => {
+  const env = newEnv();
+  const ids = backlog(env);
+  const claim = (await call(env, "POST", "/v1/headlines/claim", { limit: 60 })).body;
+  const batch = env.DB.batch.bind(env.DB);
+  let raced = false;
+  env.DB.batch = async (stmts) => {
+    if (!raced && stmts.some((s) => /SET headline = \?/.test(s.sql))) {
+      raced = true;
+      // What a regrade with a headline commits in between.
+      env.DB.db.prepare("UPDATE items SET headline = 'Fresh grade headline from the regrade', headline_tag = 'News', headline_claim_id = NULL, headline_claimed_until = NULL WHERE id = ?").run(ids.covOld);
+    }
+    return batch(stmts);
+  };
+  const res = await call(env, "POST", "/v1/headlines", { claim_id: claim.claim_id, headlines: [
+    { kind: "coverage", item_id: ids.covOld, headline: "Backfill headline overwrite", tag: "News" },
+    { kind: "coverage", item_id: ids.covNew, headline: H.nav, tag: "Press release" },
+  ] });
+  assert.ok(raced);
+  assert.equal(res.body.accepted, 1);
+  assert.deepEqual(res.body.results.map((x) => x.item_id), [ids.covNew]);
+  assert.deepEqual(res.body.rejected.map((x) => [x.kind, x.item_id]), [["coverage", ids.covOld]]);
+  assert.match(res.body.rejected[0].error, /left headline claim .* before this write \(a grade wrote its headline\); nothing was changed/);
+  assert.equal(headlineOf(env, "items", ids.covOld).headline, "Fresh grade headline from the regrade");
+  assert.equal(headlineOf(env, "items", ids.covNew).headline, H.nav);
+});

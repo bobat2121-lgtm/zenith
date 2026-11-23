@@ -149,9 +149,11 @@ async function submitGrades(env, body, role) {
     }
     // The headline lives on the item. A "#TICKER" grade's headline is kept
     // only when the item has none (the own-ticker grade describes the item).
+    // Writing one ends any headline-pass lease, so that pass cannot overwrite it.
     if (g.headline) {
       stmts.push(env.DB.prepare(
-        `UPDATE items SET headline=?, headline_tag=?, headline_at=? WHERE id=?${g.primary ? "" : " AND headline IS NULL"}`,
+        `UPDATE items SET headline=?, headline_tag=?, headline_at=?, headline_claim_id=NULL, headline_claimed_until=NULL
+         WHERE id=?${g.primary ? "" : " AND headline IS NULL"}`,
       ).bind(g.headline, g.headline_tag, now, item.id));
     }
     accepted.push({ item_id: raw.item_id, ticker: g.ticker, score: g.score, band: g.band });
