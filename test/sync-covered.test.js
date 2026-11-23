@@ -1,6 +1,6 @@
 // scripts/sync-covered.mjs: covered keys from the covered lane and from
 // coveredTicker declarations; counterparty routing from role/affects on any
-// source, COUNTERPARTY_SOURCES and the existing-source routing. aux.json:
+// source, COUNTERPARTY_SOURCES and the existing-source routing. aux-sources.json:
 // every other polled source is auxiliary, ops, or a counterparty filter that
 // only watches a covered company.
 import test from "node:test";

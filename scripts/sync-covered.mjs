@@ -10,10 +10,12 @@
 // source file), plus the hand-maintained COUNTERPARTY_EXISTING routing for
 // sources that predate those fields.
 //
-// Also writes worker/src/aux.json: every other polled company or program
+// Also writes worker/src/aux-sources.json: every other polled company or program
 // source (auxiliary names, graded on their own page) with its entity, display
 // name and status, and the sources left out of both (ops probes, and
-// counterparty filters that only exist to watch a covered company).
+// counterparty filters that only exist to watch a covered company). Not
+// "aux.json": AUX is a reserved Windows device name and Git for Windows
+// cannot add a file named aux.<anything>.
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
@@ -87,7 +89,7 @@ export function shortName(name) {
 }
 
 // sources: news-monitor's SOURCES after priority.js ran. covered: buildCovered's
-// result. peers: rubric/peers.json. Returns { sources, exclude } for aux.json.
+// result. peers: rubric/peers.json. Returns { sources, exclude } for aux-sources.json.
 export function buildAux(sourceList, covered, peers = []) {
   const coveredKeys = new Set(Object.keys(covered?.sources || {}));
   const counterparty = covered?.counterparty || {};
@@ -166,7 +168,7 @@ async function main(repo) {
     generated_from: "news-monitor SOURCES after src/priority.js (every polled source outside covered.json sources), with entity names and statuses from rubric/peers.json",
     ...aux,
   };
-  const auxTarget = join(root, "worker", "src", "aux.json");
+  const auxTarget = join(root, "worker", "src", "aux-sources.json");
   writeFileSync(auxTarget, JSON.stringify(auxOut, null, 2) + "\n");
   const count = (values) => values.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {});
   const fmt = (m) => Object.entries(m).map(([k, n]) => `${k} ${n}`).join(", ");
