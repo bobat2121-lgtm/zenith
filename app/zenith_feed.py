@@ -1,8 +1,11 @@
-"""Shared feed code for Zenith's two pages.
+"""Shared code for Zenith's pages.
 
 Coverage Universe reads /v1/feed and labels through /v1/feedback, exactly as the
 single-page app did. Auxiliary Names reads /v1/aux/feed and labels through
 /v1/aux/feedback. Both read /v1/stats (auxiliary counts live under stats.aux).
+Tuning reads /v1/calibration, /v1/source-yield, /v1/left-out and /v1/ops and
+writes /v1/source-prefs and /v1/left-out/grade; the Coverage page shows /v1/ops
+as its grader strip. A route an older zenith-core lacks shows "not available yet".
 Titles, excerpts and grader text are untrusted: every string that reaches HTML
 is escaped, links must be http(s), and excerpts render as plain text.
 """
@@ -41,7 +44,14 @@ LABELS = [("high", "High"), ("medium", "Medium"), ("low", "Low"), ("noise", "Noi
 # Directional labels: the score shown should have been lower / higher.
 DIRECTIONAL = [("too_high", "Too high"), ("too_low", "Too low")]
 LABEL_TEXT = dict(LABELS + DIRECTIONAL)
-MODES = ("For You", "Latest")
+MODES = ("For You", "Latest", "To label")
+# Optional reason codes on a label (the feedback POST's reason). "Missed detail" is
+# the "too low" reason: the grader missed a figure.
+REASONS = [("not_material", "Not material"), ("duplicate", "Duplicate"), ("wrong_company", "Wrong company"),
+           ("stale", "Stale"), ("marketing", "Marketing"), ("not_my_focus", "Not my focus"), ("missed_detail", "Missed detail")]
+REASON_TEXT = dict(REASONS)
+DOWN_REASONS = [v for v, _ in REASONS[:6]]
+UP_REASONS = ["missed_detail"]
 SIGNALS = {60: "Broad 60+", 70: "Balanced 70+", 80: "Tight 80+", 90: "Lead 90+"}
 PAGE_SIZE = 40
 MAX_LIMIT = 200
@@ -77,7 +87,11 @@ def feed_params(mode: str, min_score: int | None, unlabeled: bool) -> dict:
 
     For You: graded at or above the Signal floor, recent Leads pinned first (the
     API's default). Latest: newest first, everything not skipped, pending included.
+    To label: graded cards you have not labelled, the ones that teach the grader most
+    first (sort=to_label); Unlabeled only is implied.
     """
+    if mode == MODES[2]:
+        return {"sort": "to_label", "unlabeled": "1", "state": "graded"}
     params: dict = {"min_score": min_score} if mode == MODES[0] and min_score is not None else {"order": "newest"}
     if unlabeled:
         # The old Label queue: graded cards you have not labelled yet.
@@ -103,25 +117,58 @@ def label_choices(it: dict) -> list[str]:
     return [v for v, _ in LABELS] + ([v for v, _ in DIRECTIONAL] if it.get("score") is not None else [])
 
 
-def label_request(page: FeedPage, it: dict, label: str, note: str | None = None) -> tuple[str, dict]:
-    """(path, body) of the POST that records a label for this card."""
+def reason_choices(label: str | None) -> list[str]:
+    """Reason codes offered under a label: why the card is worth less (Low, Noise,
+    Too high) or more (High, Too low) than graded. Medium and no label offer none."""
+    if label in ("low", "noise", "too_high"):
+        return DOWN_REASONS
+    if label in ("high", "too_low"):
+        return UP_REASONS
+    return []
+
+
+def label_request(page: FeedPage, it: dict, label: str, note: str | None = None,
+                  reason: str | None = None) -> tuple[str, dict]:
+    """(path, body) of the POST that records a label (and its optional reason) for this card."""
     if page.kind == "aux":
         # Recorded against the item's current auxiliary grade server-side.
         body = {"item_id": it["item_id"], "label": label}
         if note:
             body["note"] = note
-        return page.feedback_path, body
-    body = {"item_id": it["item_id"], "label": label, "note": note or None,
-            "ticker": it.get("grade_ticker") or it["ticker"]}
-    if it.get("grade_id") is not None:
-        body["grade_id"] = it["grade_id"]
+    else:
+        body = {"item_id": it["item_id"], "label": label, "note": note or None,
+                "ticker": it.get("grade_ticker") or it["ticker"]}
+        if it.get("grade_id") is not None:
+            body["grade_id"] = it["grade_id"]
+    if reason:
+        body["reason"] = reason
     return page.feedback_path, body
 
 
-def merge_items(batches) -> list[dict]:
+def card_reason(it: dict) -> str | None:
+    """The reason saved with the card's label (feeds return my_reason beside the label)."""
+    reason = it.get("my_reason")
+    return reason if reason in REASON_TEXT else None
+
+
+def to_label_key(it: dict) -> tuple:
+    """zenith-core's sort=to_label order: confidence under 0.6 first, then scores
+    60-79 nearest 70 first, then the rest by score, highest first."""
+    conf, score = it.get("confidence"), it.get("score")
+    score = score if isinstance(score, (int, float)) else None
+    if isinstance(conf, (int, float)) and conf < 0.6:
+        return (0, 0)
+    if score is not None and 60 <= score <= 79:
+        return (1, abs(score - 70))
+    return (2, -(score if score is not None else -1))
+
+
+def merge_items(batches, sort: str | None = None) -> list[dict]:
     # One item can match several selected names: show it once, in the API's
-    # order (recent Leads first, then newest).
+    # order (recent Leads first, then newest; or the To label order).
     items = {i["item_id"]: i for batch in batches for i in batch}
+    if sort == "to_label":
+        return sorted(items.values(), key=to_label_key)
     return sorted(items.values(), key=lambda x: (x.get("pinned") or 0, x["item_id"]), reverse=True)
 
 
@@ -369,6 +416,279 @@ def site_change_html(ch: dict) -> str:
             f'<span class="z-badge src">{kind}</span>{age}</div><div class="z-site-detail">{section}{detail}</div></div>')
 
 
+# ---- Grader health (/v1/ops: Coverage strip and Tuning page; unit tested) --------------
+GAP_NOTE = ("A gap usually means the account's usage limit refused the hourly grader run: the routine "
+            "stops in about a second, before it reaches zenith-core, so no run is recorded.")
+BAD_STATUS = ("late", "down")
+
+
+def _num(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _when(iso) -> datetime | None:
+    try:
+        t = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def run_ago(iso: str | None) -> str:
+    """ "12 min ago", "3h ago", "2d ago", or a date past a week."""
+    a = ago(iso)
+    return f"{a[:-1]} min ago" if a.endswith("m") and a[:-1].isdigit() else _ago_text(iso)
+
+
+def day_text(iso) -> str:
+    """ "Nov 9" (no leading zero)."""
+    t = _when(iso)
+    return f"{t:%b} {t.day}" if t else str(iso or "")[:10]
+
+
+def utc_text(iso) -> str:
+    """ "Nov 22 13:00 UTC"."""
+    t = _when(iso)
+    if t is None:
+        return str(iso or "")
+    t = t.astimezone(timezone.utc)
+    return f"{t:%b} {t.day} {t:%H:%M} UTC"
+
+
+def _hours(value) -> str:
+    try:
+        return f"{round(float(value), 1):g} h"
+    except (TypeError, ValueError):
+        return "? h"
+
+
+def grader_of(ops) -> dict | None:
+    g = ops.get("grader") if isinstance(ops, dict) else None
+    return g if isinstance(g, dict) else None
+
+
+def grader_gaps(ops) -> list[dict]:
+    return [x for x in (grader_of(ops) or {}).get("gaps_7d") or [] if isinstance(x, dict)]
+
+
+def grader_strip_html(ops) -> str:
+    """One line: "Grader: last run 12 min ago · Aux backlog 96 (oldest Nov 9) · Headlines
+    waiting 239", the run part red when the grader is late or down. Escaped."""
+    g = grader_of(ops)
+    if g is None:
+        return '<div class="z-health">Grader: not available yet</div>'
+    last, status = g.get("last_run_at"), str(g.get("status") or "")
+    run = f"last run {html.escape(run_ago(last))}" if last else "no runs yet"
+    if status in BAD_STATUS:
+        run = f'<span class="z-bad">{html.escape(status)} · {run}</span>'
+    parts = [f"Grader: {run}"]
+    backlog = g.get("backlog")
+    if isinstance(backlog, dict):
+        aux = f"Aux backlog {_num(backlog.get('aux_pending'))}"
+        if _num(backlog.get("aux_pending")) and backlog.get("oldest_aux_pending_at"):
+            aux += f" (oldest {html.escape(day_text(backlog['oldest_aux_pending_at']))})"
+        parts += [aux, f"Headlines waiting {_num(backlog.get('headlines_waiting'))}"]
+    return f'<div class="z-health">{" · ".join(parts)}</div>'
+
+
+def gap_lines(ops) -> list[str]:
+    """Plain-text lines for the strip's popover: the gaps over 2 h in 7 days, and why they happen."""
+    if grader_of(ops) is None:
+        return ["Grader health is not available yet (this zenith-core has no /v1/ops)."]
+    gaps = grader_gaps(ops)
+    lines = [f"Gaps over 2 h between grader runs, last 7 days: {len(gaps)}." if gaps
+             else "No gaps over 2 h between grader runs in the last 7 days."]
+    lines += [f"  {utc_text(x.get('from'))} to {utc_text(x.get('to'))} ({_hours(x.get('hours'))})" for x in gaps]
+    return lines + [GAP_NOTE]
+
+
+def grader_details(ops) -> list[str]:
+    """Plain-text lines for the Tuning page's Grader section (gaps are a table there)."""
+    g = grader_of(ops)
+    if g is None:
+        return ["Grader health is not available yet (this zenith-core has no /v1/ops)."]
+    status, last = str(g.get("status") or "unknown"), g.get("last_run_at")
+    lines = [f"Status: {status}. Last run {utc_text(last)} ({run_ago(last)})." if last
+             else f"Status: {status}. No grader run recorded."]
+    run = g.get("last_run")
+    if isinstance(run, dict) and any(k in run for k in ("claimed", "graded")):
+        lines.append("Last run: " + ", ".join(f"{k} {_num(run[k])}" for k in ("claimed", "graded") if k in run) + ".")
+    if "runs_24h" in g:
+        lines.append(f"Runs in the last 24 h: {_num(g['runs_24h'])}.")
+    backlog = g.get("backlog")
+    if isinstance(backlog, dict):
+        oldest = backlog.get("oldest_aux_pending_at")
+        lines.append(f"Backlog: {_num(backlog.get('coverage_pending'))} coverage items pending, "
+                     f"{_num(backlog.get('aux_pending'))} auxiliary pending"
+                     + (f" (oldest first seen {utc_text(oldest)})" if oldest else "")
+                     + f", {_num(backlog.get('headlines_waiting'))} graded cards waiting for a headline.")
+    for c in g.get("checks") or []:
+        if isinstance(c, dict):
+            state = str(c.get("state") or "?")
+            detail = one_line(c.get("detail")) if state != "ok" else ""
+            lines.append(f"Check {c.get('key') or '?'}: {state}" + (f". {detail}" if detail else ""))
+    return lines
+
+
+# ---- Tuning page (unit tested) ------------------------------------------------------
+YIELD_DAYS = 30
+LEFT_DAYS = 14
+LEFT_SHOW = 20
+PREFS = [("mute", "Mute"), ("demote", "Demote"), ("normal", "Normal")]
+PREF_TEXT = dict(PREFS)
+PREF_HELP = ("Mute: muted sources are not graded. New items from the source are skipped and its graded cards are "
+             "hidden from both feeds; Mute asks for a confirm click. Demote: For You ranks its cards 15 points lower; "
+             "Latest, bands and alerts are unchanged. Normal: no change. SEC filings and a covered company's own "
+             "newsroom cannot be muted.")
+LEFT_KINDS = {"coverage": "Coverage", "aux": "Auxiliary"}
+SKIP_TEXT = {"archive_seed": "Archive seed", "muted_source": "Muted source", "rival_no_key_account": "Rival, no key account",
+             "grading_failed": "Grading failed"}
+VERDICT_TEXT = {"too_high": "graded too high", "too_low": "graded too low"}
+
+
+def html_table(headers, rows, wrap: int | None = None) -> str:
+    """An escaped HTML table that scrolls inside its own box on a narrow screen.
+    Column `wrap` (an index) may wrap; the others stay on one line."""
+    head = "".join(f"<th>{html.escape(str(h))}</th>" for h in headers)
+    cell = lambda i: '<td class="wrap">' if i == wrap else "<td>"  # noqa: E731
+    body = "".join("<tr>" + "".join(f"{cell(i)}{html.escape(str(c))}</td>" for i, c in enumerate(r)) + "</tr>"
+                   for r in rows)
+    return f'<div class="z-scroll"><table class="z-table"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+
+
+def calibration_parts(cal) -> tuple[dict | None, dict | None, dict]:
+    """(coverage, aux, reasons) from /v1/calibration. An older zenith-core returns the
+    coverage report alone, at the top level: no aux and no reasons then."""
+    if not isinstance(cal, dict):
+        return None, None, {}
+    if any(k in cal for k in ("coverage", "aux", "reasons")):
+        cov, aux = cal.get("coverage"), cal.get("aux")
+    else:
+        cov, aux = (cal if "all_time" in cal else None), None
+    reasons = cal.get("reasons") if isinstance(cal.get("reasons"), dict) else {}
+    return (cov if isinstance(cov, dict) else None), (aux if isinstance(aux, dict) else None), reasons
+
+
+def _summary(part: dict | None, which: str) -> dict:
+    s = (part or {}).get(which)
+    return s if isinstance(s, dict) else {}
+
+
+def _agreement(s: dict) -> str:
+    a = s.get("agreement")
+    return f"{a}% of {_num(s.get('scored'))}" if isinstance(a, (int, float)) else "n/a"
+
+
+def calibration_rows(cov: dict | None, aux: dict | None) -> list[list]:
+    """Rows of the agreement table: labels, agreement and too-high / too-low counts, all time and this week."""
+    rows = []
+    for name, part in (("Coverage", cov), ("Auxiliary", aux)):
+        if part is None:
+            rows.append([name, "not available yet", "", "", "", ""])
+            continue
+        a, w = _summary(part, "all_time"), _summary(part, "this_week")
+        rows.append([name, _num(a.get("n")), _agreement(a), _num(a.get("too_high")), _num(a.get("too_low")), _agreement(w)])
+    return rows
+
+
+def calibration_misses(cov: dict | None, aux: dict | None, top: int = 5) -> list[list]:
+    """The top misses of each page: name, grade, your label, which way, title."""
+    rows = []
+    for name, part in (("Coverage", cov), ("Auxiliary", aux)):
+        for m in [m for m in (part or {}).get("misses") or [] if isinstance(m, dict)][:top]:
+            score = m.get("score")
+            rows.append([name, m.get("ticker") or m.get("entity") or "", "dup" if score is None else score,
+                         LABEL_TEXT.get(m.get("label"), m.get("label") or ""),
+                         VERDICT_TEXT.get(m.get("verdict"), m.get("verdict") or ""), one_line(m.get("title"))])
+    return rows
+
+
+def reason_rows(reasons: dict) -> list[list]:
+    """[reason, count], most first."""
+    rows = [(str(k), _num(v)) for k, v in (reasons or {}).items() if _num(v) > 0]
+    rows.sort(key=lambda r: (-r[1], r[0]))
+    return [[REASON_TEXT.get(k, k), n] for k, n in rows]
+
+
+def calibration_empty(cov: dict | None, aux: dict | None, reasons: dict) -> bool:
+    return not any(_num(_summary(p, "all_time").get("n")) for p in (cov, aux)) and not reason_rows(reasons)
+
+
+def pref_of(row: dict) -> str:
+    """The source's saved preference: mute, demote or normal (no row)."""
+    p = row.get("pref")
+    if isinstance(p, dict):
+        p = p.get("action")
+    return p if p in ("mute", "demote") else "normal"
+
+
+def suggest_of(row: dict) -> str | None:
+    s = row.get("suggest")
+    return s if s in ("mute", "demote") else None
+
+
+def yield_rows(rows) -> list[dict]:
+    """Suggested rows first, then the server's order (most graded first)."""
+    rows = [r for r in rows or [] if isinstance(r, dict) and r.get("source_key")]
+    return sorted(rows, key=lambda r: suggest_of(r) is None)
+
+
+def yield_line_html(row: dict, kind: str) -> str:
+    """Source key, suggestion and counts for one Source yield row. Escaped."""
+    key = html.escape(str(row["source_key"]))
+    sug = suggest_of(row)
+    mark = f'<span class="z-badge lead">suggested: {sug}</span>' if sug else ""
+    stats = [f"graded {_num(row.get('graded'))}", f"high {_num(row.get('high'))}", f"reject {_num(row.get('reject'))}",
+             f"duplicate {_num(row.get('duplicate'))}"]
+    if kind == "aux":
+        stats.append(f"covered {_num(row.get('covered'))}")
+    stats.append(f"last high {day_text(row['last_high_at'])}" if row.get("last_high_at") else "no high yet")
+    return (f'<div class="z-yield"><div class="z-head"><b class="z-name">{key}</b>{mark}</div>'
+            f'<div class="z-yield-stats">{html.escape(" · ".join(stats))}</div></div>')
+
+
+def widget_slug(value) -> str:
+    # Server keys go into widget keys only as [A-Za-z0-9_-].
+    return re.sub(r"[^A-Za-z0-9_-]", "_", str(value))[:80]
+
+
+def left_out_counts(counts) -> tuple[list[tuple[str, int]], int]:
+    """([(skip_reason, n)] most first, without archive_seed; archive_seed's count)."""
+    counts = counts if isinstance(counts, dict) else {}
+    rows = sorted(((str(k), _num(v)) for k, v in counts.items() if k != "archive_seed" and _num(v) > 0),
+                  key=lambda r: (-r[1], r[0]))
+    return rows, _num(counts.get("archive_seed"))
+
+
+def skip_text(reason) -> str:
+    return SKIP_TEXT.get(str(reason or ""), str(reason or "?"))
+
+
+def left_out_counts_html(counts) -> str:
+    rows, seed = left_out_counts(counts)
+    shown = " · ".join(f"{html.escape(skip_text(k))} {n}" for k, n in rows) or "nothing"
+    out = f'<div class="z-health">Skipped in the last {LEFT_DAYS} days: {shown}</div>'
+    if seed:
+        out += (f'<div class="z-health">Archive seed (history loaded at first ingest, never news): {seed}</div>')
+    return out
+
+
+def left_out_item_html(it: dict) -> str:
+    """Name · skip reason · source · age, then the title link. Escaped."""
+    name = html.escape(str(it.get("ticker") or it.get("entity") or ""))
+    seen = it.get("first_seen")
+    age = f'<span class="z-age">{html.escape(ago(seen))}</span>' if seen else ""
+    head = (f'<b class="z-name">{name}</b><span class="z-badge reject">{html.escape(skip_text(it.get("skip_reason")))}</span>'
+            f'<span class="z-badge src">{html.escape(str(it.get("source_key") or ""))}</span>{age}')
+    text = html.escape(one_line(it.get("title")) or "(no title)")
+    title = (f'<a href="{html.escape(str(it["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">{text}</a>'
+             if safe_url(it.get("url")) else text)
+    return f'<div class="z-card"><div class="z-head">{head}</div><div class="z-title">{title}</div></div>'
+
+
 # ---- API ----------------------------------------------------------------------
 @st.cache_data(ttl=30, show_spinner=False)
 def get_json(path: str, params: tuple) -> dict:
@@ -377,11 +697,26 @@ def get_json(path: str, params: tuple) -> dict:
     return r.json()
 
 
-def post_label(page: FeedPage, it: dict, label: str, note: str | None = None) -> None:
-    path, body = label_request(page, it, label, note)
+def is_not_found(e: Exception) -> bool:
+    """True for a 404: the route is newer than the zenith-core that answered."""
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    return status == 404 or str(e).startswith("404")
+
+
+def optional_json(path: str, params: tuple = ()) -> tuple[dict | None, str | None]:
+    """(data, None), or (None, why) when the route cannot answer: "not available yet"
+    for a route this zenith-core does not have."""
+    try:
+        data = get_json(path, params)
+    except Exception as e:  # noqa: BLE001
+        return None, "not available yet" if is_not_found(e) else f"unavailable: {e}"
+    return (data, None) if isinstance(data, dict) else (None, "not available yet")
+
+
+def post_json(path: str, body: dict) -> None:
     r = requests.post(f"{api_base()}{path}", headers=auth_headers(), json=body, timeout=20)
     if r.status_code >= 400:
-        # zenith-core explains a refused label ("too_high needs a scored grade ...").
+        # zenith-core explains a refusal ("too_high needs a scored grade ...").
         try:
             reason = r.json().get("error")
         except Exception:  # noqa: BLE001
@@ -390,11 +725,15 @@ def post_label(page: FeedPage, it: dict, label: str, note: str | None = None) ->
     get_json.clear()
 
 
+def post_label(page: FeedPage, it: dict, label: str, note: str | None = None, reason: str | None = None) -> None:
+    post_json(*label_request(page, it, label, note, reason))
+
+
 def fetch_items(page: FeedPage, params: dict, picked: tuple) -> list[dict]:
     if not picked:
         return get_json(page.feed_path, tuple(sorted(params.items())))["items"]
-    return merge_items(get_json(page.feed_path, tuple(sorted({**params, page.filter_param: p}.items())))["items"]
-                       for p in picked)
+    return merge_items((get_json(page.feed_path, tuple(sorted({**params, page.filter_param: p}.items())))["items"]
+                        for p in picked), params.get("sort"))
 
 
 # ---- labels -------------------------------------------------------------------
@@ -421,6 +760,19 @@ def _sync_label(key: str, server_label: str | None) -> None:
         st.session_state[seen] = server_label
 
 
+def _kept_key(page: FeedPage) -> str:
+    return f"{page.kind}-kept"
+
+
+def _remember(page: FeedPage, it: dict, key: str, label: str | None, reason: str | None, note=None) -> None:
+    # To label leaves labelled cards out: one labelled here stays on screen (with its
+    # new label) until the sort or filter changes, so its reason can still be set.
+    card = {**it, "label": label, "my_reason": reason}
+    if note is not None:
+        card["label_note"] = note or None
+    st.session_state.setdefault(_kept_key(page), {})[key] = card
+
+
 def _on_label(page: FeedPage, it: dict, key: str) -> None:
     value, seen = st.session_state.get(key), f"{key}:srv"
     if value is None or value == st.session_state.get(seen):
@@ -432,20 +784,40 @@ def _on_label(page: FeedPage, it: dict, key: str) -> None:
         _flash(f"Label not saved: {e}", error=True)
         return
     st.session_state[seen] = value
+    _remember(page, it, key, value, None, "")
     _flash(f"Labeled {LABEL_TEXT.get(value, value)}")
+
+
+def _on_reason(page: FeedPage, it: dict, key: str, rkey: str) -> None:
+    # Saving a reason re-posts the card's current label (and its note) with the reason.
+    label, reason = st.session_state.get(f"{key}:srv"), st.session_state.get(rkey)
+    if not label or reason == st.session_state.get(f"{rkey}:srv"):
+        return
+    try:
+        post_label(page, it, label, it.get("label_note") or None, reason)
+    except Exception as e:  # noqa: BLE001
+        st.session_state[rkey] = st.session_state.get(f"{rkey}:srv")
+        _flash(f"Reason not saved: {e}", error=True)
+        return
+    st.session_state[f"{rkey}:srv"] = reason
+    _remember(page, it, key, label, reason)
+    _flash(f"Reason saved: {REASON_TEXT[reason]}" if reason else "Reason cleared")
 
 
 def _on_note(page: FeedPage, it: dict, key: str) -> None:
     value = st.session_state.get(f"{key}:nl")
     note = (st.session_state.get(f"{key}:note") or "").strip()
+    # The saved reason goes with the note while the label it belongs to stays.
+    reason = card_reason(it) if it.get("label") == value else None
     try:
-        post_label(page, it, value, note or None)
+        post_label(page, it, value, note or None, reason)
     except Exception as e:  # noqa: BLE001
         _flash(f"Note not saved: {e}", error=True)
         return
     st.session_state[key] = value
     st.session_state[f"{key}:srv"] = value
     st.session_state[f"{key}:note"] = ""
+    _remember(page, it, key, value, reason, note)
     _flash("Saved")
 
 
@@ -500,6 +872,23 @@ def render_card(page: FeedPage, it: dict) -> None:
         st.radio("Label", choices, format_func=LABEL_TEXT.get, horizontal=True, key=f"{key}:nl",
                  index=choices.index(current) if current in choices else 0)
         st.button("Save", key=f"{key}:save", on_click=_on_note, args=(page, it, key))
+    reason_picker(page, it, key)
+
+
+def reason_picker(page: FeedPage, it: dict, key: str) -> None:
+    """Under the label row: an optional reason for the saved label. One compact select,
+    so it stays one line at 375 px (feed.css st-key-zreason-*)."""
+    label = st.session_state.get(f"{key}:srv")
+    choices = reason_choices(label)
+    if not choices:
+        return
+    # One widget per reason set, so a label change never leaves a foreign option selected.
+    rkey = f"{key}:rsn-{'up' if choices == UP_REASONS else 'down'}"
+    reason = card_reason(it) if it.get("label") == label else None
+    _sync_label(rkey, reason if reason in choices else None)
+    st.container(key=f"zreason-{key}").selectbox(
+        "Reason", choices, index=None, format_func=REASON_TEXT.get, key=rkey, placeholder="Reason (optional)",
+        label_visibility="collapsed", width=220, on_change=_on_reason, args=(page, it, key, rkey))
 
 
 # ---- page -----------------------------------------------------------------------
@@ -517,20 +906,30 @@ def feed(page: FeedPage, base: tuple, picked: tuple) -> None:
     if st.session_state.get(sig_key) != (base, picked):
         st.session_state[sig_key] = (base, picked)
         st.session_state[limit_key] = PAGE_SIZE
+        st.session_state.pop(_kept_key(page), None)
     limit = st.session_state.setdefault(limit_key, PAGE_SIZE)
+    to_label = dict(base).get("sort") == "to_label"
     try:
         items = fetch_items(page, {**dict(base), "limit": limit}, picked)
     except Exception as e:  # noqa: BLE001
         st.warning(f"{page.title} feed unavailable: {e}")
         return
+    fetched = len(items)
+    if to_label:
+        # Cards labelled since this list opened stay in place (the server now leaves them out).
+        shown = {card_key(page, i) for i in items}
+        kept = [c for k, c in (st.session_state.get(_kept_key(page)) or {}).items() if k not in shown]
+        if kept:
+            items = sorted(items + kept, key=to_label_key)
     if not items:
-        st.info("Nothing here yet. The grader routine runs hourly; ungraded items show in Latest.")
+        st.info("Nothing to label: every graded card from the last 14 days has your label." if to_label else
+                "Nothing here yet. The grader routine runs hourly; ungraded items show in Latest.")
         return
     for it in items:
         # Keyed so feed.css can style cards (class st-key-zcard-...).
         with st.container(border=True, key=f"zcard-{page.kind}-{it['item_id']}"):
             render_card(page, it)
-    if len(items) >= limit and limit < MAX_LIMIT:
+    if fetched >= limit and limit < MAX_LIMIT:
         st.button("Load more", key=f"{page.kind}-more", on_click=_more, args=(limit_key,))
 
 
@@ -564,6 +963,19 @@ def health_strip() -> None:
     row.markdown(health_strip_html(health), unsafe_allow_html=True, width="content")
     with row.popover("Details", width="content"):
         for line in health_details(health):
+            st.text(line)
+
+
+def grader_strip() -> None:
+    """Coverage page: the one-line grader health strip from /v1/ops, gaps in a popover."""
+    ops, why = optional_json("/v1/ops")
+    if ops is None:
+        st.caption(f"Grader health {why}")
+        return
+    row = st.container(horizontal=True, gap="small", vertical_alignment="center", key="zgrader")
+    row.markdown(grader_strip_html(ops), unsafe_allow_html=True, width="content")
+    with row.popover("Gaps", width="content"):
+        for line in gap_lines(ops):
             st.text(line)
 
 
@@ -612,6 +1024,7 @@ def render(page: FeedPage) -> None:
                                     label_visibility="collapsed", width="stretch", persist_state="session") or MODES[0]
     if page.kind == "cov":
         health_strip()
+        grader_strip()
 
     with st.sidebar:
         options, counts = filter_options(page, stats)
@@ -625,15 +1038,193 @@ def render(page: FeedPage) -> None:
         if mode == MODES[0]:
             min_score = st.select_slider("Signal", options=list(SIGNALS), value=70, format_func=SIGNALS.get,
                                          key=f"{page.kind}-signal", persist_state="session")
-        unlabeled = st.toggle("Unlabeled only", key=f"{page.kind}-unlabeled", persist_state="session",
-                              help="Graded cards you have not labelled yet")
+        if mode == MODES[2]:
+            unlabeled = True  # To label is unlabeled graded cards by definition.
+            st.caption("To label: your unlabeled graded cards from the last 14 days, the ones that teach the "
+                       "grader most first (low confidence, then scores nearest 70).")
+        else:
+            unlabeled = st.toggle("Unlabeled only", key=f"{page.kind}-unlabeled", persist_state="session",
+                                  help="Graded cards you have not labelled yet")
         st.divider()
         _metrics(page, stats)
         if st.button("Refresh", key=f"{page.kind}-refresh"):
             get_json.clear()
+            st.session_state.pop(_kept_key(page), None)
             st.rerun()
 
     if page.kind == "cov":
         # The shown companies: the filter's picks, else every covered ticker.
         site_changes(picked or options)
     feed(page, tuple(sorted(feed_params(mode, min_score, unlabeled).items())), tuple(picked))
+
+
+# ---- Tuning page ------------------------------------------------------------------
+def _table(headers, rows, wrap: int | None = None) -> None:
+    st.markdown(html_table(headers, rows, wrap), unsafe_allow_html=True)
+
+
+def tuning_calibration() -> None:
+    cal, why = optional_json("/v1/calibration")
+    if cal is None:
+        st.caption(f"Calibration {why}.")
+        return
+    cov, aux, reasons = calibration_parts(cal)
+    if calibration_empty(cov, aux, reasons):
+        st.info("No labels yet. The To label sort shows the cards that teach the grader most.")
+        return
+    _table(["", "Labels", "Agreement", "Too high", "Too low", "This week"], calibration_rows(cov, aux))
+    st.caption("Agreement: the grade falls in your label's range (high 80-100, medium 60-89, low 30-69, noise 0-29). "
+               "Too high / too low: the grade was above / below it. All time, except This week.")
+    misses = calibration_misses(cov, aux)
+    if misses:
+        st.markdown("**Largest misses this week**")
+        _table(["Page", "Name", "Grade", "Your label", "Miss", "Title"], misses, wrap=5)
+    rows = reason_rows(reasons)
+    if rows:
+        st.markdown("**Reasons given**")
+        _table(["Reason", "Labels"], rows)
+    elif "reasons" not in cal:
+        st.caption("Reason counts not available yet.")
+
+
+def _on_pref(source_key: str, key: str) -> None:
+    value, srv = st.session_state.get(key), st.session_state.get(f"{key}:srv")
+    st.session_state.pop(f"{key}:confirm", None)
+    if value is None or value == srv:
+        return
+    if value == "mute":
+        st.session_state[f"{key}:confirm"] = True  # Mute waits for a confirm click.
+        return
+    _save_pref(source_key, value, key)
+
+
+def _save_pref(source_key: str, action: str, key: str) -> None:
+    st.session_state.pop(f"{key}:confirm", None)
+    try:
+        post_json("/v1/source-prefs", {"source_key": source_key, "action": action})
+    except Exception as e:  # noqa: BLE001
+        st.session_state[key] = st.session_state.get(f"{key}:srv")
+        _flash(f"{source_key} not saved: {e}", error=True)
+        return
+    st.session_state[key] = action
+    st.session_state[f"{key}:srv"] = action
+    _flash({"mute": f"Muted {source_key}: its new items are not graded", "demote": f"Demoted {source_key}"}
+           .get(action, f"{source_key} back to normal"))
+
+
+def _cancel_pref(key: str) -> None:
+    st.session_state.pop(f"{key}:confirm", None)
+    st.session_state[key] = st.session_state.get(f"{key}:srv")
+
+
+def yield_row(kind: str, row: dict) -> None:
+    source_key, slug = str(row["source_key"]), widget_slug(row["source_key"])
+    key = f"tune-pref-{kind}-{slug}"
+    _sync_label(key, pref_of(row))
+    box = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zyield-{kind}-{slug}")
+    box.markdown(yield_line_html(row, kind), unsafe_allow_html=True)
+    box.segmented_control("Preference", [v for v, _ in PREFS], format_func=PREF_TEXT.get, required=True, key=key,
+                          label_visibility="collapsed", width="content", help=PREF_HELP,
+                          on_change=_on_pref, args=(source_key, key))
+    if st.session_state.get(f"{key}:confirm"):
+        ask = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zconfirm-{kind}-{slug}")
+        ask.caption(f"Mute {source_key}? Muted sources are not graded: its new items are skipped and its cards hidden.")
+        ask.button("Confirm mute", key=f"{key}:yes", type="primary", on_click=_save_pref, args=(source_key, "mute", key))
+        ask.button("Cancel", key=f"{key}:no", on_click=_cancel_pref, args=(key,))
+
+
+def tuning_yield() -> None:
+    data, why = optional_json("/v1/source-yield", (("days", YIELD_DAYS),))
+    if data is None:
+        st.caption(f"Source yield {why}.")
+        return
+    st.caption(f"Last {YIELD_DAYS} days, latest grade per item; high is a score of 70 or more. Muted sources are not "
+               "graded; Demote ranks a source's cards 15 points lower in For You.")
+    for kind, title in (("coverage", "Coverage"), ("aux", "Auxiliary")):
+        rows = yield_rows(data.get(kind))
+        suggested = sum(1 for r in rows if suggest_of(r))
+        label = f"{title} · {len(rows)} sources" + (f" · {suggested} suggested" if suggested else "")
+        with st.expander(label, expanded=bool(suggested)):
+            if not rows:
+                st.caption(f"No graded {title.lower()} items in the last {YIELD_DAYS} days.")
+            for row in rows:
+                yield_row(kind, row)
+
+
+def _grade_left(kind: str, item_id: int) -> None:
+    try:
+        post_json("/v1/left-out/grade", {"kind": kind, "id": item_id})
+    except Exception as e:  # noqa: BLE001
+        _flash(f"Not queued: {e}", error=True)
+        return
+    _flash("Queued: the next grader run grades it")
+
+
+def tuning_left_out() -> None:
+    kind = st.segmented_control("Kind", list(LEFT_KINDS), format_func=LEFT_KINDS.get, default="coverage", required=True,
+                                key="tune-left-kind", label_visibility="collapsed") or "coverage"
+    base = (("days", LEFT_DAYS), ("kind", kind), ("limit", LEFT_SHOW))
+    data, why = optional_json("/v1/left-out", base)
+    if data is None:
+        st.caption(f"Left out {why}.")
+        return
+    st.markdown(left_out_counts_html(data.get("counts")), unsafe_allow_html=True)
+    rows, seed = left_out_counts(data.get("counts"))
+    options = [""] + [k for k, _ in rows] + (["archive_seed"] if seed else [])
+    # Keep a picked reason selectable when the other kind has none of it.
+    picked = st.session_state.get("tune-left-reason")
+    if picked and picked not in options:
+        options.append(picked)
+    reason = st.selectbox("Skip reason", options, key="tune-left-reason",
+                          format_func=lambda r: skip_text(r) if r else "All reasons (archive seed apart)")
+    if reason:
+        data, why = optional_json("/v1/left-out", base + (("reason", reason),))
+        if data is None:
+            st.caption(f"Left out {why}.")
+            return
+    items = [i for i in data.get("items") or [] if isinstance(i, dict)][:LEFT_SHOW]
+    if not items:
+        st.caption(f"Nothing left out for this reason in the last {LEFT_DAYS} days.")
+    for it in items:
+        item_id = it.get("id")
+        with st.container(border=True, key=f"zcard-left-{kind}-{widget_slug(item_id)}"):
+            st.markdown(left_out_item_html(it), unsafe_allow_html=True)
+            if isinstance(item_id, int):
+                st.button("Grade it", key=f"tune-grade-{kind}-{item_id}", on_click=_grade_left, args=(kind, item_id),
+                          help="Back to pending: the next grader run grades it.")
+
+
+def tuning_grader() -> None:
+    ops, why = optional_json("/v1/ops")
+    if ops is None:
+        st.caption(f"Grader health {why}.")
+        return
+    st.markdown(grader_strip_html(ops), unsafe_allow_html=True)
+    for line in grader_details(ops):
+        st.text(line)
+    gaps = grader_gaps(ops)
+    if gaps:
+        _table(["From", "To", "Gap"], [[utc_text(g.get("from")), utc_text(g.get("to")), _hours(g.get("hours"))] for g in gaps])
+    else:
+        st.caption("No gaps over 2 h between grader runs in the last 7 days.")
+    st.caption(GAP_NOTE + (f" As of {utc_text(ops['as_of'])}." if ops.get("as_of") else ""))
+
+
+def render_tuning() -> None:
+    with st.sidebar:
+        st.markdown('<div class="z-brand">ZEN<span>I</span>TH</div><div class="z-sub">grader tuning</div>',
+                    unsafe_allow_html=True)
+        st.write("")
+        if st.button("Refresh", key="tune-refresh"):
+            get_json.clear()
+            st.rerun()
+    _show_flash()
+    st.markdown("#### Tuning")
+    st.markdown("##### Calibration")
+    tuning_calibration()
+    st.markdown("##### Source yield")
+    tuning_yield()
+    st.markdown("##### Left out")
+    tuning_left_out()
+    st.markdown("##### Grader")
+    tuning_grader()
