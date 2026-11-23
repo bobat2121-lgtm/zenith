@@ -54,6 +54,23 @@ AUX_ITEMS = [
      "title": "Waymo pending item", "url": "https://example.com/waymo", "first_seen": iso(1), "state": "pending",
      "score": None, "band": None, "pinned": 0, "reads_through": [], "label": None},
 ]
+HEALTH = {
+    "edgar_fast_path": {"last_match_at": iso(2), "matches_24h": 3, "matches_7d": 9},
+    "ir_probes": {"checked_at": iso(5), "ok": 25, "failing": [
+        {"key": "probe_sym_ir_events_rss", "ticker": "SYM", "label": "SYM events", "since": iso(5), "error": "akamai challenge, HTTP 403"},
+        {"key": "probe_kdk_ir_news_rss", "ticker": "KDK", "label": "KDK <news>", "since": iso(5), "error": "timeout <b>"}]},
+    "as_of": iso(0),
+}
+SITE_CHANGES = [
+    {"id": 3, "ticker": "UMAC", "source_key": "site_unusual", "kind": "section_gone", "section": "/blog/",
+     "detail": "section /blog/ gone (had 9 URLs)", "detected_at": iso(1), "notable": False},
+    {"id": 2, "ticker": "RCAT", "source_key": "site_redcat_ir", "kind": "section_new", "section": "/investor-day/",
+     "detail": "new section /investor-day/ (3 URLs) <script>x</script>", "detected_at": iso(30), "notable": True},
+    {"id": 1, "ticker": "AUR", "source_key": "site_aurora", "kind": "child_new", "section": "/news/",
+     "detail": "new child sitemap", "detected_at": iso(3), "notable": True},
+    {"id": 4, "ticker": None, "source_key": "site_maymobility", "kind": "index_moved", "section": None,
+     "detail": "sitemap index moved", "detected_at": iso(2), "notable": False},
+]
 
 
 class Resp:
@@ -73,7 +90,9 @@ class FakeApi:
 
     def __init__(self):
         self.stats = copy.deepcopy(STATS)
-        self.items = {"/v1/feed": copy.deepcopy(COVERAGE_ITEMS), "/v1/aux/feed": copy.deepcopy(AUX_ITEMS)}
+        self.items = {"/v1/feed": copy.deepcopy(COVERAGE_ITEMS), "/v1/aux/feed": copy.deepcopy(AUX_ITEMS),
+                      "/v1/site-changes": copy.deepcopy(SITE_CHANGES)}
+        self.health = copy.deepcopy(HEALTH)
         self.gets, self.posts = [], []
         self.post_status = 200
         self.missing: set[str] = set()
@@ -85,6 +104,8 @@ class FakeApi:
             return Resp({"error": "not found"}, 404)
         if path == "/v1/stats":
             return Resp(self.stats)
+        if path == "/v1/source-health":
+            return Resp(self.health)
         return Resp({"items": copy.deepcopy(self.items[path]), "next_before_id": None})
 
     def post(self, url, headers=None, json=None, timeout=None):
@@ -179,6 +200,54 @@ class PureFunctions(unittest.TestCase):
         self.assertIn("→ KTOS ±", out)
         self.assertIn(">Other<", zf.card_html(zf.AUXILIARY, AUX_ITEMS[1]))
 
+    def test_health_strip_html(self):
+        out = zf.health_strip_html(HEALTH)
+        self.assertIn("SEC fast path: last 2h ago", out)
+        self.assertIn('IR probes: <span class="z-bad">2 failing</span> (<span class="z-bad">SYM events</span>, '
+                      '<span class="z-bad">KDK &lt;news&gt;</span>)', out)
+        self.assertNotIn("<news>", out)
+        ok = zf.health_strip_html({"edgar_fast_path": {"last_match_at": None, "matches_24h": 0, "matches_7d": 0},
+                                   "ir_probes": {"checked_at": iso(1), "failing": [], "ok": 27}})
+        self.assertIn("SEC fast path: no matches yet · IR probes: all 27 OK", ok)
+        self.assertIn("SEC fast path: unavailable · IR probes: unavailable",
+                      zf.health_strip_html({"edgar_fast_path": None, "ir_probes": None}))
+        self.assertIn("IR probes: no checks yet", zf.health_strip_html({"ir_probes": {"failing": [], "ok": 0}}))
+        self.assertIn("last Nov 02", zf.health_strip_html({"edgar_fast_path": {"last_match_at": "2025-11-02T10:00:00Z"}}))
+        many = {"ir_probes": {"ok": 1, "failing": [{"key": f"probe_{i}", "label": f"P{i}"} for i in range(6)]}}
+        many_out = zf.health_strip_html(many)
+        self.assertIn("6 failing", many_out)
+        self.assertIn("P3</span>, +2 more)", many_out)
+        self.assertNotIn("P4", many_out)
+
+    def test_health_details(self):
+        lines = zf.health_details(HEALTH)
+        self.assertIn("3 filings matched in 24h, 9 in 7 days", lines[0])
+        self.assertTrue(lines[1].startswith("IR probes: 25 OK, 2 failing; last checked 5h ago."))
+        self.assertIn("SYM events (probe_sym_ir_events_rss): akamai challenge, HTTP 403, failing as of", lines[2])
+        self.assertIn("KDK <news> (probe_kdk_ir_news_rss): timeout <b>", lines[3])  # plain text, shown with st.text
+        self.assertEqual(zf.health_details({"edgar_fast_path": None, "ir_probes": None}),
+                         ["SEC fast path: no data (edgar_latest_matches unavailable).", "IR probes: no data (probe results unavailable)."])
+
+    def test_site_changes_for(self):
+        rows = zf.site_changes_for(SITE_CHANGES, ["RCAT", "AUR", "UMAC", "SYM"])
+        self.assertEqual([c["id"] for c in rows], [1, 2, 3])  # notable first, newest first within each group
+        self.assertEqual([c["id"] for c in zf.site_changes_for(SITE_CHANGES, ["umac"])], [3])
+        self.assertEqual(zf.site_changes_for(SITE_CHANGES, []), [])
+        self.assertEqual(zf.site_changes_for([None, "x", {"ticker": None}], ["RCAT"]), [])
+
+    def test_site_change_html_escapes(self):
+        out = zf.site_change_html(SITE_CHANGES[1])
+        self.assertIn('<div class="z-site notable">', out)
+        self.assertIn('<b class="z-name">RCAT</b><span class="z-badge lead">notable</span>', out)
+        self.assertIn(">New section<", out)
+        self.assertIn("<code>/investor-day/</code>", out)
+        self.assertIn("&lt;script&gt;", out)
+        self.assertNotIn("<script>", out)
+        evil = zf.site_change_html({"ticker": "<i>", "kind": "<b>", "section": "<s>", "detail": "<u>", "detected_at": "<d>"})
+        for raw in ("<i>", "<b>", "<s>", "<u>", "<d>"):
+            self.assertNotIn(raw, evil)
+        self.assertNotIn("notable", evil)
+
     def test_filter_options(self):
         self.assertEqual(zf.filter_options(zf.COVERAGE, STATS), (["RCAT", "UMAC", "KTOS"], {}))
         self.assertEqual(zf.filter_options(zf.AUXILIARY, STATS), (["Anduril", "Skydio"], {"Anduril": 5, "Skydio": 2}))
@@ -241,6 +310,43 @@ class AppPages(unittest.TestCase):
         # Windows Application Control blocks pandas' DLLs on the dev machine.
         self.assertNotIn("pandas", sys.modules)
         self.assertEqual(self.metrics(), {"Graded": "10", "Waiting": "2", "Lead": "1", "Your labels": "4"})
+
+    def test_coverage_shows_source_health_and_site_changes(self):
+        self.run_app()
+        text = self.page_text()
+        self.assertIn("SEC fast path: last 2h ago", text)
+        self.assertIn('<span class="z-bad">SYM events</span>', text)
+        self.assertIn("KDK &lt;news&gt;", text)
+        self.assertIn("SYM events (probe_sym_ir_events_rss): akamai challenge, HTTP 403", "\n".join(t.value for t in self.at.text))
+        self.assertEqual([g for g, _, _ in self.api.gets if g in ("/v1/source-health", "/v1/site-changes")],
+                         ["/v1/source-health", "/v1/site-changes"])
+        self.assertEqual(self.api.feed_calls("/v1/site-changes"), [{"days": 14, "limit": 50}])
+        exp = [e for e in self.at.expander if e.label.startswith("Site changes")]
+        self.assertEqual([e.label for e in exp], ["Site changes · last 14 days (2) · 1 notable"])  # RCAT and UMAC are shown
+        sites = [m.value for m in self.at.markdown if 'class="z-site' in m.value]
+        self.assertEqual(len(sites), 2)
+        self.assertIn(">RCAT<", sites[0])  # the notable one first
+        self.assertIn(">UMAC<", sites[1])
+        self.assertNotIn("<script>", text.split("</style>")[-1])
+
+    def test_site_changes_follow_the_companies_filter(self):
+        self.api.stats["tickers"] = ["RCAT", "UMAC", "AUR"]
+        self.run_app()
+        self.assertIn("Site changes · last 14 days (3) · 2 notable", [e.label for e in self.at.expander])
+        self.at.multiselect(key="cov-filter").set_value(["UMAC"])
+        self.run_app()
+        self.assertIn("Site changes · last 14 days (1)", [e.label for e in self.at.expander])
+        self.api.items["/v1/site-changes"] = []
+        zf.get_json.clear()
+        self.run_app()
+        self.assertIn("No site structure changes for these companies in the last 14 days.", [c.value for c in self.at.caption])
+
+    def test_coverage_before_the_signal_routes_exist(self):
+        self.api.missing.update({"/v1/source-health", "/v1/site-changes"})
+        self.run_app()
+        self.assertIn("Source health unavailable", [c.value for c in self.at.caption])
+        self.assertFalse([e for e in self.at.expander if e.label.startswith("Site changes")])
+        self.assertEqual(len(self.cards()), 3)
 
     def test_latest_switch_changes_params(self):
         self.run_app()
@@ -330,6 +436,9 @@ class AppPages(unittest.TestCase):
         self.assertIn("grading…", cards[1])
         self.assertEqual(self.at.multiselect(key="aux-filter").options, ["Anduril (5)", "Skydio (2)"])
         self.assertEqual(self.metrics(), {"Graded": "7", "Waiting": "1", "Lead": "2", "Names": "2"})
+        # Source health and site changes are Coverage-page only.
+        self.assertNotIn("SEC fast path", self.page_text())
+        self.assertFalse([e for e in self.at.expander if e.label.startswith("Site changes")])
 
     def test_auxiliary_latest_and_unlabeled(self):
         self.open_aux()
