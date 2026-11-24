@@ -8,6 +8,8 @@
 //           GET /v1/site-changes, GET /v1/source-health (news-monitor ops signals; source-signals.js)
 //   app   : GET /v1/ops, GET|POST /v1/source-prefs, GET /v1/source-yield, GET /v1/left-out, POST /v1/left-out/grade
 //           (grader health and source tuning; tuning.js)
+//   app   : GET /v1/expansion/candidates, POST /v1/expansion/decide, POST /v1/expansion/compiled
+//           (the source-expansion approve queue; expansion.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
@@ -20,6 +22,7 @@ import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRou
 import { mobile } from "./mobile.js";
 import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
+import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill } from "./expansion.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 const ALLOW = {
@@ -58,6 +61,10 @@ const ALLOW = {
   "GET /v1/source-yield": ["app", "admin"],
   "GET /v1/left-out": ["app", "admin"],
   "POST /v1/left-out/grade": ["app", "admin"],
+  // Source-expansion approve queue for the Tuning page (expansion.js).
+  "GET /v1/expansion/candidates": ["app", "admin"],
+  "POST /v1/expansion/decide": ["app", "admin"],
+  "POST /v1/expansion/compiled": ["app", "admin"],
 };
 
 async function readJson(request) {
@@ -492,6 +499,9 @@ export default {
       case "GET /v1/source-yield": return sourceYield(env, url);
       case "GET /v1/left-out": return leftOut(env, url);
       case "POST /v1/left-out/grade": return leftOutGrade(env, await readJson(request));
+      case "GET /v1/expansion/candidates": return expansionCandidates(env, url);
+      case "POST /v1/expansion/decide": return expansionDecide(env, await readJson(request), role);
+      case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role);
     }
     return json({ error: "not found" }, 404);
   },
@@ -508,6 +518,8 @@ export default {
       try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
       // Auxiliary names last, on their own: coverage is always served first.
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
+      // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
+      try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
     })());
   },
 };

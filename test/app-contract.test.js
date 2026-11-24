@@ -11,6 +11,7 @@ import { newsRows, insertNews, gradesFor } from "./helpers/aux-e2e.js";
 
 hookJsonImports();
 const { default: worker } = await import("../worker/src/index.js");
+const { upsertSightings } = await import("../worker/src/expansion.js");
 
 const APP = new URL("../app/", import.meta.url);
 const appSource = [...["zenith_feed.py", "streamlit_app.py"].map((f) => new URL(f, APP)),
@@ -49,8 +50,60 @@ before(async () => {
   assert.equal(sub.status, 200, JSON.stringify(sub.body));
 });
 
+// The expansion queue (plans/round5-expansion-approve-queue.md, D1): one row per
+// origin shape, an SEC filing party among them. Idempotent: the same items.
+async function seedExpansion() {
+  const at = new Date().toISOString();
+  const sec = { name: "Upgrade Energy", origin: "sec_filing", relation: "acquired", subject: "UMAC", tickers: ["UMAC"], kind: "coverage", item_id: 18,
+    url: "https://www.sec.gov/Archives/edgar/data/1956955/000168316826008046/umac_8k.htm", title: "Unusual Machines, Inc.: 8-K filed 2026-10-23", at,
+    party: "DroneNX LLC d/b/a Upgrade Energy", aliases: ["DroneNX LLC"] };
+  const r = await upsertSightings(env.DB, [sec, { ...sec, origin: "grader_relation", party: undefined, aliases: undefined },
+    { name: "Genesis AI", origin: "aux_entity", relation: null, subject: null, tickers: [], kind: "aux", item_id: 222, url: "https://news.example.com/g", title: "Genesis AI raises", at },
+    { name: "Anduril", origin: "grader_relation", relation: "partner", subject: "SPAI", tickers: ["SPAI"], kind: "coverage", item_id: 259, url: "https://ir.example.com/259", title: "Safe Pro news", at }]);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return Object.fromEntries(env.DB.rows("SELECT id, name FROM expansion_candidates").map((x) => [x.name, x.id]));
+}
+const CANDIDATE_FIELDS = ["id", "name", "status", "relation", "subject", "origins", "tickers", "sightings", "evidence", "known", "similar",
+  "decision", "approved_tickers", "actions", "decidable", "blocked", "last_seen_at"];
+
 // Each path the app calls: how the app calls it, and the fields the app reads.
 const CONTRACT = {
+  "/v1/expansion/candidates": async () => {
+    await seedExpansion();
+    for (const status of ["pending", "approved", "rejected", "known", "compiled"]) {
+      const b = await ok("GET", `/v1/expansion/candidates?status=${status}&limit=50`);
+      has(b, ["status", "counts", "candidates", "reject_reasons"], `expansion/candidates ${status}`);
+      for (const c of b.candidates) {
+        has(c, CANDIDATE_FIELDS, "candidate");
+        for (const e of c.evidence) has(e, ["kind", "item_id", "url", "title", "at", "origin"], "candidate evidence");
+      }
+    }
+    const pending = (await ok("GET", "/v1/expansion/candidates?status=pending&limit=50")).candidates;
+    const upgrade = pending.find((c) => c.name === "Upgrade Energy");
+    assert.deepEqual([upgrade.origins, upgrade.sightings, upgrade.known], [["sec_filing", "grader_relation"], 1, ["sheet_term:UMAC"]]);
+    assert.equal(upgrade.evidence.find((e) => e.origin === "sec_filing").party, "DroneNX LLC d/b/a Upgrade Energy");
+    const known = (await ok("GET", "/v1/expansion/candidates?status=known")).candidates;
+    assert.deepEqual(known.find((c) => c.name === "Anduril").actions, ["reopen"]);
+    assert.ok(known.every((c) => c.decidable === false && typeof c.blocked === "string"), "the app offers only Not the same company");
+  },
+  "/v1/expansion/decide": async () => {
+    const ids = await seedExpansion();
+    const d = await ok("POST", "/v1/expansion/decide", { id: ids["Genesis AI"], action: "reject", reason: "too_small", note: null });
+    assert.deepEqual([d.status, d.decision.reason, d.decision.by], ["rejected", "too_small", "app"]);
+    await ok("POST", "/v1/expansion/decide", { id: ids.Anduril, action: "reopen" });
+    assert.equal((await app("POST", "/v1/expansion/decide", { id: ids["Upgrade Energy"], action: "approve", tickers: ["TSLA"] })).status, 400);
+    const a = await ok("POST", "/v1/expansion/decide", { id: ids["Upgrade Energy"], action: "approve", tickers: ["UMAC"] });
+    assert.deepEqual([a.status, a.decision.tickers], ["approved", ["UMAC"]]);
+  },
+  "/v1/expansion/compiled": async () => {
+    const ids = await seedExpansion();
+    const approved = (await ok("GET", "/v1/expansion/candidates?status=approved")).candidates;
+    if (!approved.length) await ok("POST", "/v1/expansion/decide", { id: ids["Upgrade Energy"], action: "approve", tickers: ["UMAC"] });
+    const read = (await ok("GET", "/v1/expansion/candidates?status=approved")).candidates;
+    const b = await ok("POST", "/v1/expansion/compiled", { items: read.map((c) => ({ id: c.id, tickers: c.approved_tickers })), ref: "166" });
+    has(b, ["ok", "compiled", "mismatches"], "expansion/compiled");
+    assert.deepEqual([b.ok, b.compiled, b.mismatches], [true, read.map((c) => c.id), []]);
+  },
   "/v1/stats": async () => has((await ok("GET", "/v1/stats")), ["tickers", "last_run", "labels", "aux"], "stats"),
   "/v1/source-health": async () => has(await ok("GET", "/v1/source-health"), ["edgar_fast_path", "ir_probes"], "source-health"),
   "/v1/site-changes": async () => has(await ok("GET", "/v1/site-changes?days=14&limit=20&tickers=RCAT"), ["items"], "site-changes"),
@@ -138,8 +191,13 @@ async function ok(method, path, body) {
   return r.body;
 }
 
+// Worker routes the contract already checks before the app calls them (round 5:
+// the Tuning page's Expansion queue lands in its own part). Once the app calls
+// one, it is checked like any other path.
+const AHEAD_OF_APP = new Set(["/v1/expansion/candidates", "/v1/expansion/decide", "/v1/expansion/compiled"]);
 test("the app's /v1 paths are exactly the ones this contract checks", () => {
-  assert.deepEqual(appPaths, Object.keys(CONTRACT).sort());
+  assert.deepEqual(appPaths, Object.keys(CONTRACT).filter((p) => !AHEAD_OF_APP.has(p) || appPaths.includes(p)).sort());
+  for (const p of appPaths) assert.ok(p in CONTRACT, `the app calls ${p}`);
 });
 
 for (const [path, check] of Object.entries(CONTRACT)) {

@@ -285,7 +285,7 @@ test("scheduled: the 5-minute cron ingests auxiliary items after coverage ingest
   } finally {
     console.log = log;
   }
-  assert.deepEqual(order, ["ingest", "delivery", "enrich", "aux ingest"]);
+  assert.deepEqual(order, ["ingest", "delivery", "enrich", "aux ingest", "expansion backfill"]);
   assert.deepEqual(db.rows("SELECT title FROM items").map((x) => x.title), ["Red Cat news"]);
   assert.deepEqual(db.rows("SELECT title FROM aux_items").map((x) => x.title), ["Anduril news"]);
 });

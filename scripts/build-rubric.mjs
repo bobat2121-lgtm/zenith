@@ -89,6 +89,20 @@ for (const t of covered.tickers) {
     accounts: [...new Set((keyAccounts[t] || []).flatMap((a) => a.terms).filter((x) => x.length >= 3))],
   };
 }
+// The covered names (plans/round5-expansion-approve-queue.md, A2 and C3): per
+// ticker, the sheet's front-matter `name:` (or, on a sheet without one, its
+// first `terms` entry) plus its `company_names` in rubric/key-accounts.json.
+// Never the rest of MATCH.terms: product and unit names there (Carbyne,
+// Upgrade Energy) must stay expansion candidates. Not part of RUBRIC_VERSION:
+// it changes no grade.
+const unquote = (x) => x.trim().replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim();
+const COVERED_NAMES = {};
+for (const t of covered.tickers) {
+  if (!companies[t]) continue;
+  const nameLine = /^name:[ \t]*(.+)$/m.exec(frontMatter(companies[t]) || "");
+  const primary = nameLine ? unquote(nameLine[1]) : sheetTerms(companies[t])[0];
+  COVERED_NAMES[t] = [...new Set([primary, ...(keyAccounts.company_names?.[t] || [])].filter((x) => typeof x === "string" && x.trim()))];
+}
 const noTerms = Object.entries(MATCH).filter(([, v]) => !v.terms.length).map(([t]) => t);
 if (noTerms.length) console.log(`WARNING sheets with no parseable terms: ${noTerms.join(", ")}`);
 
@@ -114,6 +128,7 @@ export const CORE = ${JSON.stringify(core)};
 export const COMPANIES = ${JSON.stringify(companies)};
 export const PEERS = ${JSON.stringify(peers)};
 export const MATCH = ${JSON.stringify(MATCH)};
+export const COVERED_NAMES = ${JSON.stringify(COVERED_NAMES)};
 export const AUX_RUBRIC_VERSION = ${JSON.stringify(auxVersion)};
 export const AUX_RUBRIC = ${JSON.stringify(aux)};
 `;

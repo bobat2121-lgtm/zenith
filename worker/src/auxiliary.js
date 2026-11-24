@@ -19,6 +19,7 @@ import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCurs
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
   olderEventDate, normalizeHeadline, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
+import { auxEntitySighting, upsertSightings } from "./expansion.js";
 
 export const AUX_BACKFILL_DAYS = 14;
 export const AUX_MAX_CLAIM = 40;
@@ -336,7 +337,7 @@ export async function submitAuxGrades(env, body, role) {
   const already = new Set();
   for (const part of chunk(ids)) {
     const ph = part.map(() => "?").join(",");
-    for (const r of (await env.DB.prepare(`SELECT id, state, claim_id FROM aux_items WHERE id IN (${ph})`).bind(...part).all()).results || []) items.set(r.id, r);
+    for (const r of (await env.DB.prepare(`SELECT id, state, claim_id, url, title, nm_first_seen FROM aux_items WHERE id IN (${ph})`).bind(...part).all()).results || []) items.set(r.id, r);
     for (const r of (await env.DB.prepare(`SELECT item_id FROM aux_grades WHERE run_id = ? AND item_id IN (${ph})`).bind(runId, ...part).all()).results || []) {
       already.add(r.item_id);
     }
@@ -346,6 +347,7 @@ export async function submitAuxGrades(env, body, role) {
   const model = String(body.model || "").slice(0, 60) || null;
   const accepted = [], rejected = [], skipped = [];
   const stmts = [];
+  const sightings = [];
   for (const raw of body.grades) {
     const res = normalizeAuxGrade(raw, { covered: COVERED.tickers, dupExists: (id) => items.has(id) });
     if (!res.ok) { rejected.push({ item_id: raw?.item_id ?? null, error: res.error }); continue; }
@@ -376,10 +378,16 @@ export async function submitAuxGrades(env, body, role) {
       ).bind(g.headline, g.headline_tag, now, item.id));
     }
     accepted.push({ item_id: raw.item_id, entity: g.entity, score: g.score, band: g.band });
+    // Aux entity rule (plans/round5-expansion-approve-queue.md, C2): a financing or acquisition grade at 70+.
+    const sighting = auxEntitySighting(g, item);
+    if (sighting) sightings.push(sighting);
   }
   // All-or-nothing: a failure part-way through commits nothing, so a retry is safe.
   if (stmts.length) await env.DB.batch(stmts);
-  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted });
+  // A second batch, after the grades commit: a failure (a zenith-db before
+  // migration 0012 included) is a warning and never touches the grades.
+  const warnings = sightings.length ? (await upsertSightings(env.DB, sightings, { now })).warnings : [];
+  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted, warnings });
 }
 
 // --- Entity filter (feed and recent) ----------------------------------------

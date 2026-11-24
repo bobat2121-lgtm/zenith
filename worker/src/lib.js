@@ -330,10 +330,10 @@ const LINE_BREAK_RE = /[\r\n\u0085\u2028\u2029]/;
 // A URL: any scheme (https://, ftp://, s3+ssh://), a www. host, or a domain
 // followed by a path (sec.gov/Archives/..., ir.redcat.red/news/1). The last
 // domain label must start with two letters, so "$0.12/share" or "U.S./Canada" pass.
-const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9-]+\.[a-z]|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2}[a-z0-9-]*\/\S/i;
+export const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9-]+\.[a-z]|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2}[a-z0-9-]*\/\S/i;
 // C0 and C1 controls and the bidi embeddings, overrides and isolates. Python's
 // str.splitlines breaks on U+001C-U+001E, so they would split the app's one line.
-const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
+export const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
 const present = (v) => v !== null && v !== undefined && v !== "";
 
 // Validates a grade's (or a headline-pass entry's) headline and tag. Both are
