@@ -951,6 +951,46 @@
         "DPRO"
       ]
     },
+    "drv_govinfo_defense_bills": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_house_approps": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_ndaa_action": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_defense_budget_news": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
     "xtech_announcements": {
       "role": "program",
       "affects": [

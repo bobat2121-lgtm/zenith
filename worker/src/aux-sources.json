@@ -426,6 +426,20 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "drv_defense_budget_news": {
+      "entity": "drv_defense_budget_news",
+      "name": "Defense topline, appropriations and reconciliation news (drone group)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
     "drv_defense_cr_drones": {
       "entity": "drv_defense_cr_drones",
       "name": "Defense continuing resolutions, stopgaps, shutdowns and anomalies (drone group)",
@@ -451,6 +465,48 @@
         "RCAT",
         "PUSA",
         "ONDS",
+        "DPRO"
+      ]
+    },
+    "drv_govinfo_defense_bills": {
+      "entity": "drv_govinfo_defense_bills",
+      "name": "govinfo bill versions",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_house_approps": {
+      "entity": "drv_house_approps",
+      "name": "House Appropriations",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_ndaa_action": {
+      "entity": "drv_ndaa_action",
+      "name": "NDAA stages",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
         "DPRO"
       ]
     },
