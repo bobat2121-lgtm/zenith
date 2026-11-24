@@ -63,7 +63,8 @@ above ends the whole run.
      `.zenith/rubric/<TICKER>.md` once and keep its rules in mind; do not re-read it
      for later batches. For the core's entity-collision check against *other*
      sheets, read only their YAML front matter (`terms`, `aliases`, `traps`) and the
-     "Identity & matching" section — never whole sheets.
+     "Identity & matching" section — never whole sheets. The one exception is the
+     "Driver lines" section in the Counterparty items step below.
    - **Earlier items:** before marking anything a duplicate or `already_covered`,
      run `node grader/zenith.mjs recent <TICKER> 14` and use only item_ids it shows
      (or ids in the current claim) for `dup_of:`.
@@ -75,6 +76,16 @@ above ends the whole run.
      from a partner, customer, program, rival or index source, not the company's own
      source. Grade it only through core.md section 9 ("Counterparty sources"); add
      `"<item_id>#<TICKER>"` grades for other tickers in `affects` that it also passes.
+     **Driver lines (the one exception to "never whole sheets").** For a COUNTERPARTY
+     item with `role=program` and more than one ticker in `affects`, read the
+     `## Driver lines (owner:<date>)` section of each `affects` ticker's sheet, and
+     nothing else of those sheets: `awk '/^## Driver lines/{p=1;print;next} p&&/^## /{exit} p' .zenith/rubric/<TICKER>.md`
+     prints it up to the next `## ` heading (no output: that sheet has no Driver
+     lines). Add a `"<item_id>#<TICKER>"` grade only for a ticker whose Driver lines
+     cover the item, at that ticker's band; a line that says "does not apply to
+     <TICKER>" means no grade for it. The bare `item_id` grade for the item's own
+     ticker is still required: if that sheet's Driver lines do not cover the item,
+     grade it by core.md section 9 as usual (`reason:out_of_scope`, 0-15).
    - **Sources:** each claimed item may carry the text of its release or filing
      (`EXCERPT (ok)`, or `EXCERPT (feed)` when it came from the company's own feed,
      `EXCERPT (pdf)` when it was read from the deck, letter or stats sheet): the lead

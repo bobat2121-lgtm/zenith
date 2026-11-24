@@ -42,7 +42,8 @@ open_items:
   - {id: inflection_2027, what: "Revenue inflection guided to 'Q2, particularly Q3 2027' (Q3 call): reaffirmed, delivered or slipped again", expires_at: 2027-11-15, note: "covers the Q3 2027 print (2026 cadence: Q3 on 2026-11-10); a slip is a lead-level negative"}
   - {id: ddp_next_phase, what: "Next Drone Dominance phase result for a Mountain Horse or Global Ordnance entry carrying the Draganfly Flex, either way", expires_at: 2027-12-31, note: "2027, dates TBD; set by sheet author, needs_owner"}
 groups: [earnings_calendar]   # the body's 'earnings_dates' key is not a core key (core §8); no custom dpro_<slug> key is declared
-owner_marks: []               # no line in this sheet carries an owner:<date> mark
+owner_marks:
+  - {line: "Driver lines", mark: "owner:2026-11-24", overrides: "core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, and the core 4.5 timeliness deduction below 70 for Digest items, for US drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, and DoW drone industrial policy only"}
 ---
 
 # DPRO — Draganfly Inc.
@@ -181,7 +182,58 @@ _Researched 2026-11-18. Listed on Nasdaq (DPRO), CSE (DPRO) and FSE (3U8). SEC C
 - **Red Cat (RCAT):** the main rival for US FPV and small-ISR buys.
 - **Gauntlet II leaders** (Neros, Perennial Autonomy, XTEND, ORQA US, Vector, ModalAI, Hyperscale, Skycutter, Swarm Defense): their DDP order flow is share Draganfly did not win.
 
-Peer items are out of scope for this grader. Grade them for DPRO only when Draganfly or its product is named in the source. UMAC items count for DPRO only when they name DPRO.
+Peer items are out of scope for this grader. Grade them for DPRO only when Draganfly or its product is named in the source. US government drone actions (drone rules, presidential drone actions, Defense appropriations and CRs naming a drone program, DoW drone industrial policy such as a DoW loan or production deal to a peer) are graded under "Driver lines" below (owner:2026-11-24). UMAC items count for DPRO only when they name DPRO.
+
+## Driver lines (owner:2026-11-24)
+On 2026-11-24 the owner approved these lines (Round 7 Phase 1a, the drone group). They let four kinds of US government drone news count for DPRO when the item does not name Draganfly. Draganfly is a Canadian issuer that sells Flex FPV, Heavy Lift and Commander 3XL drones to US Department of War units, has a new US defense subsidiary (Draganfly Defense USA, 2026-10-12), holds an FAA Section 44807 exemption for Heavy Lift, and moved its revenue inflection to Q2-Q3 2027 citing slow US funding. So US drone rules, presidential orders, Defense budgets and DoW production policy move its US sales. Its main thesis is Canadian (DDI), so these US items sit at the low end of each band. The pattern is GRRR.md "Policy read-through" (owner:2026-11-24), cited as the precedent and not repeated here.
+
+Shared rules for the four blocks:
+- **Overrides:** for items a block covers, and only those (core 12.1): the core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, and the core 4.5 deduction below 70. Everything else in core applies: entity checks and traps, core 8 freshness and dedupe, and the output contract.
+- **Timeliness (core 4.5):** apply 4.5 as usual, but it never takes an item scored in a Digest band of these lines (70-89) below 70: score 70, not 65. This is sheet text, not a core floor: flag no `floor:` id. Over 21 days at first sighting, core 8 applies unchanged (`stale`, or `late_first_sighting` for an official record). Bands below 70 take the full deduction. Worked-example scores are final scores, after 4.5 or core 8.
+- **Copies:** the official record (Federal Register, White House, enacted text, committee release, DoW release) is canonical over news of the same action (core 8). Explainers, op-eds, law-firm alerts and re-reports are `duplicate` of the first graded copy, or under 40 when nothing was graded before. A copy that adds a fact (an effective date, a named program, a dollar figure) is an update on that fact.
+- **Published text:** facts only (core 9). Never write Draganfly, DPRO, Flex, Heavy Lift, Commander 3XL or Astiia unless the item names them. Tag an official record `Program notice` and a media article `News`.
+- **Other tickers:** these items come from program sources that affect several drone names. Grade DPRO by the bands here; other tickers follow their own Driver lines (GRADER.md, Counterparty items).
+- **Not covered:** these lines are US only. Canadian budgets and DND items (for example the Budget 2026 Defence Drone Initiative line, 2026-11-05) keep the rules above, as do peer items such as Volatus call-ups and results.
+
+### US drone rules
+- **id:** `us_drone_rules` (new id).
+- **category:** regulator.
+- **what counts:** a US rule, order or formal proposal on drones or drone parts: FAA drone rules (Part 108 and similar, and rules on heavy drones over 55 lb, which reach the Heavy Lift exemption and `heavy_lift_commercial`), and the FCC Covered List and equipment-authorization rules for drones and their components (they decide which drones can be sold in the US). BIS drone export rules **do not apply to DPRO**: it is a Canadian maker, not a US exporter, and the sheet records no US export line, so add no `#DPRO` grade for them. FCC Covered List rules that reach only routers, surveillance cameras or other gear, not drones or drone parts, are `out_of_scope` 0-15 (recorded negative). If the title and excerpt do not show whether the rule reaches drones or drone parts, open the document once before scoring above 39.
+- **actors:** FAA, FCC.
+- **band:** final rule or order in force: Digest 75-79 (up to 85 for an FAA rule that opens commercial Heavy Lift operations). NPRM or other formal proposal, or a statement of intent by the President or a cabinet member: 70-74. Credible report of pending action (a draft rule, OIRA review), named outlet and named agency: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_fedreg_drone_rules` (Federal Register, FCC, FAA and BIS), but the line applies to any source.
+- **worked example:** FCC rule "Protecting Against National Security Threats to the Communications Supply Chain Through the Equipment Authorization Program" (Federal Register 2026-09-11, 91 FR 57798; in force 2026-10-13): no new equipment authorizations for drones and radios with logic-bearing components from Covered List firms. Seen within 3 days of 2026-09-11: about 75, final 75, tag `Program notice`. First seen now, the record is over 21 days old: `late_first_sighting` when no earlier copy was graded, 75 - 15 = final 60; a news copy is `stale` (under 30).
+
+### Presidential drone and airspace actions
+- **id:** `presidential_drone_actions` (new id).
+- **category:** policy.
+- **what counts:** an executive order, proclamation or memorandum on drones: drone production and sourcing (including US-made preferences, which may or may not cover Canadian drones), US airspace for drones, and Section 232 actions on drones and drone parts (tariffs or quotas on imported drones reach Draganfly's US sales). An order only on counter-UAS authority or airspace security **does not apply to DPRO** (its counter-UAS work is one development contract through F4 Defense, not a sales line): add no `#DPRO` grade.
+- **actors:** the President; a White House fact sheet is a copy of the same action.
+- **band:** signed order or proclamation: Digest 75-85 (80+ for a Section 232 action that covers drones from Canada). Statement of intent by the President or a cabinet member: 70-79. Credible report of a draft order, named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_whitehouse_actions` (whitehouse.gov presidential actions), but the line applies to any source.
+- **worked example:** no audit row. Precedent: the executive order "Unleashing American Drone Dominance", signed 2025-06-06, a signed order on US drone policy. Seen within 3 days it would score about 75; it is now `stale`. The Federal Register copy of a presidential document is the same event as the White House item (core 8).
+
+### Defense appropriations and continuing resolutions naming a drone program
+- **id:** `inflection_timing` (existing thesis driver: management tied the inflection slip partly to slow US funding).
+- **category:** budget/program.
+- **what counts:** a US Defense appropriations bill, enacted act or continuing resolution that names, funds, cuts or blocks a drone program (small-UAS, FPV or Drone Dominance procurement): enacted lines, CR anomalies, new-start blocks, a lapse. Deadline or shutdown news that names no drone program does not count (`out_of_scope`).
+- **actors:** Congress (the House and Senate Appropriations Committees and their Defense subcommittees, floor votes), the President's signature, and DoW requests for CR anomalies.
+- **band:** enacted line, anomaly or new-start block naming a drone program: Digest 75-79. Committee-passed bill or statement of intent by the President, a cabinet member or the Secretary of War: 70-74. Credible report of pending action (a CR or anomaly expected), named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_senate_approps_def` (Senate Appropriations releases) and `drv_defense_cr_drones` (news search), but the line applies to any source.
+- **worked example:** Breaking Defense, October 2026 (day not verified): the FY2027 continuing resolution blocks over 150 new-start programs, including drone lines, until Congress acts (deadline Dec 11). Seen within 3 days: about 75. It is now over 21 days old: `stale` (under 30). The next step (a new CR, a drone anomaly, a full-year bill, a lapse on Dec 11) is a new event, graded fresh.
+
+### DoW drone industrial policy
+- **id:** `dow_adoption` (existing thesis driver: US Department of War adoption of Draganfly drones).
+- **category:** policy.
+- **what counts:** a Department of War action or plan to build up US drone production: production talks or deals with manufacturers (for example automakers), production loans (Office of Strategic Capital), DoW equity stakes, and production-order pools. It counts even when the counterparty is a rival, because DoW capital or orders for a rival change Draganfly's share of DoW small-drone buys. A peer's private financing stays `out_of_scope`.
+- **actors:** the Department of War: the Secretary of War, the Pentagon, the Army, DIU, the Drone Dominance office and the Office of Strategic Capital.
+- **band:** signed deal, loan or conditional loan commitment, or equity stake: Digest 75-79. Statement of intent by the Secretary of War or another cabinet member: 70-74. Credible report of pending action (talks, a draft plan, a budget pool not yet awarded), named outlet and named agency: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_drone_industrial_policy` (news search), but the line applies to any source.
+- **worked example:** 2026-11-24 report (WSJ, found through Bing) that the Pentagon is in talks with GM and Ford to mass-produce military drones: credible report of talks with a named agency, 70, final 70 (4.5 stops at 70). Example headline: "Pentagon in talks with GM and Ford to mass-produce military drones".
 
 ## Source coverage gaps
 - **Nasdaq press feed `draganfly`:** it runs with `config.maxItems:1` per poll (covered lane, 8-minute cadence under `priority.js`), so two releases between polls can drop one.

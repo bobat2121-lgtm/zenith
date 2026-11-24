@@ -220,3 +220,31 @@ test("status: peers public/private, else companyStatus, else from the lane", () 
   assert.equal(sources.wargov_contracts.status, "program");
   assert.equal(sources.regional_news.status, "program");
 });
+
+test("a shadow source (shadow: true) is never written to covered.json or aux-sources.json, with one warning per key", () => {
+  const list = [
+    { key: "redcat", lane: "covered", covered: true, coveredTicker: "RCAT", adapter: "rss", name: "Red Cat (RCAT)" },
+    { key: "unusual", lane: "covered", covered: true, coveredTicker: "UMAC", adapter: "rss", name: "Unusual Machines (UMAC)" },
+    { key: "drv_fedreg_drone_rules", lane: "strategic_noncompany", adapter: "federal_register", name: "Federal Register drone rules", role: "program", affects: ["UMAC", "RCAT"] },
+    { key: "drv_drone_industrial_policy", lane: "strategic_noncompany", adapter: "rss_filtered", name: "DoW drone industrial policy (Bing)", role: "program", affects: ["RCAT", "UMAC"], shadow: true },
+    { key: "drv_shadow_plain", lane: "strategic_noncompany", adapter: "rss_filtered", name: "A shadow theme with no role", shadow: true },
+    { key: "drv_not_shadow", lane: "strategic_noncompany", adapter: "rss_filtered", name: "shadow: false is not shadow", role: "program", affects: ["RCAT"], shadow: false },
+  ];
+  const covered = buildCovered(list, { existing: { drv_drone_industrial_policy: { role: "program", affects: ["RCAT"] } } });
+  assert.deepEqual(covered.counterparty.drv_fedreg_drone_rules, { role: "program", affects: ["UMAC", "RCAT"] });
+  assert.deepEqual(covered.counterparty.drv_not_shadow, { role: "program", affects: ["RCAT"] });
+  assert.equal(covered.counterparty.drv_drone_industrial_policy, undefined, "a shadow source is not routed, even through the existing routing");
+  assert.equal(covered.sources.drv_drone_industrial_policy, undefined);
+  for (const key of ["drv_drone_industrial_policy", "drv_shadow_plain"]) {
+    assert.equal(covered.warnings.filter((w) => w.startsWith(`${key}:`)).length, 1, `${key} warned once`);
+    assert.match(covered.warnings.find((w) => w.startsWith(`${key}:`)), /shadow source \(shadow: true\), left out of covered\.json and aux-sources\.json/);
+  }
+  const aux = buildAux(list, covered, []);
+  for (const key of ["drv_drone_industrial_policy", "drv_shadow_plain"]) {
+    assert.equal(aux.sources[key], undefined, `${key} is not an auxiliary source`);
+    assert.equal(aux.exclude[key], undefined, `${key} is not listed in the exclusions either`);
+  }
+  assert.equal(aux.sources.drv_fedreg_drone_rules?.coverage_subject, true);
+  const written = JSON.stringify({ covered, aux });
+  assert.doesNotMatch(written.replace(/"warnings":\[[^\]]*\]/, ""), /drv_drone_industrial_policy|drv_shadow_plain/);
+});

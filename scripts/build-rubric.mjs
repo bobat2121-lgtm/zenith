@@ -12,6 +12,7 @@ import { readFileSync, readdirSync, existsSync, writeFileSync, statSync } from "
 import { createHash } from "node:crypto";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkOwnerMarks } from "./owner-marks.mjs";
 
 const rootArg = process.argv.find((a) => a.startsWith("--root="));
 const root = rootArg ? resolve(rootArg.slice(7)) : join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,6 +54,14 @@ for (const [t, md] of Object.entries(companies)) {
   if (lacking.length) incomplete.push(`${t} (${lacking.join(", ")})`);
 }
 if (incomplete.length) console.log(`WARNING sheets missing front matter fields: ${incomplete.join("; ")}`);
+// owner_marks (core 12.1; scripts/owner-marks.mjs): every entry names a
+// "## <line> (owner:YYYY-MM-DD)" heading in its sheet, and every such heading
+// has an entry. A failure blocks --strict, like the checks above.
+const badMarks = [];
+for (const [t, md] of Object.entries(companies)) {
+  for (const p of checkOwnerMarks(md, frontMatter(md) || "")) badMarks.push(`${t}: ${p}`);
+}
+for (const b of badMarks) console.log(`WARNING owner_marks ${b}`);
 const extra = Object.keys(companies).filter((t) => !covered.tickers.includes(t));
 
 // Title-match lists for counterparty ingest: each sheet's unconditional,
@@ -138,4 +147,4 @@ console.log(aux ? `aux rubric ${auxVersion}: rubric/${auxFile} ${aux.length} cha
 if (auxFound.length > 1) console.log(`WARNING several auxiliary rubrics (${auxFound.join(", ")}); using rubric/${auxFile}`);
 if (missing.length) console.log(`WARNING missing sheets: ${missing.join(", ")}`);
 if (extra.length) console.log(`WARNING sheets for non-covered tickers: ${extra.join(", ")}`);
-if (process.argv.includes("--strict") && (!core || missing.length || incomplete.length)) process.exit(1);
+if (process.argv.includes("--strict") && (!core || missing.length || incomplete.length || badMarks.length)) process.exit(1);

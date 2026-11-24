@@ -2,7 +2,7 @@
 ticker: UMAC
 name: Unusual Machines, Inc.
 as_of: 2026-11-18
-revision: "2026-11-18 rev2: brought in line with core v3.0. Sheet-local band restatements removed, front matter added, collector notes moved to sources/UMAC.md. No new facts were added. A web re-check was not possible in this pass because the search budget was used up, so the facts stand as researched on 2026-11-18."
+revision: "2026-11-24 rev3: Driver lines (owner:2026-11-24) added; no other facts changed. 2026-11-18 rev2: brought in line with core v3.0. Sheet-local band restatements removed, front matter added, collector notes moved to sources/UMAC.md. No new facts were added. A web re-check was not possible in this pass because the search budget was used up, so the facts stand as researched on 2026-11-18."
 asset_class: operating
 filer_type: domestic (10-K / 10-Q / 8-K); CIK 0001956955; FY ends Dec 31
 listing: NYSE American (UMAC)
@@ -41,12 +41,14 @@ thesis_drivers:
   - capacity_margin      # motor line, battery ops, 40% GM target, adj. EBITDA+ 2027
   - domestic_cameras     # domestic camera production, early 2027
   - dilution_overhang    # CEO warrant, resale S-3, earnouts, ATM
-  - policy_tailwinds     # own-item use only (FCC Covered List, NDAA, Part 108)
+  - policy_tailwinds     # own items, plus read-through items under "Driver lines" (owner:2026-11-24): FCC Covered List, FAA drone rules incl. Part 108
 open_items:
   - {id: q4_target_25m, text: "Q4 2026 revenue vs $25M target (call, 2026-11-05)", expires_at: 2027-03-31}
   - {id: fy2027_outlook, text: "First 2027 revenue target or guidance", expires_at: 2027-03-31}
   - {id: upgrade_earnout_p1, text: "Upgrade Energy earnout, first 12-month period from 2026-05-07 (up to $26M cash total)", expires_at: 2027-06-30}
 group_keys: [earnings_calendar]
+owner_marks:
+  - {line: "Driver lines", mark: "owner:2026-11-24", overrides: "core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, and the core 4.5 timeliness deduction below 70 for Digest items, for US drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, and DoW drone industrial policy only"}
 ---
 
 # UMAC — Unusual Machines, Inc.
@@ -77,7 +79,7 @@ _Researched 2026-11-18. NYSE American: UMAC (8-K and S-3 cover pages). CIK 00019
 2. **Drone Dominance (DDP) flow-through and named OEM orders** (`ddp_flow`, `oem_orders`). Examples are Powerus $16.9M and PDW $3.75M. DDP Phase III / Gauntlet III ($450M, about 60k one-way attack drones; testing about March 2027) feeds 2027 demand ([DroneLife](https://dronelife.com/2026/10/14/drone-dominance-phase-iii-gauntlet-2-5/)).
 3. **Working capital and the investee portfolio** (`investee_portfolio`). UMAC holds $162.0M cash and $98.4M of short-term investments ($53.4M at fair value plus $45.0M at cost), including Powerus and XTEND. The investments drove an **$18.4M unrealized loss in Q3**, and the inventory build ($42.4M to $65.9M) is the bears' main point.
 4. **Capacity and margin** (`capacity_margin`, `domestic_cameras`). Gross margin was 35.4% against a 40% target. A new automated motor line will add 100k motors a month once fully operational, 100k sq ft of space is being added in Q4, and domestic camera production starts early 2027. Management targets positive adjusted EBITDA in 2027 (Q3 adjusted EBITDA was -$0.7M).
-5. **Policy tailwinds** (`policy_tailwinds`). The FCC Covered List now covers foreign drones and components, the NDAA sourcing rules apply, and the FAA Part 108 final rule is pending at OIRA. This driver counts only on UMAC's own items. Policy news that does not name UMAC is out of scope (core §9).
+5. **Policy tailwinds** (`policy_tailwinds`). The FCC Covered List now covers foreign drones and components, the NDAA sourcing rules apply, and the FAA Part 108 final rule is pending at OIRA. On UMAC's own items it is a thesis lift. Policy news that does not name UMAC counts only under "Driver lines" below (owner:2026-11-24): US drone rules, presidential drone actions, Defense appropriations and CRs naming a drone program, and DoW drone industrial policy. Other policy news is out of scope (core §9).
 6. **Dilution and overhang** (`dilution_overhang`). The CEO warrant (5M at $25, about 9.6% of 51.91M shares, approved 2026-10-05), the S-3 resale of 1.93M shares (filed 2026-11-13), and earnouts.
 
 ## Materiality bases
@@ -175,7 +177,7 @@ UMAC-specific surfacing (thesis lifts, not new floors):
 ## Catalyst calendar
 - **Q4 2026:** 100k sq ft expansion and the ramp of the automated motor line (`capacity_margin`).
 - **S-3 effectiveness (filed 2026-11-13, timing open):** frees 1,929,272 shares for resale. That is Barnard's 1,792,012 Upgrade shares plus 137,260 Rotor Lab shares. The EFFECT notice itself scores 0-15.
-- **Late 2026 to early 2027:** the FAA Part 108 final rule. It went to OIRA on 2026-07-10, and the FAA said in September it hopes to publish before year-end ([UAV Coach](https://uavcoach.com/part-108-stuck/), 2026-09-16). Context only: rule news that does not name UMAC is `out_of_scope`.
+- **Late 2026 to early 2027:** the FAA Part 108 final rule. It went to OIRA on 2026-07-10, and the FAA said in September it hopes to publish before year-end ([UAV Coach](https://uavcoach.com/part-108-stuck/), 2026-09-16). The final rule is graded under "Driver lines" below (US drone rules, owner:2026-11-24); other news about the rule that does not name UMAC (status pieces, explainers) stays context.
 - **2026-12-31:** the CEO services agreement with 8 Consulting runs to this date. Evans's cash compensation ends after it under the warrant deal.
 - **Early 2027:** domestic camera production begins (`domestic_cameras`; a start or a slip is `proof`).
 - **About March 2027:** DDP Gauntlet III testing, followed by orders. Context only unless an item names UMAC or a UMAC order.
@@ -202,7 +204,59 @@ Core §9 applies. Peer news is `out_of_scope` (0-15) unless it passes one of the
 - **Rival at a key account (§9.4).** ModalAI, ARK Electronics (flight controllers and ESCs) or Orqa (FPV) named as a supplier to Powerus, Red Cat/Teal, PDW or XTEND for a category UMAC sells: 50-69 as a possible loss. If replacement of UMAC is confirmed, it is `money` bad news (70+). A rival's Blue UAS listing or general contract win alone is out of scope.
 - **DDP awards to UMAC customers** (Powerus, XTEND, PDW, Teal) are not UMAC items unless the item names UMAC parts or a UMAC order.
 - **Investee share-price moves** change UMAC's GAAP result but are not UMAC items unless UMAC discloses a mark.
+- **US government drone actions** (drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, DoW drone industrial policy such as a DoW loan or production deal): graded under "Driver lines" below (owner:2026-11-24), even when the item names no covered company.
 - **Published text** names UMAC only when the source does. Internal mappings move scores, never `why` or `note_hook`.
+
+## Driver lines (owner:2026-11-24)
+On 2026-11-24 the owner approved these lines (Round 7 Phase 1a, the drone group). They let four kinds of US government drone news count for UMAC when the item does not name Unusual Machines. UMAC sells motors, batteries, cameras, VTX, flight controllers and ESCs to US drone builders (Powerus, Red Cat/Teal, PDW, XTEND), so US rules, orders, budgets and DoW production policy for drones decide who builds drones in the US and with whose parts. The pattern is GRRR.md "Policy read-through" (owner:2026-11-24), cited as the precedent and not repeated here.
+
+Shared rules for the four blocks:
+- **Overrides:** for items a block covers, and only those (core 12.1): the core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, and the core 4.5 deduction below 70. Everything else in core applies: entity checks and traps, core 8 freshness and dedupe, and the output contract.
+- **Timeliness (core 4.5):** apply 4.5 as usual, but it never takes an item scored in a Digest band of these lines (70-89) below 70: score 70, not 65. This is sheet text, not a core floor: flag no `floor:` id. Over 21 days at first sighting, core 8 applies unchanged (`stale`, or `late_first_sighting` for an official record). Bands below 70 take the full deduction. Worked-example scores are final scores, after 4.5 or core 8.
+- **Copies:** the official record (Federal Register, White House, enacted text, committee release, DoW release) is canonical over news of the same action (core 8). Explainers, op-eds, law-firm alerts and re-reports are `duplicate` of the first graded copy, or under 40 when nothing was graded before. A copy that adds a fact (an effective date, a named program, a dollar figure) is an update on that fact.
+- **Published text:** facts only (core 9). Never write Unusual Machines, UMAC, Fat Shark, Rotor Riot, Rotor Lab or Upgrade Energy unless the item names them. Tag an official record `Program notice` and a media article `News`.
+- **Other tickers:** these items come from program sources that affect several drone names. Grade UMAC by the bands here; other tickers follow their own Driver lines (GRADER.md, Counterparty items).
+- **Not covered:** anything outside the four blocks keeps the rules above, including peer wins and financings, sector budgets, NDAA sourcing text and non-US governments.
+
+### US drone rules
+- **id:** `policy_tailwinds` (existing thesis driver; these lines widen it from own items to read-through items).
+- **category:** regulator.
+- **what counts:** a US rule, order or formal proposal on drones or drone parts: the FCC Covered List and equipment-authorization rules for drones and their components (flight controllers, radios, cameras, motors, batteries), and FAA drone rules such as the Part 108 final rule. BIS drone export rules **do not apply to UMAC**: it sells parts to US builders and the sheet records no export line, so add no `#UMAC` grade for them. FCC Covered List rules that reach only routers, surveillance cameras or other gear, not drones or drone parts, are `out_of_scope` 0-15 (recorded negative). If the title and excerpt do not show whether the rule reaches drones or drone parts, open the document once before scoring above 39.
+- **actors:** FCC, FAA.
+- **band:** final rule or order in force: Digest 80-89, because it moves where US builders buy parts. NPRM or other formal proposal, or a statement of intent by the President or a cabinet member: 70-79. Credible report of pending action (a draft rule, OIRA review), named outlet and named agency: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_fedreg_drone_rules` (Federal Register, FCC, FAA and BIS), but the line applies to any source.
+- **worked example:** FCC rule "Protecting Against National Security Threats to the Communications Supply Chain Through the Equipment Authorization Program" (Federal Register 2026-09-11, 91 FR 57798; in force 2026-10-13): no new equipment authorizations for drones and radios with logic-bearing components from Covered List firms. Seen within 3 days of 2026-09-11: about 85, final 85, tag `Program notice`. A news item that it takes effect on 2026-10-13 is an update on the effective date. The audit found neither copy ingested; first seen now, the Federal Register record is over 21 days old: `late_first_sighting` when no earlier copy was graded, 85 - 15 = final 70; a news copy is `stale` (under 30).
+
+### Presidential drone and airspace actions
+- **id:** `presidential_drone_actions` (new id).
+- **category:** policy.
+- **what counts:** an executive order, proclamation or memorandum on drones or drone parts: drone production and sourcing, US airspace for drones, and Section 232 actions on drones and drone parts (tariffs or quotas on imported drones and parts). An order only on counter-UAS authority or airspace security **does not apply to UMAC** (it sells drone parts, not counter-drone systems): add no `#UMAC` grade.
+- **actors:** the President; a White House fact sheet is a copy of the same action.
+- **band:** signed order or proclamation: Digest 80-89 for a Section 232 action on drone parts, 75-85 for other drone orders. Statement of intent by the President or a cabinet member: 70-79. Credible report of a draft order, named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_whitehouse_actions` (whitehouse.gov presidential actions), but the line applies to any source.
+- **worked example:** no audit row. Precedent: the executive order "Unleashing American Drone Dominance", signed 2025-06-06, a signed order on US drone policy. Seen within 3 days it would score about 80; it is now `stale`. The Federal Register copy of a presidential document is the same event as the White House item (core 8).
+
+### Defense appropriations and continuing resolutions naming a drone program
+- **id:** `ddp_flow` (existing thesis driver: UMAC's demand comes through OEM customers in DDP, SRR and Air Force drone programs).
+- **category:** budget/program.
+- **what counts:** a Defense appropriations bill, enacted act or continuing resolution that names, funds, cuts or blocks a drone program (Drone Dominance, SRR, small-UAS or one-way attack drone procurement): enacted lines, CR anomalies, new-start blocks, a lapse. Deadline or shutdown news that names no drone program does not count (`out_of_scope`).
+- **actors:** Congress (the House and Senate Appropriations Committees and their Defense subcommittees, floor votes), the President's signature, and DoW requests for CR anomalies.
+- **band:** enacted line, anomaly or new-start block naming a drone program: Digest 75-79 (UMAC is one step from the program, through its customers). Committee-passed bill or statement of intent by the President, a cabinet member or the Secretary of War: 70-74. Credible report of pending action (a CR or anomaly expected), named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_senate_approps_def` (Senate Appropriations releases) and `drv_defense_cr_drones` (news search), but the line applies to any source.
+- **worked example:** Breaking Defense, October 2026 (day not verified): the FY2027 continuing resolution blocks over 150 new-start programs, including drone lines, until Congress acts (deadline Dec 11). Seen within 3 days: about 75. It is now over 21 days old: `stale` (under 30). The next step (a new CR, a drone anomaly, a full-year bill, a lapse on Dec 11) is a new event, graded fresh.
+
+### DoW drone industrial policy
+- **id:** `dow_industrial_policy` (new id).
+- **category:** policy.
+- **what counts:** a Department of War action or plan to build up US drone production: production talks or deals with manufacturers (for example automakers), production loans (Office of Strategic Capital), DoW equity stakes, and production-order pools. It counts even when the counterparty is a rival or a non-drone company, because it changes who builds drones and buys parts. A peer's private financing stays `out_of_scope`.
+- **actors:** the Department of War: the Secretary of War, the Pentagon, the Army, DIU, the Drone Dominance office and the Office of Strategic Capital.
+- **band:** signed deal, loan or conditional loan commitment, or equity stake: Digest 75-85. Statement of intent by the Secretary of War or another cabinet member: 70-79. Credible report of pending action (talks, a draft plan, a budget pool not yet awarded), named outlet and named agency: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules.
+- **sources:** `drv_drone_industrial_policy` (news search), but the line applies to any source.
+- **worked example:** 2026-11-24 report (WSJ, found through Bing) that the Pentagon is in talks with GM and Ford to mass-produce military drones: credible report of talks with a named agency, 70, final 70 (4.5 stops at 70). UMAC fell about 7% that day; never write that or UMAC in published text. Example headline: "Pentagon in talks with GM and Ford to mass-produce military drones".
 
 ## Source coverage gaps
 Collector and polling notes moved to `sources/UMAC.md` (worker doc). Only the facts that affect freshness and the canonical choice stay here:

@@ -32,10 +32,18 @@ export const ROLES = ["relationship", "customer", "program", "rival", "index_eve
 const upper = (t) => String(t ?? "").trim().toUpperCase();
 const tickerList = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map(upper).filter(Boolean);
 
+// Shadow sources (shadow: true; plans/round7-driver-coverage.md 4.7) run in
+// news-monitor only, so their rows can be counted before anyone decides to
+// grade them. They are never written to covered.json or aux-sources.json.
+export const shadowKeys = (sourceList) => new Set(sourceList.filter((s) => s?.shadow === true).map((s) => s.key));
+
 // sources: news-monitor's SOURCES after priority.js ran. existing: { key: { role, affects } }.
 // Returns { tickers, sources, counterparty, warnings }.
 export function buildCovered(sourceList, { counterpartySources = [], existing = {} } = {}) {
   const warnings = [];
+  const shadow = shadowKeys(sourceList);
+  for (const key of shadow) warnings.push(`${key}: shadow source (shadow: true), left out of covered.json and aux-sources.json`);
+  sourceList = sourceList.filter((s) => !shadow.has(s.key));
   const sources = {};
   for (const s of sourceList) {
     const t = upper(s.coveredTicker);
@@ -59,6 +67,7 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
   for (const [key, v] of Object.entries(existing || {})) add(key, v?.role, v?.affects, "counterparty-existing");
   const counterparty = {};
   for (const [key, d] of decl) {
+    if (shadow.has(key)) continue;                    // warned once above
     if (sources[key]) continue;                       // a covered company's own source
     if (!polled.has(key)) { warnings.push(`${key}: declares role/affects but is not a polled source`); continue; }
     if (!ROLES.includes(d.role)) { warnings.push(`${key}: role ${d.role ?? "(none)"} is not one of ${ROLES.join(", ")}`); continue; }
@@ -111,6 +120,8 @@ const withoutTicker = (name) => name.replace(/\s*\([A-Z.]{1,6}\)\s*$/, "").trim(
 // sources: news-monitor's SOURCES after priority.js ran. covered: buildCovered's
 // result. peers: rubric/peers.json. Returns { sources, exclude } for aux-sources.json.
 export function buildAux(sourceList, covered, peers = []) {
+  const shadow = shadowKeys(sourceList);              // buildCovered already warned
+  sourceList = sourceList.filter((s) => !shadow.has(s.key));
   const coveredKeys = new Set(Object.keys(covered?.sources || {}));
   const counterparty = covered?.counterparty || {};
   const tickers = new Set((covered?.tickers || []).map((t) => String(t).toLowerCase()));
