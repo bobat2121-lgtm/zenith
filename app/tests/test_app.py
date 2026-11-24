@@ -6,6 +6,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import copy
+import re
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -130,6 +131,57 @@ LEFT_OUT = [
 ]
 
 
+SEC_URL = "https://www.sec.gov/Archives/edgar/data/1956955/000168316826008046/umac_8k.htm"
+# /v1/expansion/candidates rows, shaped as zenith-core's shapeRow returns them (plans/round5 D1).
+EXPANSION = [
+    {"id": 7, "name": "Upgrade Energy", "dedupe_key": "upgrade energy", "status": "pending", "relation": "acquired",
+     "subject": "UMAC", "origins": ["sec_filing", "grader_relation"], "tickers": ["UMAC"], "sightings": 1,
+     "seen": ["coverage:18"],
+     "evidence": [{"kind": "coverage", "item_id": 18, "url": SEC_URL, "title": "Unusual Machines, Inc.: 8-K filed 2026-10-23",
+                   "at": "2026-10-23T20:00:00Z", "origin": "sec_filing", "party": "DroneNX LLC d/b/a Upgrade Energy"},
+                  {"kind": "coverage", "item_id": 18, "url": SEC_URL, "title": "Unusual Machines, Inc.: 8-K filed 2026-10-23",
+                   "at": "2026-10-23T20:00:00Z", "origin": "grader_relation"}],
+     "known": ["sheet_term:UMAC"], "similar": [], "decisions": [], "decision": None, "approved_tickers": None,
+     "compiled_at": None, "compiled_ref": None, "created_at": iso(30), "last_seen_at": iso(1),
+     "actions": ["approve", "reject"], "decidable": True, "blocked": None},
+    {"id": 12, "name": "Genesis AI", "dedupe_key": "genesis ai", "status": "pending", "relation": None, "subject": None,
+     "origins": ["aux_entity"], "tickers": [], "sightings": 1, "seen": ["aux:222"],
+     "evidence": [{"kind": "aux", "item_id": 222, "url": "https://news.example.com/genesis", "title": "Genesis AI raises $105M seed",
+                   "at": "2026-11-10T12:00:00Z", "origin": "aux_entity"}],
+     "known": None, "similar": [{"id": 13, "name": "Genesis", "status": "pending"}], "decisions": [], "decision": None,
+     "approved_tickers": None, "compiled_at": None, "compiled_ref": None, "created_at": iso(40), "last_seen_at": iso(2),
+     "actions": ["approve", "reject"], "decidable": True, "blocked": None},
+    {"id": 9, "name": "UNMAS", "dedupe_key": "unmas", "status": "pending", "relation": "award", "subject": "SPAI",
+     "origins": ["grader_relation"], "tickers": ["SPAI"], "sightings": 4,
+     "seen": ["coverage:259", "coverage:260", "coverage:261", "coverage:262"],
+     "evidence": [{"kind": "coverage", "item_id": 262, "url": "javascript:alert(1)", "title": "SPAI <script>x</script> award",
+                   "at": "2026-11-20T12:00:00Z", "origin": "grader_relation"}]
+                 + [{"kind": "coverage", "item_id": n, "url": f"https://ir.example.com/{n}", "title": f"Safe Pro item {n}",
+                     "at": "2026-11-01T12:00:00Z", "origin": "grader_relation"} for n in (261, 260, 259)],
+     "known": ["key_account:SPAI"], "similar": [], "decisions": [], "decision": None, "approved_tickers": None,
+     "compiled_at": None, "compiled_ref": None, "created_at": iso(50), "last_seen_at": iso(3),
+     "actions": ["approve", "reject"], "decidable": True, "blocked": None},
+    {"id": 5, "name": "Stemme", "dedupe_key": "stemme", "status": "approved", "relation": "acquired", "subject": "ONDS",
+     "origins": ["grader_relation"], "tickers": ["ONDS"], "sightings": 1, "seen": ["coverage:206"],
+     "evidence": [{"kind": "coverage", "item_id": 206, "url": "https://ir.example.com/206", "title": "Ondas to acquire Stemme",
+                   "at": "2026-11-05T12:00:00Z", "origin": "grader_relation"}],
+     "known": None, "similar": [],
+     "decisions": [{"at": "2026-11-24T10:00:00Z", "by": "app", "action": "approve", "reason": None, "note": None, "tickers": ["ONDS"]}],
+     "decision": {"at": "2026-11-24T10:00:00Z", "by": "app", "action": "approve", "reason": None, "note": None, "tickers": ["ONDS"]},
+     "approved_tickers": ["ONDS"], "compiled_at": None, "compiled_ref": None, "created_at": iso(60), "last_seen_at": iso(4),
+     "actions": ["reject"], "decidable": True, "blocked": None},
+    {"id": 20, "name": "Rockwell Automation", "dedupe_key": "rockwell automation", "status": "known", "relation": "partner",
+     "subject": "AGILOX", "origins": ["grader_relation"], "tickers": [], "sightings": 1, "seen": ["aux:1859"],
+     "evidence": [{"kind": "aux", "item_id": 1859, "url": "https://news.example.com/rockwell", "title": "Rockwell and AGILOX",
+                   "at": "2026-11-12T12:00:00Z", "origin": "grader_relation"}],
+     "known": ["aux_item:ia_rockwell"], "similar": [], "decisions": [], "decision": None, "approved_tickers": None,
+     "compiled_at": None, "compiled_ref": None, "created_at": iso(70), "last_seen_at": iso(5),
+     "actions": ["reopen"], "decidable": False,
+     "blocked": "already has its own source (aux_item:ia_rockwell): use Not the same company to reopen it first"},
+]
+EXP_NEXT = {"approve": "approved", "reject": "rejected", "reopen": "pending"}
+
+
 def left_out(params: dict) -> dict:
     """/v1/left-out as zenith-core answers it: archive_seed only when asked for, counts for the window."""
     rows = [r for r in LEFT_OUT if r["kind"] == params.get("kind", "coverage")]
@@ -162,7 +214,9 @@ class FakeApi:
                       "/v1/site-changes": copy.deepcopy(SITE_CHANGES)}
         self.health = copy.deepcopy(HEALTH)
         self.routes = {"/v1/ops": copy.deepcopy(OPS), "/v1/calibration": copy.deepcopy(CALIBRATION),
-                       "/v1/source-yield": copy.deepcopy(SOURCE_YIELD), "/v1/left-out": left_out}
+                       "/v1/source-yield": copy.deepcopy(SOURCE_YIELD), "/v1/left-out": left_out,
+                       "/v1/expansion/candidates": self.expansion}
+        self.candidates = copy.deepcopy(EXPANSION)
         self.gets, self.posts = [], []
         self.post_status = 200
         self.post_errors: dict[str, tuple[int, str]] = {}
@@ -209,12 +263,29 @@ class FakeApi:
         if path in self.post_errors:
             status, error = self.post_errors[path]
             return Resp({"error": error}, status)
+        if path == "/v1/expansion/decide" and self.post_status < 400:
+            # The decided row moves to its new status, as zenith-core moves it.
+            for row in self.candidates:
+                if row["id"] == json["id"]:
+                    row["status"] = EXP_NEXT[json["action"]]
+                    row["actions"] = {"approved": ["reject"], "rejected": ["approve"], "pending": ["approve", "reject"]}[row["status"]]
+                    row["blocked"] = None
         if path == "/v1/source-prefs" and self.post_status < 400:
             # The saved preference comes back on the next /v1/source-yield.
             for row in self.routes["/v1/source-yield"]["coverage"] + self.routes["/v1/source-yield"]["aux"]:
                 if row["source_key"] == json["source_key"]:
                     row["pref"] = None if json["action"] == "normal" else json["action"]
         return Resp({"ok": True} if self.post_status < 400 else {"error": "bad"}, self.post_status)
+
+    def expansion(self, params: dict) -> dict:
+        """/v1/expansion/candidates: the rows in one status, plus counts of every status."""
+        status = params.get("status", "pending")
+        counts = {s: 0 for s in ("pending", "approved", "rejected", "compiled", "known")}
+        for r in self.candidates:
+            counts[r["status"]] += 1
+        rows = [r for r in self.candidates if r["status"] == status][:int(params.get("limit", 50))]
+        return {"status": status, "days": 30 if status in ("rejected", "compiled") else None, "limit": 50, "counts": counts,
+                "reject_reasons": [v for v, _ in zf.EXP_REASONS], "candidates": rows}
 
     def feed_calls(self, path: str) -> list[dict]:
         return [p for g, p, _ in self.gets if g == path]
@@ -1485,3 +1556,249 @@ class AddendumPages(AppBase):
         self.assertNotIn("tune-grade-coverage-301", keys)
         self.assertIn("tune-grade-coverage-300", keys)
         self.assertIn("Can't grade it: already on the Auxiliary page (aux item 9, &lt;pending&gt;)", self.page_text())
+
+
+# ---- round 5 (D3): the Expansion queue on the Tuning page ------------------------------
+WORKER = APP.parent / "worker" / "src" / "expansion.js"
+
+
+class ExpansionFunctions(unittest.TestCase):
+    def test_reject_reasons_mirror_the_worker(self):
+        src = WORKER.read_text(encoding="utf-8")
+        line = next(ln for ln in src.splitlines() if ln.startswith("export const REJECT_REASONS"))
+        self.assertEqual([v for v, _ in zf.EXP_REASONS], re.findall(r'"([a-z_]+)"', line))
+        statuses = next(ln for ln in src.splitlines() if ln.startswith("export const STATUSES"))
+        self.assertEqual(set(zf.EXP_STATUS_TEXT), set(re.findall(r'"([a-z_]+)"', statuses)))
+
+    def test_relation_known_similar_and_decision_texts(self):
+        self.assertEqual(zf.relation_text(EXPANSION[0]), "acquired by UMAC")
+        self.assertEqual(zf.relation_text(EXPANSION[2]), "awarded SPAI")
+        self.assertEqual(zf.relation_text(EXPANSION[1]), "")  # an aux entity row has no relation or subject
+        self.assertEqual(zf.known_note("key_account:SPAI"), "already a SPAI key account, no source")
+        self.assertEqual(zf.known_note("sheet_term:UMAC"), "already a UMAC sheet term, no source")
+        self.assertEqual(zf.known_note("aux_item:ia_rockwell"), "own source ia_rockwell (Auxiliary items)")
+        self.assertEqual(zf.similar_text(EXPANSION[1]["similar"]), "similar: #13 Genesis")
+        self.assertEqual(zf.similar_text([{"id": "x", "name": "bad"}]), "")
+        self.assertEqual(zf.decision_text(EXPANSION[3]), "Approved Nov 24 for ONDS")
+        self.assertEqual(zf.decision_text({"decision": {"at": "2026-11-24T10:00:00Z", "action": "reject", "reason": "too_small",
+                                                        "note": "a seed round", "tickers": None}}),
+                         "Rejected Nov 24: Too small (a seed round)")
+        self.assertEqual(zf.decision_text({"decision": {"at": "2026-11-24T10:00:00Z", "action": "approve", "tickers": []}}),
+                         "Approved Nov 24 with no tickers")
+        self.assertEqual(zf.decision_text(EXPANSION[0]), "")
+
+    def test_sec_filing_card_shows_origin_and_party(self):
+        out = zf.expansion_card_html(EXPANSION[0])
+        self.assertIn('<b class="z-name">Upgrade Energy</b>', out)
+        self.assertIn("acquired by UMAC", out)
+        self.assertIn('<span class="z-badge also">UMAC</span>', out)
+        self.assertIn('<span class="z-badge src">SEC filing</span><span class="z-badge src">Grader</span>', out)
+        self.assertIn("1 sighting<", out)
+        self.assertIn("Known: already a UMAC sheet term, no source", out)
+        self.assertIn("party: DroneNX LLC d/b/a Upgrade Energy", out)
+        self.assertIn(f'<a href="{SEC_URL}" target="_blank" rel="noopener noreferrer">', out)
+        self.assertIn("Coverage #18 · SEC filing · Oct 23", out)
+        self.assertIn("Aux entity", zf.expansion_card_html(EXPANSION[1]))
+        self.assertIn("similar: #13 Genesis", zf.expansion_card_html(EXPANSION[1]))
+
+    def test_card_escapes_and_shows_three_evidence_links(self):
+        row = dict(EXPANSION[2], name="UNMAS <img src=x>", subject="SPAI<b>", tickers=["SPAI<i>"], origins=["grader_relation", "odd<o>"])
+        out = zf.expansion_card_html(row)
+        for raw in ("<img", "<script>", "<b>", "<i>", "<o>"):
+            self.assertNotIn(raw, out)
+        self.assertIn("UNMAS &lt;img src=x&gt;", out)
+        self.assertIn("SPAI &lt;script&gt;x&lt;/script&gt; award", out)
+        self.assertNotIn("javascript:", out)  # an unsafe link is text, not a link
+        self.assertEqual(out.count('class="z-exp-ev"'), 3)
+        self.assertNotIn("Safe Pro item 259", out)  # the 4th evidence entry is not shown
+        self.assertIn("4 sightings", out)
+        self.assertIn("Known: already a SPAI key account, no source", out)
+
+    def test_known_card_says_why_it_takes_no_decision(self):
+        out = zf.expansion_card_html(EXPANSION[4])
+        self.assertIn("Known: own source ia_rockwell (Auxiliary items)", out)
+        self.assertIn("Already has its own source (aux_item:ia_rockwell): use Not the same company to reopen it first", out)
+
+    def test_decide_body_and_toast(self):
+        row = EXPANSION[0]
+        self.assertEqual(zf.decide_body(row, "approve", None, ["umac", "RCAT"]), {"id": 7, "action": "approve", "tickers": ["RCAT", "UMAC"]})
+        self.assertEqual(zf.decide_body(row, "approve"), {"id": 7, "action": "approve"})
+        self.assertEqual(zf.decide_body(row, "reject", "too_small"), {"id": 7, "action": "reject", "reason": "too_small"})
+        self.assertEqual(zf.decide_body(row, "reopen"), {"id": 7, "action": "reopen"})
+        self.assertEqual(zf.decide_toast(row, {"id": 7, "action": "approve", "tickers": ["UMAC"]}),
+                         "Approved Upgrade Energy for UMAC: the weekly compile gives it a source")
+        self.assertEqual(zf.decide_toast(row, {"id": 7, "action": "reject", "reason": "wrong_name"}), "Rejected Upgrade Energy: Wrong name")
+        self.assertEqual(zf.decide_toast(row, {"id": 7, "action": "reopen"}), "Reopened Upgrade Energy: back in Pending")
+
+    def test_rows_need_a_numeric_id_once(self):
+        rows = zf.exp_rows([EXPANSION[0], dict(EXPANSION[0]), {"id": "7; drop"}, {"id": True}, {"id": -1}, "x", EXPANSION[1]])
+        self.assertEqual([r["id"] for r in rows], [7, 12])
+        self.assertEqual(zf.exp_actions({"status": "known"}), ["reopen"])  # no actions field: zenith-core's rules
+        self.assertEqual(zf.exp_actions({"status": "compiled", "actions": []}), [])
+        self.assertEqual(zf.exp_actions({"status": "pending", "actions": ["approve", "drop"]}), ["approve"])
+        self.assertEqual(zf.exp_counts_text({"pending": 3, "known": 1}), "Pending 3 · Approved 0 · Rejected 0 · Known 1 · Compiled 0")
+
+    def test_expansion_rows_wrap_at_phone_width(self):
+        row = css_rule('div[class*="st-key-zexp-"], div[class*="st-key-zexpconfirm-"] {')
+        self.assertIn("flex-wrap: wrap !important", row)
+        self.assertIn("max-width: 100%", row)
+        button = css_rule('div[class*="st-key-zexp-"] button, div[class*="st-key-zexpconfirm-"] button {')
+        for prop in ("white-space: nowrap", "min-width: max-content", "flex: 0 0 auto"):
+            self.assertIn(prop, button)
+
+
+class ExpansionPages(AppBase):
+    def open_tuning(self):
+        self.run_app()
+        self.at.switch_page("views/tuning.py")
+        return self.run_app()
+
+    def captions(self) -> list[str]:
+        return [c.value for c in self.at.caption]
+
+    def exp_cards(self) -> list[str]:
+        return [m.value for m in self.at.markdown if 'class="z-card z-exp"' in m.value]
+
+    def toasts(self) -> list[str]:
+        return [t.value for t in self.at.toast]
+
+    def test_queue_sits_before_source_yield(self):
+        self.open_tuning()
+        md = self.page_text()
+        self.assertLess(md.index("##### Calibration"), md.index("##### Expansion queue"))
+        self.assertLess(md.index("##### Expansion queue"), md.index("##### Source yield"))
+        self.assertEqual(self.api.feed_calls("/v1/expansion/candidates"), [{"limit": 50, "status": "pending"}])
+        self.assertEqual(self.at.segmented_control(key="tune-exp-status").options, ["Pending", "Approved", "Rejected", "Known"])
+        self.assertIn("Pending 3 · Approved 1 · Rejected 0 · Known 1 · Compiled 0", md)
+        cards = self.exp_cards()
+        self.assertEqual(len(cards), 3)
+        self.assertIn("Upgrade Energy", cards[0])
+        self.assertIn("SEC filing", cards[0])
+        self.assertIn("party: DroneNX LLC d/b/a Upgrade Energy", cards[0])
+        self.assertNotIn("<script>", md.split("</style>")[-1])
+        # Widget keys come from the numeric id only.
+        keys = [w.key for w in list(self.at.button) + list(self.at.selectbox) + list(self.at.multiselect)
+                if (w.key or "").startswith("tune-exp-")]
+        self.assertTrue(keys)
+        self.assertTrue(all(re.fullmatch(r"tune-exp-\d+:[a-z]+", k) for k in keys), keys)
+        self.assertNotIn("pandas", sys.modules)
+
+    def test_not_available_yet_on_an_older_worker(self):
+        self.api.missing.add("/v1/expansion/candidates")
+        self.open_tuning()
+        self.assertIn("Expansion queue not available yet.", self.captions())
+        self.assertEqual(self.exp_cards(), [])
+        self.assertIn("##### Source yield", self.page_text())  # the rest of the page still renders
+        self.assertNotIn("pandas", sys.modules)
+
+    def test_approve_posts_the_prefilled_tickers_and_toasts(self):
+        self.open_tuning()
+        picker = self.at.multiselect(key="tune-exp-7:tk")
+        self.assertEqual(picker.value, ["UMAC"])
+        self.assertEqual(picker.options, ["KTOS", "RCAT", "UMAC"])  # the covered tickers from /v1/stats
+        self.at.button(key="tune-exp-7:approve").click()
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][:2], ("/v1/expansion/decide", {"id": 7, "action": "approve", "tickers": ["UMAC"]}))
+        self.assertEqual(self.api.posts[-1][2]["authorization"], f"Bearer {TOKEN}")
+        self.assertEqual(self.toasts(), ["Approved Upgrade Energy for UMAC: the weekly compile gives it a source"])
+        self.assertFalse(any("Upgrade Energy" in c for c in self.exp_cards()))  # it left Pending (the cache was cleared)
+
+    def test_approve_with_tickers_added(self):
+        self.open_tuning()
+        self.at.multiselect(key="tune-exp-12:tk").set_value(["RCAT", "KTOS"])
+        self.run_app()
+        self.at.button(key="tune-exp-12:approve").click()
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][:2], ("/v1/expansion/decide", {"id": 12, "action": "approve", "tickers": ["KTOS", "RCAT"]}))
+        self.assertEqual(self.toasts(), ["Approved Genesis AI for KTOS, RCAT: the weekly compile gives it a source"])
+
+    def test_reject_asks_for_a_confirm_click_and_cancel_reverts(self):
+        self.open_tuning()
+        self.at.selectbox(key="tune-exp-12:reason").set_value("too_small")
+        self.run_app()
+        self.assertEqual(self.api.posts, [])  # nothing saved yet
+        self.assertTrue(any(c.startswith("Reject Genesis AI (Too small)?") for c in self.captions()))
+        self.at.button(key="tune-exp-12:no").click()
+        self.run_app()
+        self.assertEqual(self.api.posts, [])
+        self.assertIsNone(self.at.selectbox(key="tune-exp-12:reason").value)
+        self.assertFalse([b for b in self.at.button if b.key == "tune-exp-12:yes"])
+        self.at.selectbox(key="tune-exp-12:reason").set_value("too_small")
+        self.run_app()
+        self.at.button(key="tune-exp-12:yes").click()
+        self.run_app()
+        self.assertEqual([p[:2] for p in self.api.posts],
+                         [("/v1/expansion/decide", {"id": 12, "action": "reject", "reason": "too_small"})])
+        self.assertEqual(self.toasts(), ["Rejected Genesis AI: Too small"])
+        self.assertFalse(any("Genesis AI" in c for c in self.exp_cards()))
+
+    def test_reject_reasons_in_the_picker(self):
+        self.open_tuning()
+        self.assertEqual(self.at.selectbox(key="tune-exp-7:reason").options,
+                         ["Not relevant", "Wrong name", "Duplicate", "Already tracked", "Too small", "No free source"])
+
+    def test_known_row_offers_only_not_the_same_company(self):
+        self.open_tuning()
+        self.at.segmented_control(key="tune-exp-status").set_value("known")
+        self.run_app()
+        self.assertEqual(self.api.feed_calls("/v1/expansion/candidates")[-1], {"limit": 50, "status": "known"})
+        cards = self.exp_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertIn("Rockwell Automation", cards[0])
+        keys = [b.key for b in self.at.button if (b.key or "").startswith("tune-exp-")]
+        self.assertEqual(keys, ["tune-exp-20:reopen"])
+        self.assertEqual(self.at.button(key="tune-exp-20:reopen").label, "Not the same company")
+        self.assertFalse([s for s in self.at.selectbox if (s.key or "").startswith("tune-exp-")])
+        self.at.button(key="tune-exp-20:reopen").click()
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][:2], ("/v1/expansion/decide", {"id": 20, "action": "reopen"}))
+        self.assertEqual(self.toasts(), ["Reopened Rockwell Automation: back in Pending"])
+        self.assertIn("No known names.", self.captions())
+
+    def test_refused_decision_is_reported(self):
+        self.api.post_errors["/v1/expansion/decide"] = (400, "candidate 7 is compiled into the build list: it takes no more decisions")
+        self.open_tuning()
+        self.at.button(key="tune-exp-7:approve").click()
+        self.run_app()
+        self.assertEqual(self.toasts(), ["Upgrade Energy not saved: candidate 7 is compiled into the build list: it takes no more decisions"])
+        self.assertTrue(any("Upgrade Energy" in c for c in self.exp_cards()))  # still pending
+        self.at.selectbox(key="tune-exp-9:reason").set_value("duplicate")
+        self.run_app()
+        self.at.button(key="tune-exp-9:yes").click()
+        self.run_app()
+        self.assertTrue(self.toasts()[0].startswith("UNMAS not saved: "))
+        self.assertIsNone(self.at.selectbox(key="tune-exp-9:reason").value)
+
+    def test_refused_approve_after_a_reason_keeps_picker_and_confirm_in_step(self):
+        self.api.post_errors["/v1/expansion/decide"] = (400, "nope")
+        self.open_tuning()
+        self.at.selectbox(key="tune-exp-7:reason").set_value("duplicate")
+        self.run_app()
+        self.assertTrue([b for b in self.at.button if b.key == "tune-exp-7:yes"])
+        self.at.button(key="tune-exp-7:approve").click()
+        self.run_app()
+        self.assertEqual(self.toasts(), ["Upgrade Energy not saved: nope"])
+        # No reason left showing without its confirm row.
+        self.assertIsNone(self.at.selectbox(key="tune-exp-7:reason").value)
+        self.assertFalse([b for b in self.at.button if b.key == "tune-exp-7:yes"])
+        # Picking the same reason again brings the confirm back.
+        self.at.selectbox(key="tune-exp-7:reason").set_value("duplicate")
+        self.run_app()
+        self.assertTrue([b for b in self.at.button if b.key == "tune-exp-7:yes"])
+
+    def test_approved_filter_offers_reject_only(self):
+        self.open_tuning()
+        self.at.segmented_control(key="tune-exp-status").set_value("approved")
+        self.run_app()
+        cards = self.exp_cards()
+        self.assertEqual(len(cards), 1)
+        self.assertIn("Approved Nov 24 for ONDS", cards[0])
+        self.assertIn("acquired by ONDS", cards[0])
+        self.assertFalse([b for b in self.at.button if b.key == "tune-exp-5:approve"])
+        self.assertTrue([s for s in self.at.selectbox if s.key == "tune-exp-5:reason"])
+
+    def test_empty_rejected_list_says_its_window(self):
+        self.open_tuning()
+        self.at.segmented_control(key="tune-exp-status").set_value("rejected")
+        self.run_app()
+        self.assertIn("No rejected names in the last 30 days.", self.captions())

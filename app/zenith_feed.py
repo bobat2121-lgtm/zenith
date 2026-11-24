@@ -3,8 +3,9 @@
 Coverage Universe reads /v1/feed and labels through /v1/feedback, exactly as the
 single-page app did. Auxiliary Names reads /v1/aux/feed and labels through
 /v1/aux/feedback. Both read /v1/stats (auxiliary counts live under stats.aux).
-Tuning reads /v1/calibration, /v1/source-yield, /v1/left-out and /v1/ops and
-writes /v1/source-prefs and /v1/left-out/grade; the Coverage page shows /v1/ops
+Tuning reads /v1/calibration, /v1/expansion/candidates, /v1/source-yield,
+/v1/left-out and /v1/ops and writes /v1/expansion/decide (approve, reject,
+reopen), /v1/source-prefs and /v1/left-out/grade; the Coverage page shows /v1/ops
 as its grader strip. A route an older zenith-core lacks shows "not available yet".
 Titles, excerpts and grader text are untrusted: every string that reaches HTML
 is escaped, links must be http(s), and excerpts render as plain text.
@@ -687,6 +688,181 @@ def pref_locked(row: dict) -> str | None:
     return LOCK_TEXT.get(str(row.get("lock") or ""), "Own channel / SEC — can't be muted")
 
 
+# ---- Expansion queue (unit tested; plans/round5-expansion-approve-queue.md D3) ---------
+EXP_LIMIT = 50
+EXP_EVIDENCE = 3
+# The status filter. Compiled rows take no decisions, so they are not offered.
+EXP_STATUSES = [("pending", "Pending"), ("approved", "Approved"), ("rejected", "Rejected"), ("known", "Known")]
+EXP_STATUS_TEXT = dict(EXP_STATUSES + [("compiled", "Compiled")])
+# D2: why the owner rejects a candidate (zenith-core's REJECT_REASONS, in its order).
+EXP_REASONS = [("not_relevant", "Not relevant"), ("wrong_name", "Wrong name"), ("duplicate", "Duplicate"),
+               ("already_tracked", "Already tracked"), ("too_small", "Too small"), ("no_free_source", "No free source")]
+EXP_REASON_TEXT = dict(EXP_REASONS)
+ORIGIN_TEXT = {"grader_relation": "Grader", "sec_filing": "SEC filing", "aux_entity": "Aux entity"}
+# What the candidate is to the subject (the subject's ticker or aux entity).
+RELATION_TEXT = {"acquired": "acquired by {s}", "acquirer": "acquirer of {s}", "customer": "customer of {s}",
+                 "partner": "partner of {s}", "supplier": "supplier to {s}", "subsidiary": "subsidiary of {s}",
+                 "award": "awarded {s}"}
+# What zenith-core may do with a row in each status (its allowedActions), for a row without actions.
+EXP_ACTIONS = {"pending": ["approve", "reject"], "approved": ["reject"], "rejected": ["approve"], "known": ["reopen"]}
+EXP_HELP = ("Names Zenith already sees that have no source of their own. Approve adds the name to the weekly compile, "
+            "which gives it its own source; Reject keeps it out, also when it is seen again. Nothing is added without "
+            "your approval.")
+
+
+def exp_id(row) -> int | None:
+    """The candidate's numeric id (the only server value in its widget keys), else None."""
+    v = row.get("id") if isinstance(row, dict) else None
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def exp_rows(rows) -> list[dict]:
+    """Candidate rows with a numeric id, once each, in the server's order (newest seen first)."""
+    out, seen = [], set()
+    for r in rows or []:
+        i = exp_id(r)
+        if i is not None and i not in seen:
+            seen.add(i)
+            out.append(r)
+    return out
+
+
+def exp_actions(row: dict) -> list[str]:
+    acts = row.get("actions")
+    if isinstance(acts, list):
+        return [a for a in acts if a in ("approve", "reject", "reopen")]
+    return list(EXP_ACTIONS.get(str(row.get("status") or ""), []))
+
+
+def _str_list(v) -> list[str]:
+    return [str(x) for x in v if isinstance(x, (str, int)) and str(x).strip()] if isinstance(v, list) else []
+
+
+def relation_text(row: dict) -> str:
+    """"acquired by UMAC", "partner of SPAI"; the subject alone, or "" for an aux entity row."""
+    subject = one_line(row.get("subject"))
+    rel = str(row.get("relation") or "")
+    if rel in RELATION_TEXT and subject:
+        return RELATION_TEXT[rel].format(s=subject)
+    if rel:
+        return rel.replace("_", " ")
+    return f"related to {subject}" if subject else ""
+
+
+def known_note(note) -> str:
+    """One registry match in plain words: "already a SPAI key account, no source"."""
+    kind, _, what = str(note or "").partition(":")
+    return {"sheet_term": f"already a {what} sheet term, no source",
+            "key_account": f"already a {what} key account, no source",
+            "aux_item_prefix": f"maybe the source {what} (name prefix only)",
+            "covered": f"a covered name ({what})",
+            "aux_source": f"own source {what}",
+            "aux_item": f"own source {what} (Auxiliary items)"}.get(kind, str(note or ""))
+
+
+def similar_text(similar) -> str:
+    """"similar: #12 Genesis AI, #9 Genesis" (a word-prefix match; nothing is merged)."""
+    parts = [f"#{s['id']} {one_line(s.get('name'))}".strip() for s in similar or []
+             if isinstance(s, dict) and isinstance(s.get("id"), int)]
+    return f"similar: {', '.join(parts)}" if parts else ""
+
+
+def decision_text(row: dict) -> str:
+    """The latest decision: "Approved Nov 24 for UMAC", "Rejected Nov 24: Too small"."""
+    d = row.get("decision")
+    if not isinstance(d, dict) or not d.get("action"):
+        return ""
+    action = str(d["action"])
+    out = {"approve": "Approved", "reject": "Rejected", "reopen": "Reopened", "compiled": "Compiled"}.get(action, action)
+    if d.get("at"):
+        out += f" {day_text(d['at'])}"
+    tickers = _str_list(d.get("tickers"))
+    if action == "approve":
+        out += f" for {', '.join(tickers)}" if tickers else " with no tickers"
+    if action == "reject" and d.get("reason"):
+        out += f": {EXP_REASON_TEXT.get(str(d['reason']), str(d['reason']))}"
+    if one_line(d.get("note")):
+        out += f" ({one_line(d['note'])})"
+    return out
+
+
+def evidence_html(ev: dict) -> str:
+    """One evidence line: Coverage #18 · SEC filing · party, then the item's title link. Escaped."""
+    kind = {"coverage": "Coverage", "aux": "Auxiliary"}.get(str(ev.get("kind") or ""), "Item")
+    bits = [f"{kind} #{ev['item_id']}" if isinstance(ev.get("item_id"), int) else kind]
+    if ev.get("origin"):
+        bits.append(ORIGIN_TEXT.get(str(ev["origin"]), str(ev["origin"])))
+    if ev.get("at"):
+        bits.append(day_text(ev["at"]))
+    party = one_line(ev.get("party"))
+    text = html.escape(one_line(ev.get("title")) or "(no title)")
+    link = (f'<a href="{html.escape(str(ev["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">{text}</a>'
+            if safe_url(ev.get("url")) else text)
+    return (f'<div class="z-exp-ev"><span class="z-health">{html.escape(" · ".join(bits))}</span>'
+            + (f' <span class="z-badge src">party: {html.escape(party)}</span>' if party else "")
+            + f"<div>{link}</div></div>")
+
+
+def expansion_card_html(row: dict) -> str:
+    """Name, relation and subject, tickers, sightings, origins, notes, then up to 3 evidence links. Escaped."""
+    head = [f'<b class="z-name">{html.escape(one_line(row.get("name")) or "?")}</b>']
+    rel = relation_text(row)
+    if rel:
+        head.append(f'<span class="z-age">{html.escape(rel)}</span>')
+    for t in _str_list(row.get("tickers")):
+        head.append(f'<span class="z-badge also">{html.escape(t)}</span>')
+    for o in _str_list(row.get("origins")):
+        head.append(f'<span class="z-badge src">{html.escape(ORIGIN_TEXT.get(o, o))}</span>')
+    n = _num(row.get("sightings"))
+    head.append(f'<span class="z-age">{n} sighting{"" if n == 1 else "s"}</span>')
+    lines = []
+    status = str(row.get("status") or "")
+    if status == "compiled":
+        lines.append("Compiled into the build list")
+    known = [known_note(k) for k in _str_list(row.get("known"))]
+    if known:
+        lines.append("Known: " + "; ".join(known))
+    sim = similar_text(row.get("similar"))
+    if sim:
+        lines.append(sim)
+    dec = decision_text(row)
+    if dec:
+        lines.append(dec)
+    blocked = one_line(row.get("blocked"))
+    if blocked:
+        lines.append(blocked[:1].upper() + blocked[1:])
+    notes = "".join(f'<div class="z-health">{html.escape(x)}</div>' for x in lines)
+    evidence = [e for e in row.get("evidence") or [] if isinstance(e, dict)][:EXP_EVIDENCE]
+    ev = "".join(evidence_html(e) for e in evidence)
+    return f'<div class="z-card z-exp"><div class="z-head">{"".join(head)}</div>{notes}{ev}</div>'
+
+
+def exp_counts_text(counts) -> str:
+    """"Pending 4 · Approved 1 · Rejected 0 · Known 2 · Compiled 0"."""
+    counts = counts if isinstance(counts, dict) else {}
+    return " · ".join(f"{EXP_STATUS_TEXT[s]} {_num(counts.get(s))}" for s in ("pending", "approved", "rejected", "known", "compiled"))
+
+
+def decide_body(row: dict, action: str, reason: str | None = None, tickers=None) -> dict:
+    """The /v1/expansion/decide body: id and action; reject's reason; approve's tickers when picked."""
+    body: dict = {"id": exp_id(row), "action": action}
+    if action == "reject":
+        body["reason"] = reason
+    if action == "approve" and tickers is not None:
+        body["tickers"] = sorted({str(t).upper() for t in tickers})
+    return body
+
+
+def decide_toast(row: dict, body: dict) -> str:
+    name = one_line(row.get("name")) or f"#{body.get('id')}"
+    if body["action"] == "approve":
+        tk = body.get("tickers", _str_list(row.get("tickers")))
+        return f"Approved {name}" + (f" for {', '.join(tk)}" if tk else "") + ": the weekly compile gives it a source"
+    if body["action"] == "reject":
+        return f"Rejected {name}: {EXP_REASON_TEXT.get(body.get('reason'), body.get('reason'))}"
+    return f"Reopened {name}: back in Pending"
+
+
 def left_blocked(it: dict) -> str | None:
     """Why Grade it would be refused (gradeable false), else None; an older zenith-core has no gradeable."""
     if it.get("gradeable") is not False:
@@ -1306,6 +1482,95 @@ def tuning_grader() -> None:
     st.caption(GAP_NOTE + (f" As of {utc_text(ops['as_of'])}." if ops.get("as_of") else ""))
 
 
+def _exp_key(row: dict) -> str:
+    # The numeric id only: no server text goes into a widget key.
+    return f"tune-exp-{exp_id(row)}"
+
+
+def _decide(row: dict, action: str) -> None:
+    key = _exp_key(row)
+    reason = st.session_state.get(f"{key}:reason") if action == "reject" else None
+    tickers = st.session_state.get(f"{key}:tk") if action == "approve" else None
+    # Any decision clears the reject picker and its confirm together, saved or not:
+    # a reason left showing with no confirm row could not be re-picked to get it back.
+    st.session_state.pop(f"{key}:confirm", None)
+    st.session_state[f"{key}:reason"] = None
+    body = decide_body(row, action, reason, tickers)
+    try:
+        post_json("/v1/expansion/decide", body)
+    except Exception as e:  # noqa: BLE001
+        _flash(f"{one_line(row.get('name')) or body['id']} not saved: {e}", error=True)
+        return
+    _flash(decide_toast(row, body))
+
+
+def _on_exp_reason(key: str) -> None:
+    # Reject waits for a confirm click, like Mute.
+    if st.session_state.get(f"{key}:reason"):
+        st.session_state[f"{key}:confirm"] = True
+    else:
+        st.session_state.pop(f"{key}:confirm", None)
+
+
+def _cancel_exp(key: str) -> None:
+    st.session_state.pop(f"{key}:confirm", None)
+    st.session_state[f"{key}:reason"] = None
+
+
+def expansion_row(row: dict, covered: list[str]) -> None:
+    key = _exp_key(row)
+    with st.container(border=True, key=f"zcard-exp-{exp_id(row)}"):
+        st.markdown(expansion_card_html(row), unsafe_allow_html=True)
+        actions = exp_actions(row)
+        if not actions:
+            return
+        box = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zexp-{exp_id(row)}")
+        if "approve" in actions:
+            mine = [t for t in _str_list(row.get("tickers")) if t]
+            options = sorted(set(covered) | set(mine))
+            if options:
+                box.multiselect("Tickers", options, default=[t for t in mine if t in options], key=f"{key}:tk",
+                                placeholder="Tickers (optional)", label_visibility="collapsed", width=220,
+                                help="The covered companies this name's source affects. Optional.")
+            box.button("Approve", key=f"{key}:approve", type="primary", on_click=_decide, args=(row, "approve"),
+                       help="The weekly compile gives it its own source (with your OK on each deploy).")
+        if "reject" in actions:
+            box.selectbox("Reject reason", [v for v, _ in EXP_REASONS], index=None, format_func=EXP_REASON_TEXT.get,
+                          key=f"{key}:reason", placeholder="Reject: pick a reason", label_visibility="collapsed",
+                          width=220, on_change=_on_exp_reason, args=(key,))
+        if "reopen" in actions:
+            box.button("Not the same company", key=f"{key}:reopen", on_click=_decide, args=(row, "reopen"),
+                       help="A name-only match can be wrong: back to Pending, where you can approve or reject it.")
+        reason = st.session_state.get(f"{key}:reason")
+        if "reject" in actions and reason and st.session_state.get(f"{key}:confirm"):
+            ask = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zexpconfirm-{exp_id(row)}")
+            ask.caption(f"Reject {one_line(row.get('name'))} ({EXP_REASON_TEXT.get(reason, reason)})? "
+                        "It stays rejected when it is seen again; you can approve it later.")
+            ask.button("Confirm reject", key=f"{key}:yes", type="primary", on_click=_decide, args=(row, "reject"))
+            ask.button("Cancel", key=f"{key}:no", on_click=_cancel_exp, args=(key,))
+
+
+def tuning_expansion() -> None:
+    status = st.segmented_control("Status", [v for v, _ in EXP_STATUSES], format_func=dict(EXP_STATUSES).get,
+                                  default="pending", required=True, key="tune-exp-status",
+                                  label_visibility="collapsed") or "pending"
+    data, why = optional_json("/v1/expansion/candidates", (("limit", EXP_LIMIT), ("status", status)))
+    if data is None:
+        st.caption(f"Expansion queue {why}.")
+        return
+    st.caption(EXP_HELP)
+    st.markdown(f'<div class="z-health">{html.escape(exp_counts_text(data.get("counts")))}</div>', unsafe_allow_html=True)
+    stats, _ = optional_json("/v1/stats")
+    covered = _str_list((stats or {}).get("tickers"))
+    rows = exp_rows(data.get("candidates"))
+    if not rows:
+        days = data.get("days")
+        st.caption(f"No {EXP_STATUS_TEXT.get(status, status).lower()} names"
+                   + (f" in the last {_num(days)} days." if days else "."))
+    for row in rows:
+        expansion_row(row, covered)
+
+
 def render_tuning() -> None:
     with st.sidebar:
         st.markdown('<div class="z-brand">ZEN<span>I</span>TH</div><div class="z-sub">grader tuning</div>',
@@ -1318,6 +1583,8 @@ def render_tuning() -> None:
     st.markdown("#### Tuning")
     st.markdown("##### Calibration")
     tuning_calibration()
+    st.markdown("##### Expansion queue")
+    tuning_expansion()
     st.markdown("##### Source yield")
     tuning_yield()
     st.markdown("##### Left out")
