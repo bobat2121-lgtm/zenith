@@ -5,6 +5,7 @@
 // one on the app's Tuning page, and the weekly compile (Part E) marks approved
 // rows compiled once they are in plans/triage/build-list.json.
 //   app, admin : GET  /v1/expansion/candidates?status=pending&limit=50[&days=30]
+//                (days applies to rejected and compiled only)
 //                POST /v1/expansion/decide   { id, action: approve | reject | reopen, reason?, note?, tickers? }
 //                POST /v1/expansion/compiled { items: [{ id, tickers, ref? }], ref }
 //   cron       : expansionBackfill, once (meta expansion_backfill_at, D4)
@@ -152,9 +153,11 @@ const humanize = (key) => String(key ?? "").split("_").filter(Boolean).map((w) =
 // Entities already in zenith-db's aux_items (C3): runtime managed_* and ia_*
 // sources such as ia_rockwell, which aux-sources.json does not list. Media
 // rows, coverage-subject filters and the "Other company" placeholder are not
-// a company's own source. A runtime source named only by its key ("Rockwell"
-// from ia_rockwell) also matches a longer name that starts with it
-// ("Rockwell Automation").
+// a company's own source. Only an exact key match is an own source (C3). A
+// runtime source named only by its key ("Rockwell" from ia_rockwell) whose key
+// is a word prefix of a longer name ("Rockwell Automation", but also "Siemens
+// Energy" from ia_siemens) adds a note only, aux_item_prefix:<source>, and the
+// row stays pending for the owner to decide.
 async function runtimeEntities(db) {
   const rows = (await db.prepare(
     `SELECT entity_key, entity_name, MIN(source_key) AS source_key FROM aux_items
@@ -176,7 +179,8 @@ async function runtimeEntities(db) {
 }
 
 // The registry matches of a set of names: { own: [...], terms: [...] }.
-// own sets status 'known' on a new row; terms are notes only.
+// own sets status 'known' on a new row; terms are notes only (sheet_term,
+// key_account, aux_item_prefix).
 export function registryNotes(names, runtime = { exact: new Map(), prefix: new Map() }) {
   const own = new Set(), terms = new Set();
   for (const n of names) {
@@ -186,7 +190,7 @@ export function registryNotes(names, runtime = { exact: new Map(), prefix: new M
     if (t) own.add(`covered:${t}`);
     if (AUX_KEYS.has(k)) own.add(`aux_source:${AUX_KEYS.get(k)}`);
     if (runtime.exact.has(k)) own.add(`aux_item:${runtime.exact.get(k)}`);
-    for (const [p, src] of runtime.prefix) if (k.startsWith(p + " ")) own.add(`aux_item:${src}`);
+    for (const [p, src] of runtime.prefix) if (k.startsWith(p + " ")) terms.add(`aux_item_prefix:${src}`);
     for (const note of TERM_NOTES.get(k) || []) terms.add(note);
   }
   return { own: [...own].sort(), terms: [...terms].sort() };
@@ -311,7 +315,11 @@ export async function expansionBackfill(env, { now = Date.now() } = {}) {
 }
 
 // --- Routes (D1) --------------------------------------------------------------
-const DECIDED = ["approved", "rejected", "compiled"];
+// Statuses listed with a days filter on the last decision. approved is an open
+// work queue like pending and known: the weekly compile reads it with no days
+// (E3 step 1) and names may wait there for weeks once the Bing headroom is used
+// up (E2), so it has no age filter and its list agrees with counts.approved.
+const DECIDED = ["rejected", "compiled"];
 const lastOf = (list) => (list.length ? list[list.length - 1] : null);
 
 // What the owner may do with a row in this status (C4).
@@ -320,7 +328,7 @@ export function allowedActions(status) {
 }
 function blockedText(row, known) {
   if (row.status === "compiled") return `compiled into the build list${row.compiled_ref ? ` as ${row.compiled_ref}` : ""}${row.compiled_at ? ` on ${row.compiled_at.slice(0, 10)}` : ""}: it takes no more decisions`;
-  if (row.status === "known") return `already has its own source (${(known || []).filter((n) => !/^(sheet_term|key_account):/.test(n)).join(", ") || "registry"}): use Not the same company to reopen it first`;
+  if (row.status === "known") return `already has its own source (${(known || []).filter((n) => !/^(sheet_term|key_account|aux_item_prefix):/.test(n)).join(", ") || "registry"}): use Not the same company to reopen it first`;
   return null;
 }
 

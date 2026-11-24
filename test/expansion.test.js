@@ -153,22 +153,28 @@ test("upsert: bad sightings are skipped with a warning and never throw; good one
   assert.match(gone.warnings[0].warning, /not available yet: migration 0012/);
 });
 
-test("own source sets known: a covered name, an aux-sources.json source, a runtime ia_ entity in aux_items; terms only add a note", async () => {
+test("own source sets known: a covered name, an aux-sources.json source, a runtime ia_ entity in aux_items (exact key); terms and runtime prefixes only add a note", async () => {
   const env = newEnv();
   // Runtime sources news-monitor creates (not in aux-sources.json), as aux ingest stores them.
   addAux(env, { source_key: "ia_rockwell", entity_key: "rockwell", entity_name: "Rockwell", status: "unknown" });
+  addAux(env, { source_key: "ia_siemens", entity_key: "siemens", entity_name: "Siemens", status: "unknown" });
   addAux(env, { source_key: "managed_zeroeyes_news", entity_key: "zeroeyes", entity_name: "ZeroEyes (private)", status: "private" });
   addAux(env, { source_key: "ia_media_humanoids", entity_key: "media_humanoids", entity_name: "Industry media", status: "media" });
   addAux(env, { source_key: "aglt_rel", entity_key: "aglt_rel", entity_name: "Widget Partners", status: "public", coverage_subject: 1 });
   const s = (name, item_id, over = {}) => relation({ name, item_id, ...over });
   await upsertSightings(env.DB, [s("Unusual Machines, Inc.", 1), s("Anduril Industries", 2), s("Anduril", 3), s("Rockwell Automation", 4), s("ZeroEyes", 5),
-    s("Industry media", 6), s("UNMAS", 7), s("Carbyne", 8), s("Stemme", 9), s("Widget Partners", 10), s("Rockwellian Labs", 11)]);
+    s("Industry media", 6), s("UNMAS", 7), s("Carbyne", 8), s("Stemme", 9), s("Widget Partners", 10), s("Rockwellian Labs", 11),
+    s("Siemens Energy", 12), s("Siemens", 13)]);
   const got = Object.fromEntries(rows(env).map((r) => [r.name, [r.status, r.known]]));
   assert.deepEqual(got, {
     "Unusual Machines, Inc.": ["known", ["covered:UMAC", "key_account:PUSA", "sheet_term:UMAC"]],
     "Anduril Industries": ["pending", null],
     Anduril: ["known", ["aux_source:anduril", "key_account:SPAI"]],
-    "Rockwell Automation": ["known", ["aux_item:ia_rockwell"]],
+    // A word-prefix hit on a single-name runtime source is a note: Siemens
+    // Energy is a separate company the ia_siemens feed does not cover.
+    "Rockwell Automation": ["pending", ["aux_item_prefix:ia_rockwell"]],
+    "Siemens Energy": ["pending", ["aux_item_prefix:ia_siemens"]],
+    Siemens: ["known", ["aux_item:ia_siemens"]],
     ZeroEyes: ["known", ["aux_item:managed_zeroeyes_news", "aux_source:zeroeyes"]],
     "Industry media": ["pending", null],
     UNMAS: ["pending", ["key_account:SPAI"]],
@@ -233,7 +239,7 @@ test("GET candidates: newest seen first, counts, sightings, similar hint, action
   assert.equal((await app(env, "GET", "/v1/expansion/candidates?status=bogus")).status, 400);
 });
 
-test("GET candidates: decided statuses take days (default 30); pending and known have no age filter", async () => {
+test("GET candidates: rejected and compiled take days (default 30); pending, known and approved have no age filter", async () => {
   const env = newEnv();
   const old = await seedRow(env, relation({ name: "Old Co", item_id: 1 }));
   const fresh = await seedRow(env, relation({ name: "Fresh Co", item_id: 2 }));
@@ -245,6 +251,24 @@ test("GET candidates: decided statuses take days (default 30); pending and known
   assert.deepEqual(await names("status=rejected"), ["Fresh Co"]);
   assert.deepEqual(await names("status=rejected&days=60"), ["Fresh Co", "Old Co"]);
   assert.deepEqual(await names("status=pending"), ["Ancient Pending"]);
+});
+
+test("GET candidates: an approval older than 30 days is still listed for the compile, and the list agrees with counts.approved", async () => {
+  const env = newEnv();
+  const old = await seedRow(env, relation({ name: "Waiting Robotics", item_id: 1 }));
+  const fresh = await seedRow(env, relation({ name: "ARAN Defense", item_id: 2 }));
+  for (const id of [old, fresh]) assert.equal((await app(env, "POST", "/v1/expansion/decide", { id, action: "approve", tickers: ["ONDS"] })).status, 200);
+  // Approved five weeks ago: the Bing headroom ran out and the name waited (E2).
+  env.DB.db.prepare("UPDATE expansion_candidates SET decisions = json_set(decisions, '$[#-1].at', ?) WHERE id = ?").run(iso(35 * DAY), old);
+  const r = await app(env, "GET", "/v1/expansion/candidates?status=approved");
+  assert.equal(r.body.days, null);
+  assert.deepEqual(r.body.candidates.map((c) => c.name).sort(), ["ARAN Defense", "Waiting Robotics"]);
+  assert.equal(r.body.counts.approved, r.body.candidates.length);
+  const items = r.body.candidates.map((c) => ({ id: c.id, tickers: c.approved_tickers }));
+  const done = await app(env, "POST", "/v1/expansion/compiled", { items, ref: "166" });
+  assert.equal(done.status, 200);
+  const st = Object.fromEntries(rows(env).map((x) => [x.name, x.status]));
+  assert.deepEqual(st, { "Waiting Robotics": "compiled", "ARAN Defense": "compiled" });
 });
 
 test("decide: the 400s and 404s, with plain error text", async () => {
