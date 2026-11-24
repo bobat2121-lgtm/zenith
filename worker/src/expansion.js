@@ -5,7 +5,9 @@
 // one on the app's Tuning page, and the weekly compile (Part E) marks approved
 // rows compiled once they are in plans/triage/build-list.json.
 //   app, admin : GET  /v1/expansion/candidates?status=pending&limit=50[&days=30]
-//                (days applies to rejected and compiled only)
+//                (days applies to rejected and compiled only); each row has
+//                about (grader text, migration 0013) or else about_fallback
+//                (aboutFallbacks), and about_source
 //                POST /v1/expansion/decide   { id, action: approve | reject | reopen, reason?, note?, tickers? }
 //                POST /v1/expansion/compiled { items: [{ id, tickers, ref? }], ref }
 //   cron       : expansionBackfill, once (meta expansion_backfill_at, D4)
@@ -34,7 +36,7 @@
 //     the same dedupe key.
 //
 //   upsertSightings(db, sightings, { now? }) -> Promise<{ ok, upserted, warnings }>
-//     sightings: [{ name, origin, relation, subject, tickers, kind, item_id, url, title, at, party?, aliases? }]
+//     sightings: [{ name, origin, relation, subject, tickers, kind, item_id, url, title, at, party?, aliases?, about? }]
 //       name      the candidate name (goes through candidateName and dedupeKey)
 //       origin    grader_relation | sec_filing | aux_entity
 //       relation  one of RELATION_TYPES, or null (aux_entity)
@@ -45,6 +47,12 @@
 //       party     optional raw party text (Part B), clipped to 120
 //       aliases   optional other names of the same party (Part B's legal
 //                 name): the own-source and term tests run on them too
+//       about     optional: what the candidate is or does, one sentence from
+//                 the item's own text (lib.js normalizeAbout; a bad one is
+//                 ignored). Migration 0013's about column takes it when the
+//                 row has none, or when it comes from a grader relation
+//                 (grader text wins over any other); a zenith-db before 0013
+//                 upserts without it.
 //     One SELECT (aux_items entities) and one batch of upserts. Each upsert
 //     adds the seen key only when absent, merges origins, tickers and known
 //     notes, puts the item first in evidence (newest 5), sets last_seen_at
@@ -74,7 +82,7 @@
 import COVERED from "./covered.json";
 import AUX from "./aux-sources.json";
 import { MATCH } from "./rubric.generated.js";
-import { json, nowIso, chunk, isHttpUrl, candidateName, dedupeKey, coveredTicker, LEGAL_SUFFIXES, RELATION_TYPES } from "./lib.js";
+import { json, nowIso, chunk, isHttpUrl, candidateName, dedupeKey, coveredTicker, normalizeAbout, LEGAL_SUFFIXES, RELATION_TYPES } from "./lib.js";
 import { getMeta, setMeta } from "./ingest.js";
 
 // The name helpers and the relation types live in lib.js, beside the grade
@@ -99,6 +107,10 @@ const clampInt = (v, lo, hi, dflt) => Math.max(lo, Math.min(hi, Math.trunc(Numbe
 const parse = (text, fallback) => { try { const v = JSON.parse(text); return v ?? fallback; } catch { return fallback; } };
 const isMissingTable = (e) => /no such table/i.test(String(e?.message || e));
 const NOT_YET = "expansion queue not available yet: migration 0012 is not applied";
+// A zenith-db with 0012 but before 0013 has no about column.
+const isMissingAbout = (e) => /no such column:?\s*(?:expansion_candidates\.)?about\b|has no column named about\b/i.test(String(e?.message || e));
+// The read-time fallback (GET /v1/expansion/candidates) is clipped to this.
+export const ABOUT_FALLBACK_MAX = 240;
 
 // Own sources from the bundled registry: every aux-sources.json source's name
 // and entity (all 148 counterparty keys are there too).
@@ -175,9 +187,15 @@ const coveredList = (v) => [...new Set((Array.isArray(v) ? v : []).filter((x) =>
 // --- Upsert (C1) --------------------------------------------------------------
 // ?1 dedupe_key ?2 name ?3 origin ?4 relation ?5 subject ?6 tickers ?7 seen key
 // ?8 evidence entry ?9 known ?10 status ?11 now ?12 kind ?13 item_id
-const UPSERT_SQL = `INSERT INTO expansion_candidates (dedupe_key, name, origins, relation, subject, tickers, seen, evidence, known, status, created_at, last_seen_at)
-  VALUES (?1, ?2, json_array(?3), ?4, ?5, json(?6), json_array(?7), json_array(json(?8)), ?9, ?10, ?11, ?11)
-  ON CONFLICT(dedupe_key) DO UPDATE SET
+// ?14 about (only in the 0013 form, upsertSql(true))
+// about: set when the sighting has one and the row has none, or when the
+// sighting is a grader relation (grader text wins over any other).
+const upsertSql = (withAbout) => `INSERT INTO expansion_candidates (dedupe_key, name, origins, relation, subject, tickers, seen, evidence, known, status, created_at, last_seen_at${withAbout ? ", about" : ""})
+  VALUES (?1, ?2, json_array(?3), ?4, ?5, json(?6), json_array(?7), json_array(json(?8)), ?9, ?10, ?11, ?11${withAbout ? ", ?14" : ""})
+  ON CONFLICT(dedupe_key) DO UPDATE SET${withAbout ? `
+    about = CASE WHEN ?14 IS NULL THEN expansion_candidates.about
+                 WHEN ?3 = 'grader_relation' THEN ?14
+                 ELSE COALESCE(expansion_candidates.about, ?14) END,` : ""}
     origins = CASE WHEN EXISTS (SELECT 1 FROM json_each(expansion_candidates.origins) WHERE value = ?3) THEN expansion_candidates.origins
                    ELSE json_insert(expansion_candidates.origins, '$[#]', ?3) END,
     relation = COALESCE(expansion_candidates.relation, ?4),
@@ -195,6 +213,8 @@ const UPSERT_SQL = `INSERT INTO expansion_candidates (dedupe_key, name, origins,
                  WHEN expansion_candidates.known IS NULL THEN ?9
                  ELSE (SELECT json_group_array(value) FROM (SELECT value FROM json_each(expansion_candidates.known) UNION SELECT value FROM json_each(?9) ORDER BY 1)) END,
     last_seen_at = ?11`;
+const UPSERT_SQL = upsertSql(false);
+const UPSERT_ABOUT_SQL = upsertSql(true);
 
 // One sighting -> { row } (the bound values) or { warning }.
 function prepareSighting(s, runtime, now) {
@@ -216,8 +236,9 @@ function prepareSighting(s, runtime, now) {
     at: clip(s.at, 40), origin: s.origin };
   const party = clip(s.party, 120);
   if (party) evidence.party = party;
+  const about = normalizeAbout(s.about).about;
   return {
-    key, name, own: notes.own,
+    key, name, own: notes.own, about,
     binds: [key, name, s.origin, relation, clip(s.subject, 80), JSON.stringify(coveredList(s.tickers)), `${s.kind}:${itemId}`,
       JSON.stringify(evidence), all.length ? JSON.stringify(all) : null, notes.own.length ? "known" : "pending", now, s.kind, itemId],
   };
@@ -229,14 +250,28 @@ export async function upsertSightings(db, sightings, { now = nowIso() } = {}) {
     const list = Array.isArray(sightings) ? sightings : [];
     if (!list.length) return { ok: true, upserted: 0, warnings };
     const runtime = await runtimeEntities(db);
-    const stmts = [];
+    const preps = [];
     for (const s of list) {
       const p = prepareSighting(s, runtime, now);
       if (p.warning) { warnings.push({ item_id: s?.item_id ?? null, warning: `expansion candidate skipped: ${p.warning}` }); continue; }
-      stmts.push(db.prepare(UPSERT_SQL).bind(...p.binds));
+      preps.push(p);
     }
-    if (stmts.length) await db.batch(stmts);
-    return { ok: true, upserted: stmts.length, warnings };
+    if (!preps.length) return { ok: true, upserted: 0, warnings };
+    // The plain form touches no about column, so it is used whenever no
+    // sighting carries one, and as the retry on a zenith-db before 0013 (the
+    // batch is all-or-nothing, so the retry is safe).
+    const plain = () => db.batch(preps.map((p) => db.prepare(UPSERT_SQL).bind(...p.binds)));
+    if (preps.some((p) => p.about)) {
+      try {
+        await db.batch(preps.map((p) => db.prepare(UPSERT_ABOUT_SQL).bind(...p.binds, p.about)));
+      } catch (e) {
+        if (!isMissingAbout(e)) throw e;
+        await plain();
+      }
+    } else {
+      await plain();
+    }
+    return { ok: true, upserted: preps.length, warnings };
   } catch (e) {
     const why = isMissingTable(e) ? NOT_YET : `expansion candidates not saved: ${String(e?.message || e).slice(0, 200)}`;
     warnings.push({ item_id: null, warning: why });
@@ -262,7 +297,7 @@ export async function upsertAfterGrades(db, sightings, opts = {}) {
 // { id, url, title, at }.
 export function relationSightings(relations, { kind, subject, tickers, item }) {
   return (relations || []).map((r) => ({ name: r.name, origin: "grader_relation", relation: r.type, subject, tickers, kind,
-    item_id: item.id, url: item.url, title: item.title, at: item.at ?? null }));
+    item_id: item.id, url: item.url, title: item.title, at: item.at ?? null, about: r.about ?? null }));
 }
 
 // --- Aux entity rule (C2) and the one-time backfill (D4) ----------------------
@@ -326,15 +361,76 @@ function blockedText(row, known) {
   return null;
 }
 
-function shapeRow(r, similar) {
+// The read-time about fallback for rows with no about (pre-0013 rows, or no
+// grader relation yet). Over each row's evidence, newest first: the first
+// item with a grade gives its headline and why (coverage: items.headline and
+// grades.why via items.grade_id; aux: aux_items.headline and aux_grades.why
+// via aux_items.grade_id), about_source "grade_headline"; else the first SEC
+// party gives its party text and the filing title, about_source "sec_party".
+// One SELECT per kind (the ids as one JSON parameter). Text clipped to
+// ABOUT_FALLBACK_MAX. A failed lookup only leaves the fallbacks out.
+const ENDS_SENTENCE = /[.!?:;]$/;
+function clipText(text, n = ABOUT_FALLBACK_MAX) {
+  const s = String(text).replace(/\s+/g, " ").trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n - 1);
+  const sp = cut.lastIndexOf(" ");
+  return `${(sp > n * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.]+$/, "")}…`;
+}
+export function fallbackText(headline, why) {
+  const h = clip(headline, 400), w = clip(why, 400);
+  if (!h && !w) return null;
+  return clipText(h && w ? `${h}${ENDS_SENTENCE.test(h) ? "" : "."} ${w}` : (h || w));
+}
+const FALLBACK_SQL = {
+  coverage: `SELECT i.id, i.headline, g.why FROM items i LEFT JOIN grades g ON g.id = i.grade_id
+              WHERE i.id IN (SELECT value FROM json_each(?))`,
+  aux: `SELECT i.id, i.headline, g.why FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id
+         WHERE i.id IN (SELECT value FROM json_each(?))`,
+};
+export async function aboutFallbacks(db, rows) {
+  const out = new Map();
+  const want = rows.filter((r) => r.about == null).map((r) => ({ id: r.id, evidence: parse(r.evidence, []).filter((e) => e && typeof e === "object") }));
+  if (!want.length) return out;
+  const ids = { coverage: new Set(), aux: new Set() };
+  for (const w of want) for (const e of w.evidence) if (ids[e.kind] && Number.isInteger(e.item_id)) ids[e.kind].add(e.item_id);
+  const found = { coverage: new Map(), aux: new Map() };
+  try {
+    for (const kind of ["coverage", "aux"]) {
+      if (!ids[kind].size) continue;
+      const res = (await db.prepare(FALLBACK_SQL[kind]).bind(JSON.stringify([...ids[kind]])).all()).results || [];
+      for (const r of res) {
+        const text = fallbackText(r.headline, r.why);
+        if (text) found[kind].set(r.id, text);
+      }
+    }
+  } catch {
+    return out;
+  }
+  for (const w of want) {
+    const graded = w.evidence.find((e) => found[e.kind]?.has(e.item_id));
+    if (graded) { out.set(w.id, { text: found[graded.kind].get(graded.item_id), source: "grade_headline" }); continue; }
+    const sec = w.evidence.find((e) => e.origin === "sec_filing" && clip(e.party, 120));
+    if (sec) {
+      const title = clip(sec.title, 300);
+      out.set(w.id, { text: clipText(`"${clip(sec.party, 120)}"${title ? ` in ${title}` : ""}`), source: "sec_party" });
+    }
+  }
+  return out;
+}
+
+function shapeRow(r, similar, fallbacks = new Map()) {
   const decisions = parse(r.decisions, []);
   const known = r.known == null ? null : parse(r.known, null);
   const last = lastOf(decisions);
   const actions = allowedActions(r.status);
   const blocked = blockedText(r, known);
   const seen = parse(r.seen, []);
+  const about = r.about == null ? null : clip(r.about, 400);
+  const fb = about ? null : fallbacks.get(r.id) || null;
   return {
     id: r.id, name: r.name, dedupe_key: r.dedupe_key, status: r.status, relation: r.relation, subject: r.subject,
+    about, about_fallback: fb ? fb.text : null, about_source: about ? "grader" : fb ? fb.source : null,
     origins: parse(r.origins, []), tickers: parse(r.tickers, []), sightings: seen.length, seen, evidence: parse(r.evidence, []), known,
     similar: similar.get(r.id) || [], decisions, decision: last,
     approved_tickers: (r.status === "approved" || r.status === "compiled") && last ? (last.tickers ?? []) : null,
@@ -383,7 +479,8 @@ export async function expansionCandidates(env, url) {
     throw e;
   }
   const similar = similarMap(all, rows.map((r) => r.id));
-  return json({ status, days, limit, counts, reject_reasons: REJECT_REASONS, candidates: rows.map((r) => shapeRow(r, similar)) });
+  const fallbacks = await aboutFallbacks(db, rows);
+  return json({ status, days, limit, counts, reject_reasons: REJECT_REASONS, candidates: rows.map((r) => shapeRow(r, similar, fallbacks)) });
 }
 
 // body.tickers -> { ok, tickers (null when absent) } or { ok: false, error }.

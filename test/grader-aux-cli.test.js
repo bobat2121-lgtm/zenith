@@ -582,8 +582,8 @@ test("rubric and GRADER.md: relations are optional, evidence-bound and printed a
     assert.match(s, /evidence/);
     assert.match(s, /`WARN` line/);
   }
-  assert.match(core, /^Version 3\.3, /m);
-  assert.match(auxMd, /^Version 1\.3, /m);
+  assert.match(core, /^Version 3\.4, /m);
+  assert.match(auxMd, /^Version 1\.4, /m);
   const sec10 = core.slice(core.indexOf("## 10. Output contract"), core.indexOf("## 11."));
   assert.match(sec10, /^- \*\*relations:\*\* optional/m);
   const relations = sec10.slice(sec10.indexOf("### Relations"));
@@ -595,4 +595,9 @@ test("rubric and GRADER.md: relations are optional, evidence-bound and printed a
   assert.match(aux8, /- \*\*reads_through:\*\*[^\n]*\n- \*\*relations:\*\* optional/);
   for (const re of [/item itself states/, /Never from memory or a sheet/, /not the main event/, /`evidence` is the item_id you are grading/,
     /Investors are not relations/, /Relations never change the score/]) assert.match(aux8, re);
+  // The optional about: what the counterparty is or does, from the item's own text only, at most 160 characters.
+  assert.match(relations, /^- \*\*about:\*\* optional: what the counterparty is or does, one plain sentence of at most 160 characters, taken only from this item's own title or excerpt, never from memory/m);
+  assert.match(relations, /the relation is kept/);
+  assert.match(aux8, /`"about"`: what the counterparty is or does, one plain sentence of at most 160 characters from this item's own title or excerpt only, never from memory/);
+  assert.match(step(4), /optional `about` \(what the counterparty is or does, one sentence\s+of at most 160 characters from this item's own text only\)/);
 });

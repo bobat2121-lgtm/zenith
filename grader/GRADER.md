@@ -114,7 +114,8 @@ above ends the whole run.
      or that has one without the other.
    - **Relations are optional** (core.md section 10, "Relations"): name only the
      counterparties the item itself states, with `evidence` the item_id you are
-     grading; the API drops a bad entry, prints it as a `WARN` line and still accepts
+     grading and an optional `about` (what the counterparty is or does, one sentence
+     of at most 160 characters from this item's own text only); the API drops a bad entry, prints it as a `WARN` line and still accepts
      the grade, so a WARN never needs a resubmit.
    - `node grader/zenith.mjs submit .zenith/grades.json`. The API accepts only items
      from your current claim, checks score, band, ticker, reason flag, duplicate

@@ -64,7 +64,7 @@ async function seedExpansion() {
   return Object.fromEntries(env.DB.rows("SELECT id, name FROM expansion_candidates").map((x) => [x.name, x.id]));
 }
 const CANDIDATE_FIELDS = ["id", "name", "status", "relation", "subject", "origins", "tickers", "sightings", "evidence", "known", "similar",
-  "decision", "approved_tickers", "actions", "decidable", "blocked", "last_seen_at"];
+  "decision", "approved_tickers", "actions", "decidable", "blocked", "last_seen_at", "about", "about_fallback", "about_source"];
 
 // Each path the app calls: how the app calls it, and the fields the app reads.
 const CONTRACT = {

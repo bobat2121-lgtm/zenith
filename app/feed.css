@@ -118,6 +118,8 @@ div[class*="st-key-zexp-"] button, div[class*="st-key-zexpconfirm-"] button { wh
   min-width: max-content; }
 .z-exp .z-name, .z-exp-ev { overflow-wrap: anywhere; }
 .z-exp-ev { font-size: .85rem; margin-top: .2rem; }
+.z-exp-about { font-size: .88rem; line-height: 1.4; margin: .1rem 0 .15rem 0; overflow-wrap: anywhere; }
+.z-exp-search { font-size: .78rem; white-space: nowrap; }
 .z-yield { min-width: 0; }
 .z-yield .z-name { overflow-wrap: anywhere; }
 .z-yield-stats { color: var(--z-dim); font-size: .78rem; overflow-wrap: anywhere; }

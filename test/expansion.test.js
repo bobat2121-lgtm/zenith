@@ -492,3 +492,114 @@ test("backfill: runs once over each aux item's current grade of the last 30 days
   // Already done: a direct call does nothing either.
   assert.equal((await expansionBackfill(env)).skipped, "done");
 });
+
+// --- What the candidate is (migration 0013 about, and the read-time fallback) --
+let covSeq = 5000;
+function addCoverage(env, over = {}) {
+  const it = { source_key: "ondas", ticker: "ONDS", url: `https://ir.example.com/c/${++covSeq}`, title: `Coverage item ${covSeq}`, headline: null, ...over };
+  const r = env.DB.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, headline)
+    VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 0, ?, 'pending', ?)`).run(covSeq, it.source_key, it.ticker, it.url, it.title, iso(HOUR), iso(), it.headline);
+  return Number(r.lastInsertRowid);
+}
+function addCoverageGrade(env, itemId, why) {
+  const r = env.DB.db.prepare(`INSERT INTO grades (item_id, ticker, run_id, rubric_version, model, score, band, why, flags, read_source, graded_at)
+    VALUES (?, 'ONDS', 'run-about', 'r-test', 'm', 80, 'digest', ?, '["reason:material"]', 1, ?)`).run(itemId, why, iso());
+  env.DB.db.prepare("UPDATE items SET state='graded', grade_id=? WHERE id=?").run(Number(r.lastInsertRowid), itemId);
+}
+const aboutOf = (env, name) => env.DB.rows("SELECT about FROM expansion_candidates WHERE name = ?", name)[0].about;
+
+test("about: set when the row has none; a grader relation's about wins over any other; a non-grader one never overwrites the grader's", async () => {
+  const env = newEnv();
+  const up = async (over) => assert.equal((await upsertSightings(env.DB, [relation(over)])).ok, true);
+  await up({});
+  assert.equal(aboutOf(env, "Stemme"), null, "no about yet");
+  // A non-grader sighting with an about fills an empty row.
+  await up({ origin: "sec_filing", item_id: 207, about: "Glider company named in an 8-K" });
+  assert.equal(aboutOf(env, "Stemme"), "Glider company named in an 8-K");
+  // A grader relation's about replaces it (grader text wins over fallbacks).
+  await up({ item_id: 208, about: "  Swiss maker of   electric motor gliders " });
+  assert.equal(aboutOf(env, "Stemme"), "Swiss maker of electric motor gliders");
+  // A non-grader about never overwrites the grader's; a sighting with no about never clears it.
+  await up({ origin: "sec_filing", item_id: 209, about: "Something else" });
+  await up({ item_id: 210 });
+  await up({ origin: "aux_entity", relation: null, kind: "aux", item_id: 211, about: "Another description" });
+  assert.equal(aboutOf(env, "Stemme"), "Swiss maker of electric motor gliders");
+  // A newer grader about replaces an older grader about.
+  await up({ item_id: 212, about: "German-Swiss glider maker" });
+  assert.equal(aboutOf(env, "Stemme"), "German-Swiss glider maker");
+  // A bad about (over 160, a URL) is ignored; the sighting still counts.
+  await up({ name: "ARAN Defense", item_id: 245, about: "x".repeat(161) });
+  await up({ name: "ARAN Defense", item_id: 246, about: "See https://aran.example/about" });
+  assert.equal(aboutOf(env, "ARAN Defense"), null);
+  assert.equal(byName(env, "ARAN Defense").seen.length, 2);
+});
+
+test("about: relationSightings carries a relation's about, and POST /v1/aux/grades stores it on the candidate", async () => {
+  assert.equal(X.relationSightings([{ type: "acquired", name: "Stemme", evidence: 206, about: "Swiss maker of electric motor gliders" }],
+    { kind: "coverage", subject: "ONDS", tickers: ["ONDS"], item: { id: 206, url: "https://x.example/206", title: "t" } })[0].about, "Swiss maker of electric motor gliders");
+  const env = newEnv();
+  const a = addAux(env, { title: "Rockwell to buy AGILOX, an Austrian maker of autonomous forklifts" });
+  const r = await request(worker, env, "POST", "/v1/aux/grades", { body: { run_id: "run-about", model: "m", grades: [{
+    item_id: a, entity: "Rockwell Automation", score: 60, band: "borderline", event_type: "acquisition", why: "Rockwell buys AGILOX.", reads_through: [],
+    confidence: 0.7, read_source: true, dup_of: null, covered_ticker: null, flags: ["reason:material"],
+    relations: [{ type: "acquired", name: "AGILOX", evidence: a, about: "Austrian maker of autonomous forklifts" },
+      { type: "partner", name: "Zeta Robotics", evidence: a, about: "y".repeat(200) }] }] } });
+  assert.deepEqual([r.status, r.body.accepted], [200, 1], JSON.stringify(r.body));
+  assert.equal(r.body.warnings.length, 1, JSON.stringify(r.body.warnings));
+  assert.match(r.body.warnings[0].warning, /^relation 2 "Zeta Robotics" about dropped \(the relation is kept\): about must be at most 160 characters/);
+  assert.equal(aboutOf(env, "AGILOX"), "Austrian maker of autonomous forklifts");
+  assert.equal(aboutOf(env, "Zeta Robotics"), null);
+});
+
+test("about before migration 0013 (no about column): the upsert still works and the route still answers", async () => {
+  const env = newEnv();
+  env.DB.exec("ALTER TABLE expansion_candidates DROP COLUMN about");
+  const r = await upsertSightings(env.DB, [relation({ about: "Swiss maker of electric motor gliders" }), relation({ name: "ARAN Defense", item_id: 245 })]);
+  assert.deepEqual([r.ok, r.upserted, r.warnings], [true, 2, []]);
+  // A second sighting (the ON CONFLICT path) too.
+  assert.equal((await upsertSightings(env.DB, [relation({ item_id: 207, about: "Glider maker" })])).ok, true);
+  assert.deepEqual(rows(env).map((x) => [x.name, x.seen.length, "about" in x]), [["Stemme", 2, false], ["ARAN Defense", 1, false]]);
+  const list = await app(env, "GET", "/v1/expansion/candidates");
+  assert.equal(list.status, 200);
+  assert.ok(list.body.candidates.every((c) => c.about === null && "about_fallback" in c && "about_source" in c));
+});
+
+test("GET candidates: about from the grader, else about_fallback from the newest graded evidence item (coverage and aux) or an SEC party", async () => {
+  const env = newEnv();
+  // Coverage: the newest evidence item is ungraded, the older one has a headline and a grade.
+  const old = addCoverage(env, { headline: "Ondas to acquire Stemme for $30M in stock" });
+  addCoverageGrade(env, old, "Adds a glider airframe line; about 5% dilution.");
+  const fresh = addCoverage(env);
+  await upsertSightings(env.DB, [relation({ item_id: old, at: iso(2 * HOUR) })], { now: iso(2 * HOUR) });
+  await upsertSightings(env.DB, [relation({ item_id: fresh, at: iso(HOUR) })], { now: iso(HOUR) });
+  // Aux: headline on aux_items, why on aux_grades.
+  const ax = addAux(env, { title: "Genesis AI raises $105M seed" });
+  addAuxGrade(env, ax);
+  env.DB.db.prepare("UPDATE aux_items SET headline = ? WHERE id = ?").run("Genesis AI raises $105M seed for robot foundation models.", ax);
+  env.DB.db.prepare("UPDATE aux_grades SET why = ? WHERE item_id = ?").run("x ".repeat(200), ax);
+  await upsertSightings(env.DB, [relation({ name: "Genesis AI", origin: "aux_entity", relation: null, subject: null, tickers: [], kind: "aux", item_id: ax })]);
+  // SEC: an ungraded filing item, its party and the filing title.
+  const sec = addCoverage(env, { title: "Unusual Machines, Inc.: 8-K filed 2026-10-23" });
+  await upsertSightings(env.DB, [{ ...upgradeB, item_id: sec }]);
+  // A grader about: no fallback.
+  await upsertSightings(env.DB, [relation({ name: "UNMAS", relation: "award", subject: "SPAI", tickers: ["SPAI"], item_id: old, about: "UN agency that runs mine-clearance programs" })]);
+  // Nothing to fall back on: an ungraded item that is not a filing.
+  await upsertSightings(env.DB, [relation({ name: "ARAN Defense", item_id: fresh })]);
+  const list = (await app(env, "GET", "/v1/expansion/candidates?limit=50")).body.candidates;
+  const by = (n) => list.find((c) => c.name === n);
+  assert.deepEqual([by("Stemme").about, by("Stemme").about_source], [null, "grade_headline"]);
+  assert.equal(by("Stemme").about_fallback, "Ondas to acquire Stemme for $30M in stock. Adds a glider airframe line; about 5% dilution.");
+  const g = by("Genesis AI");
+  assert.equal(g.about_source, "grade_headline");
+  assert.ok(g.about_fallback.startsWith("Genesis AI raises $105M seed for robot foundation models. x x"), g.about_fallback);
+  assert.ok(g.about_fallback.length <= X.ABOUT_FALLBACK_MAX && g.about_fallback.endsWith("…"), `clipped: ${g.about_fallback.length}`);
+  assert.deepEqual([by("Upgrade Energy").about_source, by("Upgrade Energy").about_fallback],
+    ["sec_party", '"DroneNX LLC d/b/a Upgrade Energy" in Unusual Machines, Inc.: 8-K filed 2026-10-23']);
+  assert.deepEqual([by("UNMAS").about, by("UNMAS").about_fallback, by("UNMAS").about_source], ["UN agency that runs mine-clearance programs", null, "grader"]);
+  assert.deepEqual([by("ARAN Defense").about, by("ARAN Defense").about_fallback, by("ARAN Defense").about_source], [null, null, null]);
+  // Once the filing item is graded, its grade wins over the party text.
+  env.DB.db.prepare("UPDATE items SET headline = ? WHERE id = ?").run("Unusual Machines buys Upgrade Energy", sec);
+  addCoverageGrade(env, sec, "A battery supplier for its drones.");
+  const after = (await app(env, "GET", "/v1/expansion/candidates?limit=50")).body.candidates.find((c) => c.name === "Upgrade Energy");
+  assert.deepEqual([after.about_source, after.about_fallback], ["grade_headline", "Unusual Machines buys Upgrade Energy. A battery supplier for its drones."]);
+});

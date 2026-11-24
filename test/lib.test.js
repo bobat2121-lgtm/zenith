@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { bandFor, normalizeGrade, parseItemRef, skipReason, tokenMatches, roleFor, chunk, isHttpUrl, normalizeRelations, candidateName, coveredTicker,
-  RELATION_TYPES } from "../worker/src/lib.js";
+  RELATION_TYPES, normalizeAbout, ABOUT_MAX } from "../worker/src/lib.js";
 
 const COVERED = ["RCAT", "UMAC", "ONDS"];
 const item = { id: 7, ticker: "RCAT" };
@@ -191,6 +191,35 @@ test("relations: a bad type, wrong evidence, a repeat, a 5th entry and a bad sha
   const aux = normalizeRelations([R("Rockwell Automation", "acquirer", 1859), R("AGILOX", "acquired", 1859)], { itemId: 1859, subject: "Rockwell Automation Inc." });
   assert.deepEqual(aux.relations, [{ type: "acquired", name: "AGILOX", evidence: 1859 }]);
   assert.match(aux.warnings[0], /dropped: name is the grade's own subject/);
+});
+
+test("relations: an about is kept squashed; a too-long, URL or control-character about is dropped with a warning and the entry is kept", () => {
+  const A = (name, about) => ({ ...R(name), about });
+  const ok = rel([A("Stemme", "  Swiss maker of\n electric \t motor gliders "), A("UNMAS", "UN agency that runs mine-clearance programs"), R("ARAN Defense")]);
+  assert.deepEqual(ok.relations, [
+    { type: "acquired", name: "Stemme", evidence: 7, about: "Swiss maker of electric motor gliders" },
+    { type: "acquired", name: "UNMAS", evidence: 7, about: "UN agency that runs mine-clearance programs" },
+    { type: "acquired", name: "ARAN Defense", evidence: 7 },
+  ]);
+  assert.deepEqual(ok.warnings, []);
+  assert.equal(ABOUT_MAX, 160);
+  // 160 characters after the squash is the limit, checked before any clip.
+  const x160 = "A".repeat(160), x161 = "B".repeat(161);
+  assert.equal(rel([A("Stemme", ` ${x160} `)]).relations[0].about, x160);
+  for (const [about, why] of [[x161, /about must be at most 160 characters \(got 161\)/], ["Glider maker, see www.stemme.de", /about must not contain a URL/],
+    ["Maker at https://stemme.com", /about must not contain a URL/], ["Glider\u0007 maker", /about must not contain control characters/],
+    ["Glider \u202emaker", /about must not contain control characters/], [42, /about must be a string/]]) {
+    const r = rel([A("Stemme", about)]);
+    assert.deepEqual(r.relations, [{ type: "acquired", name: "Stemme", evidence: 7 }], `the entry is kept: ${String(about).slice(0, 20)}`);
+    assert.equal(r.warnings.length, 1);
+    assert.match(r.warnings[0], /^relation 1 "Stemme" about dropped \(the relation is kept\): /);
+    assert.match(r.warnings[0], why);
+  }
+  // Absent, null or blank: no about and no warning.
+  for (const about of [undefined, null, "", "   "]) assert.deepEqual([rel([A("Stemme", about)]).relations[0], rel([A("Stemme", about)]).warnings], [R("Stemme"), []]);
+  // A dropped entry's about makes no second warning.
+  assert.equal(rel([{ ...A("Stemme", x161), type: "investor" }]).warnings.length, 1);
+  assert.deepEqual(normalizeAbout(" a  b "), { about: "a b", warning: null });
 });
 
 test("relations: only the item's own grade carries them, never a #TICKER grade", () => {
