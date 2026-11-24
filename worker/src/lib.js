@@ -1,4 +1,5 @@
 // Pure helpers shared by the router, ingest and tests (no Worker globals).
+import { COVERED_NAMES } from "./rubric.generated.js";
 
 export const BANDS = [
   { band: "lead", min: 90 },
@@ -177,7 +178,9 @@ export function sightingAgeDays(published, firstSeen) {
 export const LATE_SIGHTING_DAYS = 21;
 
 // Validates one grade (core rubric v3 output contract) against the item it
-// grades. Returns { ok: true, grade } or { ok: false, error }.
+// grades. Returns { ok: true, grade, relations, warnings } or { ok: false, error }:
+// relations are the kept normalizeRelations entries (the bare-id grade only),
+// warnings the text for each dropped one.
 //   alsoTicker: set for "123#TICKER" covered-to-covered grades.
 //   covered:    the covered ticker list.
 //   floors:     parseFloors(core.md); enables floor enforcement.
@@ -274,8 +277,20 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
   // (<= 0.4 for an unread SEC filing, section 5).
   const confCap = unreadSec ? SEC_UNREAD_CONFIDENCE : 0.5;
   if (!raw.read_source && confidence != null && confidence > confCap) { confidence = confCap; flags.push("confidence_capped"); }
+  // Optional relations (A2): bad entries are dropped with a warning, never a
+  // rejection. Only the item's own grade carries them, never a "#TICKER" grade.
+  let rel = { relations: [], warnings: [] };
+  if (alsoTicker) {
+    if (Array.isArray(raw.relations) ? raw.relations.length : raw.relations != null) {
+      rel.warnings.push(`relations dropped: only the item's own grade (bare item_id ${item.id}) carries relations, never a #${alsoTicker} grade`);
+    }
+  } else {
+    rel = normalizeRelations(raw.relations, { itemId: item.id, subject: ticker });
+  }
   return {
     ok: true,
+    relations: rel.relations,
+    warnings: rel.warnings,
     grade: {
       ticker,
       primary: !alsoTicker,
@@ -364,6 +379,111 @@ export function normalizeHeadline(raw, { required = false } = {}) {
     return bad(`unknown tag "${given.slice(0, 40)}": use the SEC form exactly as filed (8-K, 8-K/A, 10-Q, 6-K, S-1, 424B5, SC 13D, Form 4 ...) or one of ${HEADLINE_TAGS.join(", ")}`);
   }
   return { ok: true, headline, tag };
+}
+
+// --- Candidate names and grader relations (plans/round5-expansion-approve-queue.md, A1-A2, C3) ---
+// candidateName, dedupeKey and coveredTicker live here, beside URL_RE and
+// CONTROL_RE, so the grade validators can use them without importing
+// expansion.js (which pulls in ingest, excerpt and the JSON registries);
+// expansion.js re-exports them for Parts B and C.
+
+// C3's legal suffixes, plus the other legal forms B4 names (incorporated,
+// company, limited, lp, llp) and pbc (Planet Labs PBC), so "Acme Company" and
+// "Acme Co." share a key.
+export const LEGAL_SUFFIXES = ["inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited", "llc", "lp", "llp", "plc", "pbc",
+  "ag", "as", "sa", "gmbh", "bv", "nv", "holdings"];
+const SUFFIX_SET = new Set(LEGAL_SUFFIXES);
+const NAME_CHARS_RE = /^[\p{L}\p{N} .&'\-,]+$/u;
+
+// The cleaned display name, or null when the name may not be a candidate:
+// NFC, curly apostrophes made straight, whitespace squashed, one trailing
+// parenthetical (a ticker) stripped; then null when it is under 2 or over 80
+// characters (checked before any clip), holds a URL or a control character,
+// or any character other than Unicode letters, digits, space and . & ' - ,
+export function candidateName(raw) {
+  if (typeof raw !== "string") return null;
+  const s = raw.normalize("NFC").replace(/[‘’ʼ]/g, "'").replace(/\s+/g, " ").trim()
+    .replace(/\s*\([^()]*\)$/, "").trim();
+  if (s.length < 2 || s.length > 80) return null;
+  if (URL_RE.test(s) || CONTROL_RE.test(s)) return null;
+  if (!NAME_CHARS_RE.test(s)) return null;
+  return s;
+}
+
+// The normalized name (C3): NFKD, combining marks stripped, lowercase,
+// parentheticals dropped, . and ' removed, every other character that is not
+// a letter, digit or space made a space, trailing legal suffixes stripped
+// repeatedly while more than one word is left, spaces collapsed. "" when
+// nothing is left (the caller drops the name).
+export function dedupeKey(name) {
+  let s = String(name ?? "").normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+  for (let prev = null; prev !== s;) { prev = s; s = s.replace(/\([^()]*\)/g, " "); }
+  s = s.replace(/[().'’]/g, "").replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
+  const words = s ? s.split(" ") : [];
+  while (words.length > 1 && SUFFIX_SET.has(words[words.length - 1])) words.pop();
+  return words.join(" ");
+}
+
+// Covered names (A2): the 24 tickers, each sheet's name: (or first terms
+// entry) and key-accounts company_names, bundled as COVERED_NAMES (keyed by
+// covered.json's tickers, in its order). Never MATCH.terms: product names
+// such as Carbyne and Upgrade Energy must stay candidates.
+const COVERED_KEYS = new Map();
+for (const [t, names] of Object.entries(COVERED_NAMES || {})) {
+  for (const n of [t, ...(names || [])]) {
+    const k = dedupeKey(n);
+    if (k && !COVERED_KEYS.has(k)) COVERED_KEYS.set(k, t);
+  }
+}
+// The covered ticker whose covered name has the same dedupe key, or null.
+export function coveredTicker(name) {
+  return COVERED_KEYS.get(dedupeKey(name)) || null;
+}
+
+// A1: what the counterparty is to the grade's subject (its ticker or entity).
+export const RELATION_TYPES = ["acquired", "acquirer", "customer", "partner", "supplier", "subsidiary", "award"];
+export const MAX_RELATIONS = 4;
+
+// A2: a grade's optional relations -> { relations, warnings }. relations:
+// [{ type, name, evidence }], at most 4; warnings: one string per dropped
+// entry. An invalid entry is dropped with a warning and never rejects the
+// grade (unlike headline and tag). An entry is dropped when it is the 5th or
+// later, is not an object, has a type outside RELATION_TYPES, a name that
+// fails candidateName or has an empty dedupe key, names the subject or a
+// covered company, has evidence other than the graded item's own id, or
+// repeats an earlier kept name (same dedupe key).
+//   itemId:  the graded item's id (the only allowed evidence)
+//   subject: the grade's ticker (coverage) or entity (aux)
+export function normalizeRelations(raw, { itemId, subject } = {}) {
+  const relations = [], warnings = [];
+  if (raw === undefined || raw === null) return { relations, warnings };
+  if (!Array.isArray(raw)) {
+    warnings.push('relations must be an array of { "type", "name", "evidence" }: dropped');
+    return { relations, warnings };
+  }
+  const subjectKey = dedupeKey(subject);
+  const keys = new Set();
+  raw.forEach((r, i) => {
+    const label = r && typeof r === "object" && typeof r.name === "string" ? ` ${JSON.stringify(r.name.replace(/\s+/g, " ").trim().slice(0, 80))}` : "";
+    const drop = (why) => warnings.push(`relation ${i + 1}${label} dropped: ${why}`);
+    if (i >= MAX_RELATIONS) return drop(`relations holds at most ${MAX_RELATIONS} entries`);
+    if (!r || typeof r !== "object" || Array.isArray(r)) return drop('each relation must be { "type", "name", "evidence" }');
+    const type = typeof r.type === "string" ? r.type.trim().toLowerCase() : "";
+    if (!RELATION_TYPES.includes(type)) return drop(`type must be one of ${RELATION_TYPES.join(", ")}`);
+    const name = candidateName(r.name);
+    if (!name) return drop("name must be the counterparty's own name, 2-80 characters of letters, digits, spaces and . & ' - , (no URL)");
+    const key = dedupeKey(name);
+    if (!key) return drop("name has no letters or digits");
+    if (subjectKey && key === subjectKey) return drop("name is the grade's own subject");
+    const t = coveredTicker(name);
+    if (t) return drop(`name is a covered company (${t}); covered companies are never relations`);
+    const ev = typeof r.evidence === "string" && /^\s*\d+\s*$/.test(r.evidence) ? Number(r.evidence) : r.evidence;
+    if (ev !== itemId) return drop(`evidence must be the item you are grading (${itemId})`);
+    if (keys.has(key)) return drop("repeats an earlier relation");
+    keys.add(key);
+    relations.push({ type, name, evidence: itemId });
+  });
+  return { relations, warnings };
 }
 
 // Splits a list into chunks (D1 allows at most 100 bound parameters).

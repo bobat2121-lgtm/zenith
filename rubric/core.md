@@ -1,6 +1,6 @@
 # Core rubric: covered-company news grader
 
-Version 3.2, 2026-11-23 (adds the headline and tag, section 10). Read on every run. Replaces Zenith `firm-core.md` v2 and the legacy `ranking_policy.md`/`ranking_brief.md`. Company sheets (`companies/<TICKER>.md`, section 12) add detail. The more specific rule wins, within the hard rules in section 12. Where old grader behaviour and the owner's grades conflict, follow the owner.
+Version 3.3, 2026-11-24 (adds the optional relations, section 10). Read on every run. Replaces Zenith `firm-core.md` v2 and the legacy `ranking_policy.md`/`ranking_brief.md`. Company sheets (`companies/<TICKER>.md`, section 12) add detail. The more specific rule wins, within the hard rules in section 12. Where old grader behaviour and the owner's grades conflict, follow the owner.
 
 **The test:** within 24 hours, would the covering analyst change a model line (revenue, backlog, share count, runway, guidance) or a thesis bullet, or write a sentence in a note? Score how strongly the answer is yes for this event in this window, not for the company. **Bad news ranks like good news of the same size**: a lost contract, guidance cut, slip, recall, failed test or miss on a core program ranks like the matching win.
 
@@ -352,6 +352,7 @@ One JSON object per item, nothing else:
 - **thesis_drivers_hit / resolves:** only ids present in the sheet's front matter. If the block is missing, emit `[]` and no `resolves:`, and flag `sheet_incomplete`.
 - **flags:** exactly one `reason:` from `material`, `primary_source`, `new_information`, `calendar_card`, `below_materiality`, `stale`, `late_repost`, `already_covered`, `duplicate`, `insufficient_evidence`, `source_quality`, `off_entity`, `out_of_scope`, `promotional`. Plus any of: `group:<key>`, `dup_of:<id>`, `also:<TICKER>`, `floor:<id>`, `resolves:<id>`, `ceiling_only`, `estimate`, `company_reported`, `no_figures`, `pct_is_dilution`, `pct_is_holdings`, `pct_is_units`, `alt_base`, `archive_burst`, `source_repair`, `late_first_sighting`, `event_predates_publication`, `sheet_stale`, `sheet_incomplete`, `no_sheet`, `needs_owner`.
 - **headline, tag:** below. Both or neither; a bad headline or tag rejects that grade only.
+- **relations:** optional, below. `[]` or left out when none. A bad entry is dropped with a warning; it never rejects the grade.
 
 ### Headline and tag
 
@@ -362,6 +363,20 @@ Every grade carries a `headline` and a `tag`. The app shows them as the card's t
 - **Filings:** an 8-K/A titled "Agility Robotics, Inc.: 8-K/A filed 2026-11-13" gets a headline saying what the filing reports or amends, taken from the excerpt ("Agility Robotics amends its 8-K: <what the amendment changes>"), and `"tag": "8-K/A"`. A bare "8-K filed" title is never the headline.
 - **tag:** for an SEC filing, the SEC form exactly as filed: `8-K`, `8-K/A`, `10-Q`, `10-Q/A`, `10-K`, `10-K/A`, `6-K`, `6-K/A`, `20-F`, `40-F`, `S-1`, `S-1/A`, `S-3`, `S-3/A`, `S-4`, `S-8`, `F-1`, `F-3`, `424B1`-`424B8`, `SC 13D`, `SC 13D/A`, `SC 13G`, `SC 13G/A`, `13F-HR`, `Form 3`, `Form 4`, `Form 5`, `DEF 14A`, `DEFA14A`, `PRE 14A`, `25-NSE`, `NT 10-Q`, `NT 10-K`, `1-U`, `1-K`, `C`, `D`. Otherwise exactly one of: `Press release` (the company's own release), `Presentation` (a deck or investor presentation), `Shareholder letter`, `Event` (an event, webcast or conference notice), `Contract notice` (an award notice: war.gov contracts, FPDS, SAM), `Program notice` (a program office or agency post: DIU, NGA, Drone Dominance), `News` (a media article), `Blog`, `Video`, `Filing` (a filing that is not an SEC form on the list: an exchange, court or foreign regulator filing), `Report` (a research, analyst or government report), `Interview`.
 - A duplicate or `already_covered` grade still carries a headline and tag. A `<item_id>#<TICKER>` grade may carry the same pair; the item's own grade sets the card's headline, and a `#TICKER` grade's pair is kept only when the item has none.
+
+### Relations
+
+`relations` names the counterparties the item states, so the owner can give each a source of its own. It is optional: at most 4 entries, each `{"type": "<type>", "name": "<counterparty>", "evidence": <item_id>}`, for example `"relations":[{"type":"acquired","name":"Stemme","evidence":206}]`.
+
+- **type:** what the counterparty is to this grade's ticker: `acquired` (the company acquired, or agreed to acquire, it), `acquirer` (it acquired the company), `customer` (it buys from the company), `partner` (a partnership, MOU, joint venture or teaming), `supplier` (it supplies the company), `subsidiary` (it is the company's subsidiary), `award` (an agency, program or prize body that awarded the company: UNMAS for SPAI).
+- Name only counterparties that the item itself states. Never from memory or a sheet (section 9, "Published text").
+- Include counterparties that are not the main event: a purchase-order release that also names ARAN Defense lists ARAN Defense.
+- **name:** the company's own name, without "Inc." clauses, roles or descriptions: `Stemme`, not "Stemme AG, a German glider maker (the Seller)". Never a covered company, and never the grade's own company.
+- **evidence:** the item_id you are grading, as a number. Nothing else.
+- Investors are not relations: a financing's investors, lenders and underwriters are never listed.
+- Relations never change the score, the band or any flag.
+- Only the item's own grade (the bare item_id) carries relations; a `<item_id>#<TICKER>` grade sends none.
+- The API drops a bad entry (an unknown type, a covered name, a URL or a name over 80 characters, wrong evidence, a repeat, a 5th entry) and prints it as a `WARN` line. The grade is still accepted.
 
 ## 11. Calibration anchors
 

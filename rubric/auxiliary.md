@@ -1,6 +1,6 @@
 # Auxiliary rubric: outside-company news grader
 
-Version 1.2, 2026-11-23 (adds the headline and tag, section 8). Read once per run, in the auxiliary pass (grader/GRADER.md). It applies only to items claimed with `aux-claim`; core.md and the company sheets do not apply to them except where this file cites them. The analyst reads these grades on the Auxiliary Names page: a short, quick view of the outside news that matters.
+Version 1.3, 2026-11-24 (adds the optional relations, section 8). Read once per run, in the auxiliary pass (grader/GRADER.md). It applies only to items claimed with `aux-claim`; core.md and the company sheets do not apply to them except where this file cites them. The analyst reads these grades on the Auxiliary Names page: a short, quick view of the outside news that matters.
 
 **The test:** would someone who follows this outside company (or program) want to know about this event today? Score how much the event matters **to that company or program itself**, not to a covered ticker. Read-through to covered tickers is a side note (section 6) and never moves the score. **Bad news ranks like good news of the same size**: a lost contract, failed test, recall, layoff, down round or shutdown ranks like the matching win.
 
@@ -103,6 +103,7 @@ One JSON object per claimed item, in a JSON array, nothing else:
 - **event_type** (≤ 40 characters): `ipo`, `acquisition`, `financing`, `contract`, `program_award`, `program`, `bankruptcy`, `exec_change`, `regulatory`, `safety_incident`, `recall`, `results`, `guidance`, `product`, `deployment`, `partnership`, `pilot`, `layoffs`, `legal`, `filing_other`, `hiring`, `event`, `recognition`, `marketing`, `commentary`, `duplicate`, `covered`.
 - **why:** ≤ 25 words (the API stops at 400 characters): what happened, the literal stage, figures with their labels. Facts from the source only; no implications and no covered tickers.
 - **reads_through:** section 6, `[]` when none.
+- **relations:** optional, `[]` or left out when none: at most 4 counterparties the item itself states, each `{"type": "<type>", "name": "<counterparty>", "evidence": <item_id>}`, with `type` what the counterparty is to `entity`: `acquired`, `acquirer`, `customer`, `partner`, `supplier`, `subsidiary` or `award` (core.md section 10, "Relations"). Never from memory or a sheet; include counterparties that are not the main event; use the company's own name, without "Inc." clauses, roles or descriptions; `evidence` is the item_id you are grading. Investors are not relations, and a covered company is never one. Relations never change the score. The API drops a bad entry with a `WARN` line and still accepts the grade.
 - **flags:** exactly one `reason:` flag, chosen by the table below. Optional extras: `ceiling_only`, `multi_award`, `reported`, `no_figures`.
 - **confidence:** 0-1, the joint certainty of entity, stage and figures. ≤ 0.5 when `read_source` is false; ≤ 0.6 when the entity or the date is uncertain.
 - **read_source:** true only when the facts you graded on are in the excerpt shown or a page you opened.

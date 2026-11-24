@@ -22,7 +22,7 @@ import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRou
 import { mobile } from "./mobile.js";
 import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
-import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill } from "./expansion.js";
+import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill, upsertAfterGrades, relationSightings } from "./expansion.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 const ALLOW = {
@@ -134,6 +134,7 @@ async function submitGrades(env, body, role) {
   const model = String(body.model || "").slice(0, 60) || null;
   const accepted = [], rejected = [], skipped = [];
   const stmts = [];
+  const warnings = [], sightings = [];
   for (const raw of body.grades) {
     const ref = parseItemRef(raw?.item_id);
     const item = ref ? items.get(ref.id) : undefined;
@@ -174,6 +175,11 @@ async function submitGrades(env, body, role) {
       ).bind(g.headline, g.headline_tag, now, item.id));
     }
     accepted.push({ item_id: raw.item_id, ticker: g.ticker, score: g.score, band: g.band });
+    // Relations (plans/round5-expansion-approve-queue.md, A2-A3): dropped
+    // entries are warnings; kept ones become expansion candidates below.
+    for (const w of res.warnings || []) warnings.push({ item_id: raw.item_id, warning: w });
+    sightings.push(...relationSightings(res.relations, { kind: "coverage", subject: g.ticker, tickers: [g.ticker],
+      item: { id: item.id, url: item.url, title: item.title, at: item.first_seen } }));
   }
   if (runId) {
     stmts.push(env.DB.prepare("UPDATE runs SET last_seen_at=?, graded=graded+?, rejected=rejected+? WHERE id=?")
@@ -181,7 +187,10 @@ async function submitGrades(env, body, role) {
   }
   // All-or-nothing: a failure part-way through commits nothing, so a retry is safe.
   if (stmts.length) await env.DB.batch(stmts);
-  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted });
+  // A second batch, after the grades commit (A3): a failure (a zenith-db before
+  // migration 0012 included) is a warning and never touches the grades.
+  warnings.push(...await upsertAfterGrades(env.DB, sightings, { now }));
+  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted, warnings });
 }
 
 // The grade an item shows under a ticker: the primary grade for the item's own

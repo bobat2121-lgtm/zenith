@@ -54,6 +54,17 @@
 //     zenith-db before migration 0012) gives ok: false and a warning.
 //     warnings: [{ item_id, warning }].
 //
+//   upsertAfterGrades(db, sightings, opts) -> Promise<warnings>
+//     The second batch after a grade submit commits (A3): upsertSightings in
+//     try/catch, returning only its warnings.
+//
+//   relationSightings(relations, { kind, subject, tickers, item }) -> sightings
+//     A grade's kept relations (lib.js normalizeRelations, A2) as
+//     grader_relation sightings of the graded item { id, url, title, at }.
+//
+//   candidateName, dedupeKey, coveredTicker, LEGAL_SUFFIXES, RELATION_TYPES
+//     are defined in lib.js (the grade validators use them) and re-exported.
+//
 //   auxEntitySighting(grade, item) -> sighting | null
 //     Part C2: an accepted aux grade's own entity, when score >= 70 and
 //     event_type is financing or acquisition, the entity passes
@@ -62,12 +73,14 @@
 //     title, nm_first_seen }.
 import COVERED from "./covered.json";
 import AUX from "./aux-sources.json";
-import { MATCH, COVERED_NAMES } from "./rubric.generated.js";
-import { json, nowIso, chunk, isHttpUrl, URL_RE, CONTROL_RE } from "./lib.js";
+import { MATCH } from "./rubric.generated.js";
+import { json, nowIso, chunk, isHttpUrl, candidateName, dedupeKey, coveredTicker, LEGAL_SUFFIXES, RELATION_TYPES } from "./lib.js";
 import { getMeta, setMeta } from "./ingest.js";
 
+// The name helpers and the relation types live in lib.js, beside the grade
+// validators that use them (Part A); they are re-exported here for Parts B and C.
+export { candidateName, dedupeKey, coveredTicker, LEGAL_SUFFIXES, RELATION_TYPES };
 export const ORIGINS = ["grader_relation", "sec_filing", "aux_entity"];
-export const RELATION_TYPES = ["acquired", "acquirer", "customer", "partner", "supplier", "subsidiary", "award"];
 export const STATUSES = ["pending", "approved", "rejected", "compiled", "known"];
 export const DECISION_ACTIONS = ["approve", "reject", "reopen"];
 // D2: why the owner rejected a candidate; mirrored in the app.
@@ -78,54 +91,14 @@ export const AUX_ENTITY_MIN_SCORE = 70;
 export const AUX_ENTITY_EVENTS = ["financing", "acquisition"];
 export const BACKFILL_DAYS = 30;
 export const BACKFILL_META = "expansion_backfill_at";
-// C3's list, plus the other legal forms B4 names (incorporated, company,
-// limited, lp, llp) and pbc (Planet Labs PBC), so "Acme Company" and
-// "Acme Co." share a key.
-export const LEGAL_SUFFIXES = ["inc", "incorporated", "corp", "corporation", "co", "company", "ltd", "limited", "llc", "lp", "llp", "plc", "pbc",
-  "ag", "as", "sa", "gmbh", "bv", "nv", "holdings"];
 
 const DAY = 86_400_000;
-const SUFFIX_SET = new Set(LEGAL_SUFFIXES);
-const NAME_CHARS_RE = /^[\p{L}\p{N} .&'\-,]+$/u;
 const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
 const clip = (v, n) => (v == null ? null : String(v).replace(/\s+/g, " ").trim().slice(0, n) || null);
 const clampInt = (v, lo, hi, dflt) => Math.max(lo, Math.min(hi, Math.trunc(Number(v)) || dflt));
 const parse = (text, fallback) => { try { const v = JSON.parse(text); return v ?? fallback; } catch { return fallback; } };
 const isMissingTable = (e) => /no such table/i.test(String(e?.message || e));
 const NOT_YET = "expansion queue not available yet: migration 0012 is not applied";
-
-// --- Names and keys (A2, C3) ----------------------------------------------------
-export function candidateName(raw) {
-  if (typeof raw !== "string") return null;
-  const s = raw.normalize("NFC").replace(/[‘’ʼ]/g, "'").replace(/\s+/g, " ").trim()
-    .replace(/\s*\([^()]*\)$/, "").trim();
-  if (s.length < 2 || s.length > 80) return null;
-  if (URL_RE.test(s) || CONTROL_RE.test(s)) return null;
-  if (!NAME_CHARS_RE.test(s)) return null;
-  return s;
-}
-
-export function dedupeKey(name) {
-  let s = String(name ?? "").normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
-  for (let prev = null; prev !== s;) { prev = s; s = s.replace(/\([^()]*\)/g, " "); }
-  s = s.replace(/[().'’]/g, "").replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
-  const words = s ? s.split(" ") : [];
-  while (words.length > 1 && SUFFIX_SET.has(words[words.length - 1])) words.pop();
-  return words.join(" ");
-}
-
-// Covered names (A2): the tickers, each sheet's name: (or first terms entry)
-// and key-accounts company_names, bundled as COVERED_NAMES.
-const COVERED_KEYS = new Map();
-for (const t of COVERED.tickers) {
-  for (const n of [t, ...(COVERED_NAMES?.[t] || [])]) {
-    const k = dedupeKey(n);
-    if (k && !COVERED_KEYS.has(k)) COVERED_KEYS.set(k, t);
-  }
-}
-export function coveredTicker(name) {
-  return COVERED_KEYS.get(dedupeKey(name)) || null;
-}
 
 // Own sources from the bundled registry: every aux-sources.json source's name
 // and entity (all 148 counterparty keys are there too).
@@ -186,7 +159,7 @@ export function registryNotes(names, runtime = { exact: new Map(), prefix: new M
   for (const n of names) {
     const k = dedupeKey(n);
     if (!k) continue;
-    const t = COVERED_KEYS.get(k);
+    const t = coveredTicker(k);
     if (t) own.add(`covered:${t}`);
     if (AUX_KEYS.has(k)) own.add(`aux_source:${AUX_KEYS.get(k)}`);
     if (runtime.exact.has(k)) own.add(`aux_item:${runtime.exact.get(k)}`);
@@ -269,6 +242,27 @@ export async function upsertSightings(db, sightings, { now = nowIso() } = {}) {
     warnings.push({ item_id: null, warning: why });
     return { ok: false, upserted: 0, warnings };
   }
+}
+
+// The second batch after a grade submit commits (A3, C2): upserts the
+// sightings and returns only warnings. Wrapped in try/catch, so a failure
+// (including a zenith-db before migration 0012) is a warning and never
+// touches the grades already stored.
+export async function upsertAfterGrades(db, sightings, opts = {}) {
+  if (!Array.isArray(sightings) || !sightings.length) return [];
+  try {
+    return (await upsertSightings(db, sightings, opts)).warnings;
+  } catch (e) {
+    return [{ item_id: null, warning: `expansion candidates not saved: ${String(e?.message || e).slice(0, 200)}` }];
+  }
+}
+
+// A grade's kept relations as sightings (A3). subject: the grade's ticker or
+// entity; tickers: the covered tickers it links to; item: the graded item
+// { id, url, title, at }.
+export function relationSightings(relations, { kind, subject, tickers, item }) {
+  return (relations || []).map((r) => ({ name: r.name, origin: "grader_relation", relation: r.type, subject, tickers, kind,
+    item_id: item.id, url: item.url, title: item.title, at: item.at ?? null }));
 }
 
 // --- Aux entity rule (C2) and the one-time backfill (D4) ----------------------

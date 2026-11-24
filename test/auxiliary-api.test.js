@@ -553,3 +553,54 @@ test("coverage endpoints, the claim queue and Lead pushes are the same with or w
   assert.equal(count(mixed, "deliveries"), 1);
   assert.equal(rows(mixed, "SELECT COUNT(*) AS n FROM aux_items WHERE id = ?", f.lead)[0].n, 1);
 });
+
+// Relations (plans/round5-expansion-approve-queue.md, A2-A3) through
+// /v1/aux/grades, beside the aux entity rule (C2): one AGILOX row from a
+// Rockwell relation and AGILOX's own acquisition grade, sightings 2.
+test("aux grades: relations become candidates beside the entity rule; bad ones are warnings; grades survive a failed upsert", async () => {
+  const env = newEnv();
+  const ROCK = { source_key: "ia_rockwell", entity_key: "rockwell", entity_name: "Rockwell Automation", status: "public" };
+  const rock = addAux(env, { ...ROCK, title: "Rockwell Automation to acquire AGILOX" });
+  // AGILOX has no source of its own: its item came through a media feed (an own-source entity would make the row known).
+  const agi = addAux(env, { source_key: "robot_report", entity_key: "robot_report", entity_name: "Industry media", status: "media", title: "AGILOX agrees to be acquired" });
+  const claim = await claimAux(env, { limit: 5, run_id: "run-rel" });
+  assert.equal(claim.items.length, 2);
+  const R = (name, type = "acquired", evidence = rock) => ({ type, name, evidence });
+  const file = { claim_id: claim.claim_id, run_id: "run-rel", grades: [
+    grade(rock, { entity: "Rockwell Automation", score: 75, event_type: "contract", reads_through: [{ ticker: "SYM", direction: "-" }],
+      relations: [R("AGILOX"), R("Red Cat"), R("Rockwell Automation Inc.", "acquirer"), R("Humyn Labs", "partner", agi)] }),
+    grade(agi, { entity: "AGILOX", score: 88, event_type: "acquisition" }),
+  ] };
+  const r = (await submit(env, file)).body;
+  assert.deepEqual([r.accepted, r.rejected], [2, []], "no grade is rejected for its relations");
+  assert.deepEqual(r.warnings.map((w) => w.item_id), [rock, rock, rock]);
+  assert.match(r.warnings[0].warning, /relation 2 "Red Cat" dropped: name is a covered company \(RCAT\)/);
+  assert.match(r.warnings[1].warning, /relation 3 "Rockwell Automation Inc\." dropped: name is the grade's own subject/);
+  assert.match(r.warnings[2].warning, new RegExp(`relation 4 "Humyn Labs" dropped: evidence must be the item you are grading \\(${rock}\\)`));
+  const cands = () => rows(env, "SELECT name, origins, relation, subject, tickers, seen, evidence, status FROM expansion_candidates ORDER BY id");
+  let c = cands();
+  assert.equal(c.length, 1);
+  assert.deepEqual([c[0].name, c[0].relation, c[0].subject, c[0].status, JSON.parse(c[0].tickers), JSON.parse(c[0].origins)],
+    ["AGILOX", "acquired", "Rockwell Automation", "pending", ["SYM"], ["grader_relation", "aux_entity"]]);
+  assert.deepEqual(JSON.parse(c[0].seen), [`aux:${rock}`, `aux:${agi}`], "sightings 2");
+  assert.deepEqual(JSON.parse(c[0].evidence).map((e) => [e.kind, e.item_id, e.origin]), [["aux", agi, "aux_entity"], ["aux", rock, "grader_relation"]]);
+
+  // A re-submit and a new-run regrade both leave the sightings unchanged.
+  const again = (await submit(env, file)).body;
+  assert.deepEqual([again.accepted, again.already_accepted, again.warnings], [0, 2, []]);
+  const re = (await submit(env, { run_id: "run-rel-2", grades: [grade(rock, { entity: "Rockwell Automation", score: 76, event_type: "contract", relations: [R("Agilox GmbH")] })] }, "admin")).body;
+  assert.deepEqual([re.accepted, re.warnings], [1, []]);
+  c = cands();
+  assert.equal(c.length, 1, "Agilox GmbH has AGILOX's dedupe key");
+  assert.deepEqual(JSON.parse(c[0].seen), [`aux:${rock}`, `aux:${agi}`]);
+  assert.equal(count(env, "aux_grades"), 3);
+
+  // A failed candidate upsert (here: no table, as before 0012) is a warning; the grade is stored.
+  env.DB.exec("DROP TABLE expansion_candidates");
+  const late = (await submit(env, { run_id: "run-rel-3", grades: [grade(agi, { entity: "AGILOX", score: 90, band: "lead", event_type: "acquisition",
+    relations: [R("Rockwell Automation", "acquirer", agi)] })] }, "admin")).body;
+  assert.deepEqual([late.accepted, late.rejected], [1, []]);
+  assert.deepEqual(late.warnings.map((w) => w.item_id), [null]);
+  assert.match(late.warnings[0].warning, /expansion queue not available yet: migration 0012 is not applied/);
+  assert.equal(rows(env, "SELECT g.run_id FROM aux_items i JOIN aux_grades g ON g.id = i.grade_id WHERE i.id = ?", agi)[0].run_id, "run-rel-3");
+});

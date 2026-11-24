@@ -126,3 +126,48 @@ test("label ranges match the coverage labels the grader reads", () => {
   assert.deepEqual([labelRange("high"), labelRange("medium"), labelRange("low"), labelRange("noise")], [[80, 100], [60, 89], [30, 69], [0, 29]]);
   assert.deepEqual([labelRange("too_high", 60), labelRange("too_low", 60), labelRange("too_high", null)], [[0, 59], [61, 100], null]);
 });
+
+// Relations (plans/round5-expansion-approve-queue.md, A2): optional; a bad
+// entry is dropped with a warning and the aux grade is still accepted.
+test("relations on an aux grade: kept, or dropped with a warning while the grade is accepted", () => {
+  const run = (relations, over = {}) => {
+    const r = normalizeAuxGrade(g({ relations, ...over }), opts);
+    assert.equal(r.ok, true, r.error);
+    return r;
+  };
+  const R = (name, type = "acquired", evidence = 12) => ({ type, name, evidence });
+  const kept = run([R("AGILOX"), R("Army", "customer"), R("DIU", "award", "12")]);
+  assert.deepEqual(kept.relations, [{ type: "acquired", name: "AGILOX", evidence: 12 }, { type: "customer", name: "Army", evidence: 12 },
+    { type: "award", name: "DIU", evidence: 12 }]);
+  assert.deepEqual(kept.warnings, []);
+  assert.equal("relations" in kept.grade, false, "the stored aux grade gains no column");
+  for (const v of [undefined, null, []]) assert.deepEqual([run(v).relations, run(v).warnings], [[], []]);
+  const drops = [
+    [R("Anduril"), /name is the grade's own subject/],
+    [R("Red Cat Holdings, Inc."), /name is a covered company \(RCAT\)/],
+    [R("AXON"), /name is a covered company \(AXON\)/],
+    [R("https://agilox.net"), /name must be the counterparty's own name/],
+    [R("Agilox | Rockwell"), /name must be/],
+    [R("Agilox (Austria"), /name must be/],
+    [R("B".repeat(81)), /name must be/],
+    [R("AGILOX", "investor"), /type must be one of/],
+    [R("AGILOX", "acquired", 13), /evidence must be the item you are grading \(12\)/],
+    [R("AGILOX", "acquired", "12#RCAT"), /evidence must be/],
+  ];
+  for (const [entry, re] of drops) {
+    const r = run([entry]);
+    assert.deepEqual(r.relations, [], JSON.stringify(entry));
+    assert.match(r.warnings[0], re, JSON.stringify(entry));
+  }
+  // Carbyne is an AXON sheet product term, not a covered name: it stays a candidate.
+  assert.deepEqual(run([R("Carbyne", "acquired")]).relations.map((x) => x.name), ["Carbyne"]);
+  // A repeat and a 5th entry.
+  const many = run([R("A1 Robotics"), R("a1 robotics llc", "partner"), R("B2"), R("C3"), R("D4"), R("E5")]);
+  assert.deepEqual(many.relations.map((x) => x.name), ["A1 Robotics", "B2", "C3"]);
+  assert.deepEqual(many.warnings.map((w) => /dropped: (.*)$/.exec(w)[1].slice(0, 20)),
+    ["repeats an earlier r", "relations holds at m", "relations holds at m"]);
+  // A bad shape is a warning too.
+  assert.match(run("AGILOX").warnings[0], /relations must be an array/);
+  // A grade rejected for another reason stays rejected.
+  assert.equal(normalizeAuxGrade(g({ why: "", relations: [R("AGILOX")] }), opts).ok, false);
+});
