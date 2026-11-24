@@ -40,7 +40,8 @@ open_items:
   - {id: fy27_target, what: "FY2026 revenue against the 'at least $200M' floor, and the 2027 $450-500M target reaffirmed, changed or withdrawn (FY2026 results / 20-F)", expires_at: 2027-04-30, note: "20-F due four months after FY end; last one filed 2026-04-15"}
   - {id: batam_debt, what: "Batam project debt closing or first drawdown (debt offers cover ~70% of project cost; none closed)", expires_at: 2027-06-30, note: "no official date; tied to the remaining Batam deployment in H1 2027; set by sheet author, needs_owner"}
 groups: [earnings_calendar, grrr_oct_notes, grrr_gpu_tranches]   # grrr_* keys use the proposed core custom pattern <ticker>_<slug>; sheet-author proposal, needs_owner
-owner_marks: []               # no line in this sheet carries an owner:<date> mark
+owner_marks:
+  - {line: "Policy read-through", mark: "owner:2026-11-24", overrides: "core 1 out-of-scope rule for policy and the core 9 read-through boundary, for US policy on AI chip exports, remote AI compute and overseas AI data centres only"}
 ---
 
 # GRRR — Gorilla Technology Group Inc.
@@ -109,6 +110,7 @@ _Researched 2026-11-18. Nasdaq: GRRR (warrants GRRRW). CIK 0001903145. Cayman Is
 - A scoped non-binding LOI, for example "Proposed 36 MW Data Centre Acquisition and 100+ MW AI Infrastructure Expansion Plan" (2026-10-09, [IR](https://investors.gorilla-technology.com/gorilla-advances-u-s-market-entry-with-proposed-36-mw-data-centre-acquisition-and-100-mw-ai-infrastructure-expansion-plan/)). The site has about 6MW today and 36MW potential, with about 18 months for the utility upgrade; location, seller and price are undisclosed. Score about 70.
 - Project debt closing or drawdown. A Nasdaq or SEC deficiency notice. A CEO change (Chairman/CEO Jayesh "Jay" Chandan) or CFO change.
 - Earnings-date and call notices go in the calendar card, fixed at 75 (`floor:calendar`), for example the 2026-11-16 Q3 call notice.
+- US government action on AI chip exports or overseas AI data centres: 70-89 under "Policy read-through" below (owner:2026-11-24).
 
 **Borderline (40-69)**
 - A credit rating action, for example Fitch's first-time "B-" with a Positive outlook (2026-08-27, [IR](https://investors.gorilla-technology.com/fitch-assigns-gorilla-technology-first-time-b-rating-with-positive-outlook/)): about 60.
@@ -170,9 +172,37 @@ Feed: gorilla and edgar_grrr, first seen 2026-08-20 to 2026-11-18. Every row had
 
 ## Competitors & read-through
 - **Supermicro:** its roughly $2B arrangement (2026-06-02) supplies the GPUs and networking for the two Yotta deployments. It is not additional GRRR revenue; never add the two.
-- **NVIDIA:** B300 allocation, export rules, DGX Cloud India.
+- **NVIDIA:** B300 allocation and DGX Cloud India. US export rules on its chips are graded under "Policy read-through" below.
 - **Yotta:** its funding or IPO affects counterparty risk.
 - **Neocloud peers** (CoreWeave, Nebius, Bitdeer, other Johor/Batam builds): context only, unless Gorilla is named.
+
+## Policy read-through (owner:2026-11-24)
+On 2026-11-24 the owner asked for US policy on AI chip exports and overseas AI data centres to be graded for GRRR as Digest news. Gorilla builds and runs AI data centres and GPU campuses in Thailand (Korat), Indonesia (NeutraDC Nxera Batam), India (Yotta) and Taiwan, and buys its NVIDIA GPUs from the US. So for GRRR, this kind of US government action is an explicit link. The item does not have to name Gorilla.
+
+This line carries the `owner:2026-11-24` mark, so it overrides two hard rules for these items only (core 12.1): the core 1 out-of-scope rule for policy, and the core 9 read-through boundary. Everything else in core still applies: entity checks, freshness, dedupe and the output contract.
+
+- **What counts:** a US government rule, licence requirement, order, or statement by the President or a cabinet member that covers any of these:
+  - exports of advanced AI chips;
+  - remote access to AI compute;
+  - US companies building or running AI data centres abroad.
+
+  These items mostly arrive from the program sources `fedreg_bis_ai_compute` (BIS documents in the Federal Register) and `grrr_policy` (news search), but the rule applies to any source. Other policy stays `out_of_scope` under core 9: tariffs on other goods, local data-centre siting or tax breaks, energy, and chip subsidies with no export part.
+- **Scores:**
+  - **A BIS or Commerce rule or licence requirement** on advanced AI chips, remote compute or data centres that reaches Gorilla's markets (Thailand, Indonesia, Malaysia, Taiwan, India or Southeast Asia) or its GPU supply: Digest 75-89. Score it 80 or more when the rule names a Gorilla market country.
+  - **A statement of intent** by the President or a cabinet member to ban, tax or restrict US firms building data centres overseas, with no published order, rule or bill text: Digest 70-79.
+  - **The formal order or rule that puts such a ban, tax or restriction in place:** 80-89. Grade it as an update to the statement, because it is a new stage (core 8).
+  - **A rule clearly limited to end users in China** (or companies headquartered in Country Group D:5 or Macau), with no Gorilla market country and no effect on its GPU supply: 55-69.
+  - **Op-eds, explainers, law-firm client alerts, and re-reports** of a rule or remark already graded: `duplicate` of the first graded item. When nothing new was graded before, score below 40. A copy that adds a fact, such as an effective date, a new country or an enforcement action, is an update on that fact (core 8).
+- **Canonical copy:** the Federal Register document is the official record. Use it over news of the same rule when it is in the window (core 8 order). An earlier announcement and the later Federal Register publication are one event.
+- **Published text:** state the facts only (core 9). The headline says what the rule or remark does and which countries it names. Never write Gorilla, GRRR, Korat, Batam or Yotta unless the item names them. Tag a Federal Register document `Program notice` and a media article `News`.
+- **Worked examples:**
+  - **2026-11-19 BIS interim final rule, "Addressing Remote Access to Advanced Semiconductors"** (Federal Register document 2026-23529, announced 2026-11-16). About 85, tag `Program notice`. What the rule does:
+    - It requires a licence to export advanced semiconductors to overseas data centres that supply significant compute to companies headquartered in Country Group D:5 or Macau.
+    - It adds a new licence requirement for advanced semiconductors going to Indonesia, Malaysia, Singapore, Thailand and Brazil. The requirement is waived for buyers headquartered in the US that meet reporting requirements.
+    - It formally rescinds the AI Diffusion Rule.
+    
+    The score is 80+ because the rule names Thailand and Indonesia, where the Korat and Batam sites are. The sheet lists Gorilla's headquarters as London (a Cayman issuer), so the US-headquarters waiver does not plainly cover it. That moves the score only; never write it in published text. Example headline: "Commerce requires licences for advanced AI chips sent to Thailand, Indonesia, Malaysia, Singapore and Brazil".
+  - **2026-11-20 remarks by President Trump** that he will ban US companies from building data centres overseas or tax them heavily. No order, rule or bill text had been published as of 2026-11-24. About 75, tag `News`. If an executive order or rule follows, grade it 80-89 as an update.
 
 ## Source coverage gaps
 - **Missing forms:** edgar_grrr never surfaced Form 4 (2026-07-15, 2026-08-03), Form D (2026-07-29), 305B2/424B7/EFFECT (2026-08-19/21), 424B7 (2026-10-15) or SCHEDULE 13G (2026-11-02).

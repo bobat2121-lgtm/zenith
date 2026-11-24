@@ -553,6 +553,16 @@
         "KDK"
       ]
     },
+    "fedreg_bis_ai_compute": {
+      "entity": "fedreg_bis_ai_compute",
+      "name": "Federal Register",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "GRRR"
+      ]
+    },
     "figure": {
       "entity": "figure",
       "name": "Figure AI (private)",
@@ -726,6 +736,16 @@
       "name": "GreyOrange Inc.",
       "status": "private",
       "lane": "private_adjacent"
+    },
+    "grrr_policy": {
+      "entity": "grrr_policy",
+      "name": "US policy on AI data centers abroad and AI chip exports (Trump, Commerce/BIS)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "GRRR"
+      ]
     },
     "grrr_rel": {
       "entity": "grrr_rel",

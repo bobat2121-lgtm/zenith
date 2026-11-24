@@ -796,6 +796,12 @@
         "KDK"
       ]
     },
+    "fedreg_bis_ai_compute": {
+      "role": "program",
+      "affects": [
+        "GRRR"
+      ]
+    },
     "nhtsa_sgo_ads": {
       "role": "program",
       "affects": [
@@ -897,6 +903,12 @@
       "role": "customer",
       "affects": [
         "PL"
+      ]
+    },
+    "grrr_policy": {
+      "role": "program",
+      "affects": [
+        "GRRR"
       ]
     },
     "xtech_announcements": {
