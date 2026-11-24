@@ -81,6 +81,16 @@ function readGrades(file) {
   return list;
 }
 
+// One WARN line per submit warning: a relation the API dropped (the grade is
+// still accepted) or expansion candidates it could not save. An older Worker
+// sends no warnings. Warnings never change the exit code.
+function printWarnings(warnings) {
+  for (const w of Array.isArray(warnings) ? warnings : []) {
+    const text = String(w?.warning ?? w ?? "").replace(/\s+/g, " ").trim();
+    console.log(w?.item_id == null ? `  WARN: ${text}` : `  WARN item ${w.item_id}: ${text}`);
+  }
+}
+
 // Analyst labels are ranges on the 0-100 scale, not points. Directional labels
 // say the score the analyst saw should have been lower (too_high) or higher.
 const LABEL_RANGE = { high: [80, 100], medium: [60, 89], low: [30, 69], noise: [0, 29] };
@@ -174,6 +184,8 @@ if (cmd === "stats") {
   const r = await call("POST", "/v1/grades", { claim_id: claim.claim_id, run_id: claim.run_id, rubric_version: version, model: MODEL, grades: list });
   console.log(`accepted ${r.accepted}, already accepted ${r.already_accepted}, rejected ${r.rejected.length}`);
   for (const x of r.rejected) console.log(`  REJECTED item ${x.item_id}: ${x.error}`);
+  // Dropped relations and candidate-save problems: the grade itself was accepted.
+  printWarnings(r.warnings);
   // Track which claimed items have a stored grade across submits of this claim.
   const base = (id) => String(id).split("#")[0];
   const doneFile = join(OUT, `graded-${claim.claim_id}.json`);
@@ -269,6 +281,7 @@ if (cmd === "stats") {
   const accepted = typeof r.accepted === "number" ? r.accepted : results.length;
   console.log(`accepted ${accepted}, already accepted ${r.already_accepted ?? (r.already || []).length}, rejected ${rejected.length}`);
   for (const x of rejected) console.log(`  REJECTED item ${x.item_id}: ${x.error}`);
+  printWarnings(r.warnings);
   // Track which claimed items have a stored grade across submits of this claim:
   // what the API accepted now or before, and every submitted item it did not reject.
   const doneFile = join(OUT, `aux-graded-${claim.claim_id}.json`);

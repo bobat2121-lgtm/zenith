@@ -112,6 +112,10 @@ above ends the whole run.
      `Form 4`) or the item type (`Press release`, `Presentation`, `News` ...).
      Duplicates carry them too. The API rejects a grade whose headline or tag is bad,
      or that has one without the other.
+   - **Relations are optional** (core.md section 10, "Relations"): name only the
+     counterparties the item itself states, with `evidence` the item_id you are
+     grading; the API drops a bad entry, prints it as a `WARN` line and still accepts
+     the grade, so a WARN never needs a resubmit.
    - `node grader/zenith.mjs submit .zenith/grades.json`. The API accepts only items
      from your current claim, checks score, band, ticker, reason flag, duplicate
      fields, floors (a score below a flagged floor is rejected), the investor-day
@@ -168,7 +172,9 @@ above ends the whole run.
      `node grader/zenith.mjs aux-submit .zenith/aux-grades.json`. The API checks the
      entity, the reason flag, score and band, duplicate and covered fields,
      read-through tickers, and the headline and tag, and ignores grades it already stored for this run: fix any
-     REJECTED objects and resubmit the same file (at most twice). Grade the claimed
+     REJECTED objects and resubmit the same file (at most twice). `relations` are optional
+     (aux.md section 8) and evidence-bound: a dropped one prints as a `WARN` line, the grade
+     is still accepted, and a WARN never needs a resubmit. Grade the claimed
      items the CLI lists as NOT YET GRADED before the next claim.
    - **At most 3 auxiliary batches of 30 per run:** `node grader/zenith.mjs aux-claim 30`
      for each further batch. Stop when a claim prints `NOTHING WAITING` or after the

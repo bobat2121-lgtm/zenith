@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bandFor, normalizeGrade, parseItemRef, skipReason, tokenMatches, roleFor, chunk, isHttpUrl } from "../worker/src/lib.js";
+import { bandFor, normalizeGrade, parseItemRef, skipReason, tokenMatches, roleFor, chunk, isHttpUrl, normalizeRelations, candidateName, coveredTicker,
+  RELATION_TYPES } from "../worker/src/lib.js";
 
 const COVERED = ["RCAT", "UMAC", "ONDS"];
 const item = { id: 7, ticker: "RCAT" };
@@ -115,4 +116,89 @@ test("tokens and roles", () => {
   assert.equal(roleFor(req(env.ADMIN_TOKEN), env), "admin");
   assert.equal(roleFor(req("nope"), env), null);
   assert.equal(roleFor(req(null), env), null);
+});
+
+// --- Relations (plans/round5-expansion-approve-queue.md, A2): a bad entry is
+// dropped with a warning and the grade is still accepted.
+const rel = (relations, over = {}, ref = item, also = null) => {
+  const r = normalizeGrade({ ...base, relations, ...over }, ref, also, COVERED);
+  assert.equal(r.ok, true, `the grade is still accepted: ${r.error}`);
+  return r;
+};
+const keptNames = (r) => r.relations.map((x) => x.name);
+const R = (name, type = "acquired", evidence = 7) => ({ type, name, evidence });
+
+test("relations: kept entries are normalized; absent or [] means none", () => {
+  const r = rel([R("Stemme"), { type: " Customer ", name: "  Army   Contracting  Command ", evidence: "7" }, R("UNMAS (UN)", "award")]);
+  assert.deepEqual(r.relations, [
+    { type: "acquired", name: "Stemme", evidence: 7 },
+    { type: "customer", name: "Army Contracting Command", evidence: 7 },
+    { type: "award", name: "UNMAS", evidence: 7 },
+  ]);
+  assert.deepEqual(r.warnings, []);
+  for (const v of [undefined, null, []]) assert.deepEqual([rel(v).relations, rel(v).warnings], [[], []]);
+  assert.equal("relations" in rel([R("Stemme")]).grade, false, "the stored grade gains no column");
+  assert.deepEqual(RELATION_TYPES, ["acquired", "acquirer", "customer", "partner", "supplier", "subsidiary", "award"]);
+});
+
+test("relations: covered names are dropped, sheet product terms are kept", () => {
+  // The ticker, a sheet's name:, its first terms entry (ONDS has no name:) and key-accounts company_names.
+  for (const name of ["UMAC", "Unusual Machines, Inc.", "Unusual Machines", "Ondas", "Red Cat", "Red Cat Holdings, Inc."]) {
+    const r = rel([R(name)]);
+    assert.deepEqual(r.relations, [], name);
+    assert.match(r.warnings[0], /dropped: name is a covered company \([A-Z]+\)/, name);
+  }
+  assert.equal(coveredTicker("Ondas Inc."), "ONDS", "compared by dedupe key");
+  // MATCH.terms hold products and units, which stay candidates.
+  assert.deepEqual(keptNames(rel([R("Carbyne"), R("Upgrade Energy"), R("Stemme")])), ["Carbyne", "Upgrade Energy", "Stemme"]);
+  // The subject itself.
+  const own = rel([R("RCAT")]);
+  assert.deepEqual(own.relations, []);
+});
+
+test("relations: names with a URL, a | or (, control characters or outside 2-80 characters are dropped", () => {
+  const x80 = "A".repeat(80), x81 = "A".repeat(81);
+  for (const name of ["https://example.com", "stemme.de/news", "Acme | Corp", "Acme (Holdings", "Foo (bar) baz", "A\u0007cme", "A", "  ", x81, 42, null]) {
+    const r = rel([R(name)]);
+    assert.deepEqual(r.relations, [], String(name));
+    assert.equal(r.warnings.length, 1, String(name));
+    assert.match(r.warnings[0], /^relation 1.* dropped: /);
+  }
+  assert.deepEqual(keptNames(rel([R(x80)])), [x80], "80 characters is the limit, checked before any clip");
+  assert.deepEqual(keptNames(rel([R("O'Neil & Sons, Ltd.")])), ["O'Neil & Sons, Ltd."]);
+  assert.equal(candidateName("Zürich Robotik AG"), "Zürich Robotik AG", "Unicode letters pass");
+  assert.match(rel([R("--")]).warnings[0], /name has no letters or digits/);
+});
+
+test("relations: a bad type, wrong evidence, a repeat, a 5th entry and a bad shape are dropped", () => {
+  const r = rel([R("Stemme", "investor"), R("Alpha", "acquired", 8), R("Gamma"), R("gamma inc", "partner"), R("Delta"), R("Epsilon")]);
+  assert.deepEqual(keptNames(r), ["Gamma"]);
+  assert.match(r.warnings[0], /^relation 1 "Stemme" dropped: type must be one of acquired, acquirer/);
+  assert.match(r.warnings[1], /^relation 2 "Alpha" dropped: evidence must be the item you are grading \(7\)/);
+  assert.match(r.warnings[2], /^relation 4 "gamma inc" dropped: repeats an earlier relation/);
+  assert.match(r.warnings[3], /^relation 5 "Delta" dropped: relations holds at most 4 entries/);
+  assert.match(r.warnings[4], /^relation 6 "Epsilon" dropped: relations holds at most 4/);
+  assert.equal(r.warnings.length, 5);
+  // Evidence is the graded item's id, as a number or digits; nothing else.
+  for (const evidence of [undefined, null, "7#RCAT", "item 7", 7.5, [7]]) {
+    assert.match(rel([{ type: "partner", name: "Acme", evidence }]).warnings[0], /evidence must be the item you are grading/, String(evidence));
+  }
+  // Not an array, or an entry that is not an object.
+  assert.match(rel("Stemme").warnings[0], /relations must be an array/);
+  assert.match(rel({ type: "partner", name: "Acme", evidence: 7 }).warnings[0], /relations must be an array/);
+  assert.match(rel(["Stemme", [1]]).warnings[1], /^relation 2 dropped: each relation must be/);
+  // The helper on its own, for an aux subject.
+  const aux = normalizeRelations([R("Rockwell Automation", "acquirer", 1859), R("AGILOX", "acquired", 1859)], { itemId: 1859, subject: "Rockwell Automation Inc." });
+  assert.deepEqual(aux.relations, [{ type: "acquired", name: "AGILOX", evidence: 1859 }]);
+  assert.match(aux.warnings[0], /dropped: name is the grade's own subject/);
+});
+
+test("relations: only the item's own grade carries them, never a #TICKER grade", () => {
+  const also = rel([R("Stemme")], { ticker: "UMAC", flags: ["reason:material", "also:UMAC"] }, item, "UMAC");
+  assert.equal(also.grade.primary, false);
+  assert.deepEqual(also.relations, []);
+  assert.match(also.warnings[0], /only the item's own grade \(bare item_id 7\) carries relations, never a #UMAC grade/);
+  assert.deepEqual(rel([], { ticker: "UMAC", flags: ["reason:material", "also:UMAC"] }, item, "UMAC").warnings, [], "an empty list is no warning");
+  // A rejected grade is still rejected for its own reasons, relations or not.
+  assert.equal(normalizeGrade({ ...base, why: "", relations: [R("Stemme")] }, item, null, COVERED).ok, false);
 });
