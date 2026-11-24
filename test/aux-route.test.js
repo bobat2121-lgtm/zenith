@@ -116,7 +116,8 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
     }
   }
   for (const [key, why] of Object.entries(aux.exclude)) {
-    assert.equal(why, "ops", `${key} ${why}`);
+    assert.ok(why === "ops" || why === "shadow", `${key} ${why}`);
+    if (why === "shadow") assert.ok(!(key in covered.sources) && !(key in covered.counterparty), `${key} shadow is not covered`);
     assert.equal(auxRoute(key), null, key);
   }
   assert.equal(auxRoute("anduril").entity_key, "anduril");
@@ -135,7 +136,7 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
   assert.ok(auxRoute("wargov_contracts_matched").affects.includes("RCAT"));
   assert.equal(auxRoute("wargov_contracts").coverage_subject, undefined, "the unfiltered contracts feed is a plain program source");
   assert.equal(auxRoute("skydio").coverage_subject, undefined, "a counterparty company's own channel is a plain auxiliary name");
-  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 106); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources)
+  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 110); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources
 });
 
 test("runtime keys never route a covered company's channel or a blank name to the auxiliary page", () => {

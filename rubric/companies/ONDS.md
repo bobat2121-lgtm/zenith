@@ -52,7 +52,7 @@ match_traps:
   - {term: "Stemme", note: "civil motorglider news before close"}
   - {term: "Ondas Networks", note: "~47.5% affiliate, deconsolidated 2026-01-16"}
   - {term: "Dedrone", note: "AXON unit (covered); ONDS only if Ondas named"}
-thesis_drivers: [bookings_backlog, margin_ebitda, lus_hero120, ultra_por, ionstrike, mna_capital, israel_europe_volume]
+thesis_drivers: [bookings_backlog, margin_ebitda, lus_hero120, ultra_por, ionstrike, mna_capital, israel_europe_volume, us_drone_rules, presidential_drone_actions, dow_industrial_policy]   # last three: read-through only, Driver lines (owner:2026-11-24)
 open_items:
   - {id: aran_close, text: "ARAN Defense close (~$33M), guided Q4 2026", expires_at: 2026-12-31}
   - {id: indo_deliveries, text: "INDO engineering-vehicle volume deliveries begin Q4 2026", expires_at: 2026-12-31}
@@ -63,7 +63,9 @@ open_items:
   - {id: regna_first_customer, text: "First Regna AI customer deployment ('coming months')", expires_at: 2027-04-30}
   - {id: company_ebitda_q3_27, text: "Company-wide adj. EBITDA profitable Q3 2027", expires_at: 2027-11-30}
 group_keys: [earnings_calendar, onds_resale_registrations]   # second uses proposed custom pattern <ticker>_<slug>, pending core §8
-owner_marks: none            # every value below sits inside core ranges; no sheet line overrides a hard rule
+# sheet values sit inside core ranges; the one owner-marked line is "Driver lines"
+owner_marks:
+  - {line: "Driver lines", mark: "owner:2026-11-24", overrides: "core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, the core 4.5 timeliness deduction below 70 for Digest items, and the core 4.1 reported deduction and prospective cap for the credible-report bands only, for US drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, and DoW drone industrial policy only"}
 ```
 
 _Researched 2026-11-18. Nasdaq: ONDS. A Nevada corporation based in West Palm Beach, FL. The Q4/FY2026 report date has not been announced. Past dates point to late March 2027: FY2025 was reported 2026-03-23, Q1 on May 14, Q2 on Aug 13 and Q3 on Nov 12, and each date notice went out about two weeks before. Shares outstanding were 591,442,459 at 2026-11-10 ([10-Q](https://www.sec.gov/Archives/edgar/data/1646188/000119312526458517/onds-20260930.htm))._
@@ -111,6 +113,7 @@ These are the `thesis_drivers` ids from the front matter.
 7. **`israel_europe_volume`:**
    - Israeli MoD: Digital Bat, INDO ($140M program) and 4M demining ($50M award).
    - Bron ESAD fuzes for a European loitering munition ($56M).
+8. **`us_drone_rules`, `presidential_drone_actions`, `dow_industrial_policy`:** read-through only, for US government drone actions that do not name Ondas. Graded under "Driver lines" below (owner:2026-11-24).
 
 ## Materiality bases
 - **Revenue base B = $550M**, the FY2026 guidance floor, raised 2026-11-12. Nine-month revenue is already $301.4M.
@@ -318,11 +321,64 @@ Core §9 governs; everything not listed here is `out_of_scope` (0-15).
 - **Out of scope** unless the item names Ondas or a unit:
   - Peer wins or financings at AeroVironment (Switchblade), DroneShield, D-Fend, Anduril, Elbit, IAI or other ISR-aircraft makers.
   - Axon/Dedrone news.
-  - Sector C-UAS budgets and FEMA grant totals.
+  - Sector C-UAS budgets (spend totals that name no program or budget line) and FEMA grant totals. A Defense appropriations or CR line naming a drone or counter-UAS program is graded under "Driver lines" below.
 - **Covered-to-covered:**
   - An item naming Ondas (or a unit) together with SPAI or AXON is direct involvement for both. Output one object per ticker with `also:<TICKER>`; a transaction between them takes `floor:covered_pair`.
   - The 4M/Safe Pro demining overlap counts for ONDS only when the item names Ondas or 4M with an Ondas co-token.
+- **US government drone actions** (drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, DoW drone industrial policy such as a DoW loan, equity stake or production partnership): graded under "Driver lines" below (owner:2026-11-24), even when the item names no covered company. FEMA and other DHS grants stay out of scope.
 - **Published text** (`why`, `note_hook`) states sourced facts only. Name Ondas only when the source does. Example: "Army issues HERO-120 task order", not "Ondas wins".
+
+## Driver lines (owner:2026-11-24)
+On 2026-11-24 the owner approved these lines (Round 7 Phase 1a, the drone group). They let four kinds of US government drone news count for ONDS when the item does not name Ondas or a unit. Ondas sells drones and counter-UAS systems to the US Army, Air Force and Navy (LUS/HERO-120, ULTRA, IonStrike, Dronebuster) and plans US production of ULTRA at 10 aircraft a month by 2028. So US drone and counter-UAS rules, presidential orders, Defense budgets and DoW production policy move its orders and its share. B is $550M, so most of these items sit at the low end of each band. The pattern is GRRR.md "Policy read-through" (owner:2026-11-24), cited as the precedent and not repeated here.
+
+Shared rules for the four blocks:
+- **Overrides:** for items a block covers, and only those (core 12.1): the core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, the core 4.5 deduction below 70, and, for the credible-report bands only, the core 4.1 `reported` deduction and `prospective` cap: those items score the band (70), keep status `reported`, and `why` says "in talks" or "draft". Everything else in core applies: entity checks and traps, core 8 freshness and dedupe, and the output contract.
+- **Timeliness (core 4.5):** apply 4.5 as usual, but it never takes an item scored in a Digest band of these lines (70-89) below 70: score 70, not 65. This is sheet text, not a core floor: flag no `floor:` id. Over 21 days at first sighting, core 8 applies unchanged (`stale`, or `late_first_sighting` for an official record). Bands below 70 take the full deduction. Worked-example scores are final scores, after 4.5 or core 8.
+- **Thesis lift (core 4.4):** the bands below already include it. List the block's `id` in `thesis_drivers_hit`, but add no +5-15 and no rung on top. Core 4.3 novelty does not stack on these bands either. A Driver-lines item never scores above its block's band, and never above 89.
+- **Copies:** the official record (Federal Register, White House, enacted text, committee release, DoW release) is canonical over news of the same action (core 8). Explainers, op-eds, law-firm alerts and re-reports are `duplicate` of the first graded copy, or under 40 when nothing was graded before. This covers copies of an official record, of an item already graded, or of a known status (a rule that has been at OIRA for months). A news report of a new pending step (talks, a draft rule or order, an expected CR) is not a re-report: the first copy graded takes the credible-report band, even when it cites another outlet ("per WSJ", ": WSJ", "reportedly"), and later copies are `duplicate` of it. A copy that adds a fact (an effective date, a named program, a dollar figure) is an update on that fact.
+- **Published text:** facts only (core 9). Never write Ondas, ONDS or a unit or product name (DZYNE, Mistral, ULTRA, IonStrike, Dronebuster, Sentrycs, Airobotics) unless the item names it. Tag an official record `Program notice` and a media article `News`.
+- **Other tickers:** these items come from program sources that affect several drone names. Grade ONDS by the bands here; other tickers follow their own Driver lines (GRADER.md, Counterparty items).
+- **Not covered:** anything outside the four blocks keeps the rules above, including FEMA and other DHS grants, IMOD and other non-US budgets, peer wins (Drone Dominance and Gauntlet results and orders to rivals, which keep the Competitors rules and get no `#ONDS` grade from these lines) and private financings, and sector C-UAS budgets (spend totals or estimates that name no program or budget line).
+
+### US drone rules
+- **id:** `us_drone_rules` (thesis driver added with these lines).
+- **category:** regulator.
+- **what counts:** a US rule, order or formal proposal on drones, drone parts or counter-UAS equipment that changes who may make, sell, import, export, fly or operate them: the FCC Covered List and equipment-authorization rules for drones and their components, FAA drone operating rules (Part 108 BVLOS and similar; they reach the drone-in-a-box units), sourcing bans, and BIS export rules on drones or counter-UAS systems shipped from the US. FCC Covered List rules that reach only routers, surveillance cameras or other gear, not drones, drone parts or counter-UAS equipment, are `out_of_scope` 0-15 (recorded negative). If the title and excerpt do not show whether the rule reaches drones or drone parts, open the document once before scoring above 39. The ET Docket 21-232 title ("Protecting Against National Security Threats to the Communications Supply Chain ...") alone never shows drone reach: grade on the abstract or body. Airworthiness directives, maintenance and inspection rules, airspace designations, information collections, Privacy Act notices, meetings and other routine FAA documents are `out_of_scope` 0-15 even when they name unmanned aircraft (recorded negative). Example: FAA final rule "Inspection Programs for Single-Engine Turbine-Powered Airplanes and Unmanned Aircraft; and Miscellaneous Maintenance-Related Updates" (Federal Register 2026-11-10, effective 2027-01-11) updates maintenance inspection programs: `out_of_scope`, about 10.
+- **actors:** FCC, FAA, BIS (Commerce).
+- **band:** final rule or order published (in force or with a set effective date): Digest 75-79. NPRM or other formal proposal, or a statement of intent by the President or a cabinet member: 70-74. Credible report of a new pending step (a draft rule, a rule sent to or cleared by OIRA), named outlet and named agency: 70. A piece that only repeats a known status (Part 108 at OIRA since 2026-07-10) is a re-report under Copies.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_fedreg_drone_rules` (Federal Register, FCC, FAA and BIS), but the line applies to any source.
+- **worked example:** FCC rule "Protecting Against National Security Threats to the Communications Supply Chain Through the Equipment Authorization Program" (Federal Register 2026-09-11, 91 FR 57798; in force 2026-10-13): no new equipment authorization for any device, drones included, that contains a logic-bearing component made by a firm named on the Covered List (for example Huawei or Hikvision chips or modules). The rule is general, not a drone rule. It does not apply to the location-based Covered List entries (UAS and UAS critical components produced in a foreign country), so it adds nothing for foreign-made drones as such. Headlines must not call it a drone ban. Seen within 3 days of 2026-09-11: about 75, final 75, tag `Program notice`. First seen now, the record is over 21 days old: `late_first_sighting` when no earlier copy was graded, 75 - 15 = final 60; a news copy is `stale` (under 30).
+
+### Presidential drone and airspace actions
+- **id:** `presidential_drone_actions` (thesis driver added with these lines).
+- **category:** policy.
+- **what counts:** an executive order, proclamation or memorandum on drones or airspace: counter-UAS authority and airspace security (the counter-UAS business), drone production and sourcing, and Section 232 actions on drones and drone parts.
+- **actors:** the President; a White House fact sheet is a copy of the same action.
+- **band:** signed order or proclamation: Digest 75-85 (80+ for a counter-UAS order). Statement of intent by the President or a cabinet member: 70-79. Credible report of a draft order, named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_whitehouse_actions` (whitehouse.gov presidential actions), but the line applies to any source.
+- **worked example:** no audit row. Precedent: the executive order "Restoring American Airspace Sovereignty", signed 2025-06-06, a signed order on airspace security and counter-UAS. Seen within 3 days it would score about 80; it is now `stale`. The Federal Register copy of a presidential document is the same event as the White House item (core 8).
+
+### Defense appropriations and continuing resolutions naming a drone program
+- **id:** `bookings_backlog` (existing thesis driver: backlog converts as program money flows).
+- **category:** budget/program.
+- **what counts:** a Defense appropriations bill, enacted act or continuing resolution that names, funds, cuts or blocks a drone or counter-UAS program (Drone Dominance, SRR, small-UAS procurement, a named counter-UAS or interceptor procurement line, a named program element or line item): enacted lines, CR anomalies, new-start blocks, a lapse. A line naming LUS/HERO-120, ULTRA or IonStrike is already a sheet program under core 9.3 (Competitors & read-through); these lines add other drone programs and CRs that block drone lines. Deadline or shutdown news that names no drone program does not count (`out_of_scope`). A total or estimated drone or C-UAS spend figure that names no program or budget line, or a budget request or plan that is not an appropriations bill or CR, is a sector budget and stays `out_of_scope`.
+- **actors:** Congress (the House and Senate Appropriations Committees and their Defense subcommittees, floor votes), the President's signature, and DoW requests for CR anomalies.
+- **band:** enacted line, anomaly or new-start block naming a drone program: Digest 75-79. Committee-passed bill or statement of intent by the President, a cabinet member or the Secretary of War: 70-74. Credible report of pending action (a CR or anomaly expected), named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_senate_approps_def` (Senate Appropriations releases) and `drv_defense_cr_drones` (news search), but the line applies to any source.
+- **worked example:** Breaking Defense, October 2026 (day not verified): the FY2027 continuing resolution blocks over 150 new-start programs, including drone lines, until Congress acts (deadline Dec 11). Seen within 3 days: about 75. It is now over 21 days old: `stale` (under 30). The next step (a new CR, a drone anomaly, a full-year bill, a lapse on Dec 11) is a new event, graded fresh.
+
+### DoW drone industrial policy
+- **id:** `dow_industrial_policy` (thesis driver added with these lines).
+- **category:** policy.
+- **what counts:** a Department of War industrial-policy action to build up US drone production: production loans or conditional loan commitments (Office of Strategic Capital), DoW equity stakes, and production partnerships or talks that bring in new or non-drone manufacturers (for example the automaker talks). It counts even when the counterparty is a rival, because DoW capital or a production partnership for a rival changes Ondas's share of US drone buys. Not covered: ordinary contract awards and task orders; Drone Dominance or Gauntlet results, rounds, selections, phase lists and orders (including planned DDP order pools); SRR awards; and other program awards to a named vendor. These are peer wins, not this line: they keep the sheet's Competitors & read-through rules and get no `#ONDS` grade from these lines. A peer's private financing stays `out_of_scope`.
+- **actors:** the Department of War: the Secretary of War, the Pentagon, the Army, the Air Force, DIU and the Office of Strategic Capital, acting as lender, investor or production partner.
+- **band:** signed production partnership, loan or conditional loan commitment, or equity stake: Digest 75-79. Statement of intent by the Secretary of War or another cabinet member: 70-74. Credible report of pending action (talks, a draft plan, a loan, stake or production partnership not yet signed), named outlet and named agency: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_drone_industrial_policy` (news search), but the line applies to any source.
+- **worked example:** 2026-11-24 report (WSJ, found through Bing) that the Pentagon is in talks with GM and Ford to mass-produce military drones: credible report of talks with a named agency, 70, final 70 (4.5 stops at 70). Ondas fell about 4% that day; never write that or Ondas in published text.
 
 ## Source coverage gaps
 Collector and ops notes (EDGAR submissions-JSON pulls, USAspending queries, IMOD and Israeli press, unit newsrooms, FEMA notices, call transcripts) have moved to the worker doc `sources/ONDS.md`. The grader needs only these facts:

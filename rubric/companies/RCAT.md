@@ -30,7 +30,7 @@ traps:
   - {term: "Variant 7|B-18|B-26|B-39", case: insensitive, rule: "needs Blue Ops/USV context"}
   - {term: "Steyr", case: insensitive, rule: "only Steyr Motors AG in a Red Cat/offer context; reject Steyr Arms, Steyr Mannlicher, CNH Steyr tractors and the town"}
   - {term: "Skycutter|Rotor Riot|Fat Shark|C3A|OBERON|Skydio|HavocAI|Unusual Machines", case: insensitive, rule: "not RCAT entities; match only when Red Cat or one of its products is named in the same item"}
-thesis_drivers: [order_conversion, srr, margin_cash, steyr, intl, blue_ops, drone_dominance]
+thesis_drivers: [order_conversion, srr, margin_cash, steyr, intl, blue_ops, drone_dominance, us_drone_rules, presidential_drone_actions, dow_industrial_policy]   # last three: read-through only, Driver lines (owner:2026-11-24)
 open_items:
   - {id: steyr_acceptance, what: "Steyr acceptance-period result, extension, or waiver/lowering of the 50%+1 minimum", expires_at: 2026-12-18, note: "move expires_at if the bidder extends (up to 16 weeks per the BCA 8-K)"}
   - {id: steyr_financing, what: "Disclosed financing source for the ~EUR 204.8M offer", expires_at: 2027-06-30}
@@ -39,7 +39,8 @@ open_items:
   - {id: ukraine_first_order, what: "First Ukraine MoD/STE order naming Red Cat, Teal, Black Widow or Hellcat", expires_at: 2027-03-30, note: "MOU anniversary; date set by sheet author, needs_owner"}
   - {id: platoon_srr, what: "Army platoon-level SRR decision naming Teal/Black Widow, either way", expires_at: 2027-06-30, note: "no official date; set by sheet author, needs_owner"}
 groups: [earnings_calendar, rcat_steyr]   # rcat_steyr uses the proposed core custom pattern <ticker>_<slug>
-owner_marks: []               # no line in this sheet carries an owner:<date> mark
+owner_marks:
+  - {line: "Driver lines", mark: "owner:2026-11-24", overrides: "core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, the core 4.5 timeliness deduction below 70 for Digest items, and the core 4.1 reported deduction and prospective cap for the credible-report bands only, for US drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, and DoW drone industrial policy only"}
 ---
 
 # RCAT — Red Cat Holdings, Inc.
@@ -215,7 +216,7 @@ These were seen in `redcat` and `edgar_rcat` in news-monitor-db, and every row w
 - **Timing unknown:**
   - Army platoon-level SRR decision (`platoon_srr`) and the next SRR production lot.
   - Further Drone Dominance rounds (Gauntlet III about March 2027).
-  - FY2027 appropriations and NDAA small-UAS lines. A budget line counts only when it names Red Cat, Teal, Black Widow or the SRR program; otherwise it is out of scope.
+  - FY2027 appropriations, CRs and NDAA small-UAS lines. An appropriations or CR action naming a drone program is graded under "Driver lines" below (owner:2026-11-24). An NDAA line counts only when it names Red Cat, Teal, Black Widow or the SRR program; otherwise it is out of scope.
 - **Ongoing:**
   - Hitchcock suit: filed 2026-07-21 in New York state court; Red Cat moved to remove it to federal court.
   - Ukraine/STE order (`ukraine_first_order`): none disclosed.
@@ -244,9 +245,63 @@ Core §9 applies. These are the only RCAT read-through paths:
   - A confirmed replacement of Teal or Black Widow is `money` bad news at 70+.
 - **A government results list or award list for a program Teal entered** (Drone Dominance rounds, SRR) is graded when it names Teal, or when it is the results list for a round Teal competed in.
 - **Out of scope (0-15):** rival-only follow-on orders, peer financings, and Gauntlet leaders' wins that do not name Teal or allocate an SRR or Drone Dominance round Teal entered. The leaders were Skycutter, Neros, ORQA, XTEND, Vector, ModalAI and Perennial Autonomy.
+  - A DoW action for a peer (a DoW loan, equity stake or production partnership, such as an Office of Strategic Capital loan) is not a peer financing: it is graded under "Driver lines" below (owner:2026-11-24). A Drone Dominance, Gauntlet or SRR award, selection or order for a peer is not such an action and stays out of scope.
+- **US government drone actions** (drone rules, presidential drone and airspace actions, Defense appropriations and CRs naming a drone program, DoW drone industrial policy such as a DoW loan, equity stake or production partnership): graded under "Driver lines" below (owner:2026-11-24), even when the item names no covered company.
 - **Unusual Machines (UMAC)** is a covered related-party supplier; Red Cat's CEO Jeff Thompson sits on UMAC's board. A transaction between the two is covered-to-covered (`floor:covered_pair`, `also:` each ticker). A UMAC item that does not name Red Cat as a party is not RCAT news.
 
 Published text (`why`, `note_hook`) names Red Cat only when the source does, and states facts without implications.
+
+## Driver lines (owner:2026-11-24)
+On 2026-11-24 the owner approved these lines (Round 7 Phase 1a, the drone group). They let four kinds of US government drone news count for RCAT when the item does not name Red Cat. Red Cat builds US-made small drones (Black Widow for Army SRR, FANG FPV on the Blue UAS Cleared List, TRICHON) and sells to the Army, the Air Force and foreign governments; on 2026-11-16 it withdrew FY2026 guidance, citing slower funding and contract awards. So US drone rules, presidential orders, Defense budgets and DoW production policy move its orders and its share. The pattern is GRRR.md "Policy read-through" (owner:2026-11-24), cited as the precedent and not repeated here.
+
+Shared rules for the four blocks:
+- **Overrides:** for items a block covers, and only those (core 12.1): the core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, the core 4.5 deduction below 70, and, for the credible-report bands only, the core 4.1 `reported` deduction and `prospective` cap: those items score the band (70), keep status `reported`, and `why` says "in talks" or "draft". Everything else in core applies: entity checks and traps, core 8 freshness and dedupe, and the output contract.
+- **Timeliness (core 4.5):** apply 4.5 as usual, but it never takes an item scored in a Digest band of these lines (70-89) below 70: score 70, not 65. This is sheet text, not a core floor: flag no `floor:` id. Over 21 days at first sighting, core 8 applies unchanged (`stale`, or `late_first_sighting` for an official record). Bands below 70 take the full deduction. Worked-example scores are final scores, after 4.5 or core 8.
+- **Thesis lift (core 4.4):** the bands below already include it. List the block's `id` in `thesis_drivers_hit`, but add no +5-15 and no rung on top. Core 4.3 novelty does not stack on these bands either. A Driver-lines item never scores above its block's band, and never above 89.
+- **Copies:** the official record (Federal Register, White House, enacted text, committee release, DoW release) is canonical over news of the same action (core 8). Explainers, op-eds, law-firm alerts and re-reports are `duplicate` of the first graded copy, or under 40 when nothing was graded before. This covers copies of an official record, of an item already graded, or of a known status (a rule that has been at OIRA for months). A news report of a new pending step (talks, a draft rule or order, an expected CR) is not a re-report: the first copy graded takes the credible-report band, even when it cites another outlet ("per WSJ", ": WSJ", "reportedly"), and later copies are `duplicate` of it. A copy that adds a fact (an effective date, a named program, a dollar figure) is an update on that fact.
+- **Published text:** facts only (core 9). Never write Red Cat, RCAT, Teal, Black Widow, FANG, TRICHON or Blue Ops unless the item names them. Tag an official record `Program notice` and a media article `News`.
+- **Other tickers:** these items come from program sources that affect several drone names. Grade RCAT by the bands here; other tickers follow their own Driver lines (GRADER.md, Counterparty items).
+- **Not covered:** anything outside the four blocks keeps the rules above, including peer wins (Drone Dominance and Gauntlet results and orders to rivals, which keep the Competitors rules and get no `#RCAT` grade from these lines), private financings, sector budgets (spend totals that name no program or budget line), NDAA lines and non-US governments.
+
+### US drone rules
+- **id:** `us_drone_rules` (thesis driver added with these lines).
+- **category:** regulator.
+- **what counts:** a US rule, order or formal proposal on drones or drone parts that changes who may make, sell, import, export or fly them: the FCC Covered List and equipment-authorization rules for drones and their components, FAA drone operating rules (Part 108 BVLOS and similar), sourcing bans, and BIS drone export rules (they reach Red Cat's sales to Japan, the NATO ally, the Asia-Pacific ally and Ukraine). FCC Covered List rules that reach only routers, surveillance cameras or other gear, not drones or drone parts, are `out_of_scope` 0-15 (recorded negative). If the title and excerpt do not show whether the rule reaches drones or drone parts, open the document once before scoring above 39. The ET Docket 21-232 title ("Protecting Against National Security Threats to the Communications Supply Chain ...") alone never shows drone reach: grade on the abstract or body. Airworthiness directives, maintenance and inspection rules, airspace designations, information collections, Privacy Act notices, meetings and other routine FAA documents are `out_of_scope` 0-15 even when they name unmanned aircraft (recorded negative). Example: FAA final rule "Inspection Programs for Single-Engine Turbine-Powered Airplanes and Unmanned Aircraft; and Miscellaneous Maintenance-Related Updates" (Federal Register 2026-11-10, effective 2027-01-11) updates maintenance inspection programs: `out_of_scope`, about 10.
+- **actors:** FCC, FAA, BIS (Commerce).
+- **band:** final rule or order published (in force or with a set effective date): Digest 75-85 (85 for a rule that bars foreign drones or parts from US sale, or eases US drone exports to Red Cat's export markets). NPRM or other formal proposal, or a statement of intent by the President or a cabinet member: 70-79. Credible report of a new pending step (a draft rule, a rule sent to or cleared by OIRA), named outlet and named agency: 70. A piece that only repeats a known status (Part 108 at OIRA since 2026-07-10) is a re-report under Copies.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_fedreg_drone_rules` (Federal Register, FCC, FAA and BIS), but the line applies to any source.
+- **worked example:** FCC rule "Protecting Against National Security Threats to the Communications Supply Chain Through the Equipment Authorization Program" (Federal Register 2026-09-11, 91 FR 57798; in force 2026-10-13): no new equipment authorization for any device, drones included, that contains a logic-bearing component made by a firm named on the Covered List (for example Huawei or Hikvision chips or modules). The rule is general, not a drone rule. It does not apply to the location-based Covered List entries (UAS and UAS critical components produced in a foreign country), so it adds nothing for foreign-made drones as such. Headlines must not call it a drone ban. Seen within 3 days of 2026-09-11: about 78, final 78, tag `Program notice`. First seen now, the record is over 21 days old: `late_first_sighting` when no earlier copy was graded, 78 - 15 = final 63; a news copy is `stale` (under 30).
+
+### Presidential drone and airspace actions
+- **id:** `presidential_drone_actions` (thesis driver added with these lines).
+- **category:** policy.
+- **what counts:** an executive order, proclamation or memorandum on drones: drone production and sourcing, US airspace for drones, and Section 232 actions on drones and drone parts. An order only on counter-UAS authority or airspace security **does not apply to RCAT** (it sells ISR and FPV drones and uncrewed boats, not counter-drone systems): add no `#RCAT` grade.
+- **actors:** the President; a White House fact sheet is a copy of the same action.
+- **band:** signed order or proclamation: Digest 75-85. Statement of intent by the President or a cabinet member: 70-79. Credible report of a draft order, named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_whitehouse_actions` (whitehouse.gov presidential actions), but the line applies to any source.
+- **worked example:** no audit row. Precedent: the executive order "Unleashing American Drone Dominance", signed 2025-06-06, a signed order on US drone policy. Seen within 3 days it would score about 78; it is now `stale`. The Federal Register copy of a presidential document is the same event as the White House item (core 8).
+
+### Defense appropriations and continuing resolutions naming a drone program
+- **id:** `order_conversion` (existing thesis driver: funding and award timing decide when orders become revenue).
+- **category:** budget/program.
+- **what counts:** a Defense appropriations bill, enacted act or continuing resolution that names, funds, cuts or blocks a drone program (SRR, Drone Dominance, small-UAS or FPV procurement, Air Force base-defense drones): enacted lines, CR anomalies, new-start blocks, a lapse. Deadline or shutdown news that names no drone program does not count (`out_of_scope`). A line naming Red Cat, Teal, Black Widow or SRR is already a sheet program under core 9.3. NDAA lines keep the calendar rule above.
+- **actors:** Congress (the House and Senate Appropriations Committees and their Defense subcommittees, floor votes), the President's signature, and DoW requests for CR anomalies.
+- **band:** enacted line, anomaly or new-start block naming a drone program: Digest 75-85 (80+ when it names SRR or Drone Dominance). Committee-passed bill or statement of intent by the President, a cabinet member or the Secretary of War: 70-79. Credible report of pending action (a CR or anomaly expected), named outlet: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_senate_approps_def` (Senate Appropriations releases) and `drv_defense_cr_drones` (news search), but the line applies to any source.
+- **worked example:** Breaking Defense, October 2026 (day not verified): the FY2027 continuing resolution blocks over 150 new-start programs, including drone lines, until Congress acts (deadline Dec 11). Seen within 3 days: about 80. It is now over 21 days old: `stale` (under 30). The next step (a new CR, a drone anomaly, a full-year bill, a lapse on Dec 11) is a new event, graded fresh.
+
+### DoW drone industrial policy
+- **id:** `dow_industrial_policy` (thesis driver added with these lines).
+- **category:** policy.
+- **what counts:** a Department of War industrial-policy action to build up US drone production: production loans or conditional loan commitments (Office of Strategic Capital), DoW equity stakes, and production partnerships or talks that bring in new or non-drone manufacturers (for example the automaker talks). It counts even when the counterparty is a rival, because DoW capital or a production partnership for a rival changes Red Cat's share and pricing. Not covered: ordinary contract awards and task orders; Drone Dominance or Gauntlet results, rounds, selections, phase lists and orders (including planned DDP order pools); SRR awards; and other program awards to a named vendor. These are peer wins, not this line: they keep the sheet's Competitors & read-through rules and get no `#RCAT` grade from these lines. A peer's private financing stays `out_of_scope` (Competitors & read-through).
+- **actors:** the Department of War: the Secretary of War, the Pentagon, the Army, DIU and the Office of Strategic Capital, acting as lender, investor or production partner.
+- **band:** signed production partnership, loan or conditional loan commitment, or equity stake: Digest 75-85 (75-79 when it goes to a rival and names no Red Cat program). Statement of intent by the Secretary of War or another cabinet member: 70-79. Credible report of pending action (talks, a draft plan, a loan, stake or production partnership not yet signed), named outlet and named agency: 70.
+- **overrides:** core 1, core 9 and core 4.5 below 70, as in the shared rules. Core 4.1 status effects are lifted for the credible-report band only.
+- **sources:** `drv_drone_industrial_policy` (news search), but the line applies to any source.
+- **worked example:** 2026-11-04, Neros signs a $450M conditional loan commitment from the DoW Office of Strategic Capital to scale drone production. A DoW loan to a rival: about 75 seen within 3 days; first seen 4-21 days late (as the `neros` copy was, on 2026-11-22), final 70; first seen after 2026-11-25, `stale` (not an official record, so no `late_first_sighting`). Also: the 2026-11-24 report (WSJ, found through Bing) that the Pentagon is in talks with GM and Ford to mass-produce military drones: 70, final 70. Red Cat fell about 9% that day; never write that or Red Cat in published text.
 
 ## Source coverage gaps
 Collector and ops notes (feeds to add, API filters) moved to `sources/RCAT.md` for the worker. Grader-relevant facts only:
