@@ -136,7 +136,7 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
   assert.ok(auxRoute("wargov_contracts_matched").affects.includes("RCAT"));
   assert.equal(auxRoute("wargov_contracts").coverage_subject, undefined, "the unfiltered contracts feed is a plain program source");
   assert.equal(auxRoute("skydio").coverage_subject, undefined, "a counterparty company's own channel is a plain auxiliary name");
-  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 110); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources
+  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 114); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources; +4 drv_ defense budget sources (Phase 1a.2)
 });
 
 test("runtime keys never route a covered company's channel or a blank name to the auxiliary page", () => {
