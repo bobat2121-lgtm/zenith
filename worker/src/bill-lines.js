@@ -15,7 +15,8 @@
 //     an autonomy change is a line of its own (change only).
 //   - text provisions: a clause of the bill text with a dollar amount for an
 //     autonomy term ("$1,534,000,000 for expansion of small unmanned surface
-//     vessel production"), or a sourcing or ban provision with no amount.
+//     vessel production"), or a sourcing or ban provision with no amount. A
+//     section header that names autonomy is the term for its clauses.
 //   - committee report text: dotted-leader rows with amounts, and "$X for ..."
 //     clauses.
 // Totals per group and overall: request and bill amounts are summed
@@ -36,8 +37,16 @@ export const HOLD_MINUTES = 90;
 const PER_TICK = 1;                  // one bill read and parsed per cron tick
 const MAX_BYTES = 16_000_000;        // an NDAA's XML is about 4.5 MB
 const TIMEOUT_MS = 25_000;
+// Retryable as in excerpt.js: 429, 5xx and fetch errors; a 403 is tried twice;
+// any other 4xx is final. The waits are shorter than excerpt.js's so every try
+// ends inside HOLD_MINUTES.
 const MAX_TRIES = 3;
-const RETRY_MINUTES = [10, 30];      // all tries end well inside HOLD_MINUTES
+const FORBIDDEN_TRIES = 2;
+const RETRY_MINUTES = [10, 30];
+const RETRYABLE = (e) => e === "http_429" || /^http_5\d\d$/.test(e) || String(e).startsWith("error");
+// A graded item whose lines were still unread is read for up to LATE_DAYS after
+// ingest, so the app's card gets them; the grade keeps what it saw.
+const LATE_DAYS = 2;
 const MAX_ROWS = 300;                // rows stored (the rest are counted in "more")
 const MAX_CHANGES = 12;              // sub-rows listed under one line
 const MAX_PROVISIONS = 40;
@@ -60,17 +69,21 @@ const [DRONES, COUNTER, LARGE, CCA, MARITIME, GROUND, OTHER, PROVISIONS] = GROUP
 // ---- Autonomy terms (one list) --------------------------------------------------
 const D = "[-‐‑–— ]";   // hyphen, en and em dashes, space
 const TERM_RE = new RegExp([
-  "\\bunmanned\\b", "\\buncrewed\\b", "\\bautonom(?:y|ous)\\b", "\\bdrones?\\b",
+  "\\bunmanned\\b", "\\buncrewed\\b", "\\bautonom(?:y|ous|ously)\\b", "\\bdrones?\\b",
   "\\bs?UA[SV]s?\\b", "\\bC-?s?UAS\\b", "\\bCUAS\\b", `\\bcounter${D}*(?:small${D}+)?(?:unmanned|uncrewed|drone)`,
   "\\bloitering\\b", "\\bUxS\\b", `\\bone${D}way${D}attack\\b`, `\\bcollaborative${D}+combat${D}+aircraft\\b`, "\\bCCAs?\\b",
   "\\breplicator\\b", "\\battritable\\b", `\\bdrone${D}+dominance\\b`, "\\bX?L?UUVs?\\b", "\\bM?L?USVs?\\b",
   "\\brobotics?\\b", "\\bRCVs?\\b", `\\boptionally${D}+manned\\b`, `\\b[MR]Q${D}?\\d`, `\\bunmanned${D}+carrier\\b`,
+  `\\blaunched${D}+effects?\\b`,
 ].join("|"), "i");
-// Legal and medical senses that are not autonomy: "Tibet Autonomous Region",
-// "autonomous agency", robotic surgery.
+// Senses that are not autonomy: "Tibet Autonomous Region", "autonomous agency",
+// robotic surgery, and factory or manufacturing robotics ("Robotics Enhancements
+// for Armaments Manufacturing", "industrial robotics").
 const NOT_TERM_RE = new RegExp(
   "\\bautonomous\\s+(?:regions?|republics?|oblasts?|provinces?|prefectures?|communit(?:y|ies)|okrugs?|districts?|territor(?:y|ies)|areas?|zones?|agenc(?:y|ies)|bod(?:y|ies)|entit(?:y|ies)|institutions?|status)\\b" +
-  "|\\brobotic(?:ally)?[- ]assisted\\b|\\brobotic\\s+surg\\w*|\\bsurgical\\s+robot\\w*|\\brobotic\\s+process\\s+automation\\b", "gi");
+  "|\\brobotic(?:ally)?[- ]assisted\\b|\\brobotic\\s+surg\\w*|\\bsurgical\\s+robot\\w*|\\brobotic\\s+process\\s+automation\\b" +
+  "|\\b(?:industrial|factory|manufacturing)\\s+(?:[a-z]+\\s+){0,2}robot\\w*" +
+  "|\\brobot\\w*(?=[^.;\\[]{0,60}\\bmanufactur\\w*)", "gi");
 
 const GROUP_RES = [
   [COUNTER, new RegExp(`\\bcounter${D}*(?:small${D}+)?(?:unmanned|uncrewed|UAS|sUAS|UAV|drones?)|\\bC-?s?UAS\\b|\\bCUAS\\b|\\bcounter${D}*UxS\\b|\\banti${D}?drones?\\b|\\bdrone${D}+(?:defen[cs]e|detection|mitigation|interceptors?)\\b` +
@@ -82,13 +95,17 @@ const GROUP_RES = [
   [DRONES, new RegExp(`\\bdrones?\\b|\\bs?UA[SV]s?\\b|\\b(?:unmanned|uncrewed)${D}+(?:aerial|aircraft|air)\\b|\\bloitering\\b|\\bone${D}way${D}attack\\b|\\blaunched${D}+effects?\\b|\\bFPV\\b`, "i")],
 ];
 
+// Group 1-2 small UAS with RQ- designators (Raven, Wasp, Dragon Eye, T-Hawk, Puma, Skydio X2D).
+const SMALL_RQ_RE = new RegExp(`\\bRQ${D}?(?:11|12|14|16|20|28)[A-Z]?\\b`, "i");
+
 const cleanTerms = (text) => String(text || "").replace(NOT_TERM_RE, " ");
 export const hasTerm = (text) => TERM_RE.test(cleanTerms(text));
 // The group of a line, from its item text (then its account, for a change row).
 export function groupOf(text) {
   const t = cleanTerms(text);
-  // "small" or sUAS keeps an RQ-11 Raven or RQ-20 Puma with the small drones.
-  if (GROUP_RES[3][1].test(t) && /\bsmall\b|\bsUAS\b/i.test(t) && !GROUP_RES[0][1].test(t)) return DRONES;
+  // A small RQ- designator (RQ-11 Raven, RQ-20 Puma ...), or the words "small" or
+  // sUAS, keep a line with the small drones.
+  if (GROUP_RES[3][1].test(t) && (/\bsmall\b|\bsUAS\b/i.test(t) || SMALL_RQ_RE.test(t)) && !GROUP_RES[0][1].test(t)) return DRONES;
   for (const [name, re] of GROUP_RES) if (re.test(t)) return name;
   return OTHER;
 }
@@ -262,7 +279,18 @@ export function tableLines(tableXml, context = "") {
 }
 
 // ---- Bill text ------------------------------------------------------------------------
-const BAN_RE = /\bprohibit\w*|\bmay not\b|\bshall not\b|\bnone of the (?:funds|amounts)\b|\bno (?:funds|amounts)\b|\bban(?:s|ned)?\b|\bcovered foreign\b|\bforeign (?:entit(?:y|ies)|adversar\w*|countr(?:y|ies)) of concern\b|\bmanufactured (?:in|by)\b|\bPeople's Republic of China\b|\bdomestic(?:ally)? (?:source|sourcing|produc\w*|manufactur\w*)\b|\bsourcing\b|\blimitation on (?:the )?(?:procurement|acquisition|purchase|use|operation)\b|\bcomponents? (?:made|produced|manufactured)\b/i;
+const BAN_RE = /\bprohibit\w*|\bmay not\b|\bshall not\b|\bnone of the (?:funds|amounts)\b|\bno (?:funds|amounts)\b|\bban(?:s|ned)?\b|\bcovered foreign\b|\bforeign (?:entit(?:y|ies)|countr(?:y|ies)) of concern\b|\bforeign adversar\w*|\bmanufactured (?:in|by)\b|\bPeople's Republic of China\b|\bsourcing\b|\blimitation on (?:the )?(?:procurement|acquisition|purchase|use|operation)\b|\bcomponents? (?:made|produced|manufactured)\b/i;
+// Domestic production counts as a sourcing provision only with a requirement
+// ("shall be domestically sourced"), not in working-group or report language
+// ("recommendations for improving the domestic manufacturing capacity").
+const DOMESTIC_RE = /\bdomestic(?:ally)? (?:sourc\w*|produc\w*|manufactur\w*)\b/i;
+const REQUIRE_RE = /\bshall be\b|\bmust be\b|\bonly (?:from|if|by)\b|\brequirements?\b|\brequired\b/i;
+// Rules of construction and exceptions are not bans.
+const NOT_BAN_RE = /\bshall not (?:be construed|apply|affect|limit)\b/gi;
+function isProvision(clause) {
+  const c = clause.replace(NOT_BAN_RE, " ");
+  return BAN_RE.test(c) || (DOMESTIC_RE.test(c) && REQUIRE_RE.test(c));
+}
 const FROM_TABLES_RE = /\bfunding tables?\b|\bauthorized to be appropriated\b|\bOf the (?:amounts|funds) (?:authorized|made available|appropriated)\b|\bas specified in\b/i;
 const LIST_BEFORE_RE = /\bincluding\b|\bsuch as\b|,\s*(?:and|or)\s+[^,]*$/i;
 
@@ -273,12 +301,15 @@ function clauses(text) {
 }
 
 // A clause's autonomy amount: { value, shared, item } or null; or { provision } for a ban with no amount.
-export function clauseLine(clause) {
+// context: the section header, for a clause with no term of its own ("the
+// Secretary of the Army may not retire, divest ..." under "Limitation on
+// retirement of Gray Eagle unmanned aircraft systems").
+export function clauseLine(clause, context = "") {
   const clean = cleanTerms(clause);
   const term = TERM_RE.exec(clean);
-  if (!term) return null;
   const amounts = textAmounts(clause);
-  if (!amounts.length) return BAN_RE.test(clause) ? { provision: true } : null;
+  if (!term) return !amounts.length && context && hasTerm(context) && isProvision(clause) ? { provision: true } : null;
+  if (!amounts.length) return isProvision(clause) ? { provision: true } : null;
   // Purpose after the amount: the amount whose span (up to the next amount) holds a term.
   for (let i = 0; i < amounts.length; i++) {
     const seg = clean.slice(amounts[i].end, i + 1 < amounts.length ? amounts[i + 1].index : clean.length);
@@ -303,18 +334,29 @@ function purposeText(clause) {
 
 const TEXT_TOKEN_RE = /<(section|title|division|subtitle|part|chapter|appropriations-major|appropriations-intermediate|appropriations-small|subsection|paragraph|subparagraph|clause|header|text)\b[^>]*?(\/)?>/g;
 
+// "by striking $55,000,000 and inserting $75,000,000": an amendment to an amount in earlier law.
+const AMENDS_RE = /\bby striking\s+\$[\d,.]+[^$]*?\binserting\s+\$/i;
+// A clause with an amount and no term, in a section whose header names autonomy
+// (an amended authorization cap): the inserted amount, or the only amount.
+function headerAmount(clause) {
+  const amts = textAmounts(clause);
+  const ins = amts.find((a) => /\binserting\s*$/i.test(clause.slice(Math.max(0, a.index - 20), a.index)));
+  return ins || (amts.length === 1 ? amts[0] : null);
+}
+
 // Text lines of a bill (tables removed): amounts for autonomy terms, and
-// sourcing or ban provisions with no amount (one per section).
+// sourcing or ban provisions with no amount (one per section). A section
+// header that names autonomy is the term for the clauses under it.
 export function textLines(xml, { hasTables = false } = {}) {
   const lines = [];
-  let open = null, section = null, account = [], provisions = 0;
+  let open = null, section = null, sectionTerm = false, account = [], provisions = 0;
   const seenProvision = new Set();
   for (const m of xml.matchAll(TEXT_TOKEN_RE)) {
     const tag = m[1];
     if (tag !== "header" && tag !== "text") {
       open = tag;
-      if (tag === "section") section = null;
-      if (tag === "division" || tag === "title") { account = []; section = null; }
+      if (tag === "section") { section = null; sectionTerm = false; }
+      if (tag === "division" || tag === "title") { account = []; section = null; sectionTerm = false; }
       continue;
     }
     if (m[2]) continue;
@@ -325,6 +367,7 @@ export function textLines(xml, { hasTables = false } = {}) {
       if (open === "section") {
         const en = (xml.slice(Math.max(0, m.index - 200), m.index).match(/<enum>([^<]*)<\/enum>\s*$/) || [])[1];
         section = squash(`${en ? `SEC. ${en.replace(/\.$/, "")}.` : ""} ${text}`);
+        sectionTerm = hasTerm(text);
       } else if (open?.startsWith("appropriations-")) {
         const level = { "appropriations-major": 0, "appropriations-intermediate": 1, "appropriations-small": 2 }[open];
         account = [...account.slice(0, level), text];
@@ -332,7 +375,11 @@ export function textLines(xml, { hasTables = false } = {}) {
       continue;
     }
     for (const c of clauses(text)) {
-      const hit = clauseLine(c);
+      let hit = clauseLine(c, sectionTerm ? section : "");
+      if (!hit && sectionTerm) {
+        const one = headerAmount(c);
+        if (one) hit = { value: one.value, shared: false, purpose: section, fromHeader: true };
+      }
       if (!hit) continue;
       const where = section || account.join(", ") || null;
       if (hit.provision) {
@@ -344,8 +391,10 @@ export function textLines(xml, { hasTables = false } = {}) {
           request: null, bill: null, change: null, in_total: false });
         continue;
       }
-      const drawn = hasTables && FROM_TABLES_RE.test(text);
-      const note = hit.shared ? "account names autonomy among other uses: not added" : drawn ? "drawn from amounts in the funding tables: not added" : null;
+      const drawn = hasTables && (hit.fromHeader || FROM_TABLES_RE.test(text));
+      const note = hit.shared ? "account names autonomy among other uses: not added"
+        : hit.fromHeader && AMENDS_RE.test(c) ? "amends an amount in earlier law: not added"
+          : drawn ? "drawn from amounts in the funding tables: not added" : null;
       lines.push({ kind: "text", group: groupOf(hit.purpose || c), item: purposeText(c), account: account.join(", ") || null, section,
         line: null, request: null, bill: hit.value, change: null, in_total: !note, ...(note ? { note } : {}) });
     }
@@ -494,10 +543,22 @@ const requestText = (t) => (t.request_lines ? `request ${usd(t.request)}` : "no 
 // largest lines. At most maxRows lines: every group gets up to PER_GROUP
 // first, then the rest fill in group order; "+N more" says what is left out.
 const PER_GROUP = 5;
+// A version with no autonomy lines, or with lines but no amount counted, never
+// prints "total $0": an appropriations act carries account totals and its
+// program amounts are in the committee report. A committee report is read from
+// its text only (its program tables are images), so it is a partial read.
 export function blockText(bl, maxRows = BLOCK_ROWS) {
   if (!bl || bl.status !== "ok") return null;
   const t = bl.totals || { lines: 0, request: 0, bill: 0 };
-  const head = `AUTONOMY LINES (from the official bill text): ${bl.bill} ${bl.version} (${bl.stage}): ${t.lines} lines, total ${usd(t.bill)} (${requestText(t)})`;
+  const report = String(bl.package || "").startsWith("CRPT-");
+  const lead = `AUTONOMY LINES (from the official bill text): ${bl.bill} ${bl.version} (${bl.stage}): `;
+  if (!t.lines) {
+    return lead + (report ? "no autonomy lines in the report text (its program tables are not read; this is not a $0 total)"
+      : "no autonomy lines in the text (program amounts may be in the committee report; this is not a $0 total)");
+  }
+  const counted = t.bill || t.change || t.request_lines;
+  const head = lead + (counted ? `${t.lines} lines, total ${usd(t.bill)} (${requestText(t)})` : `${t.lines} lines, no amounts counted`) +
+    (report ? " (report text only; its program tables are not read)" : "");
   const groups = (bl.groups || []).map((g) => ({ g, top: [...g.rows].sort((a, b) => Math.abs(b.bill ?? b.change ?? 0) - Math.abs(a.bill ?? a.change ?? 0)), take: 0 }));
   let left = maxRows;
   for (const x of groups) { x.take = Math.min(x.top.length, PER_GROUP, left); left -= x.take; }
@@ -543,7 +604,8 @@ export async function readBillLines(url) {
     const r = await fetch(src, { headers: { "user-agent": UA, accept: pkg.startsWith("BILLS-") ? "application/xml,text/xml" : "text/html" }, signal: ctl.signal });
     if (!r.ok) {
       try { await r.body?.cancel(); } catch {}
-      return { status: "error", error: `http_${r.status}`, final: r.status === 404 || r.status === 410 };
+      const error = `http_${r.status}`;
+      return { status: "error", error, final: !RETRYABLE(error) && r.status !== 403 };
     }
     const { text, size, truncated } = await readBounded(r.body, MAX_BYTES);
     if (pkg.startsWith("BILLS-") && !/<(?:bill|resolution|amendment-doc)\b/.test(text.slice(0, 5000))) return { status: "error", error: "not_bill_xml", final: true };
@@ -555,16 +617,19 @@ export async function readBillLines(url) {
   }
 }
 
-// Fits the D1 row: rows are dropped (largest kept) until the JSON is small.
+// Fits the D1 row: the smaller rows are dropped, half a group at a time, until
+// the JSON is small. Kept rows stay in account order. Totals are kept.
 const MAX_JSON = 400_000;
+const rowSize = (x) => Math.abs(x.bill ?? x.change ?? 0);
 export function storedJson(result) {
   let s = JSON.stringify(result);
   if (s.length <= MAX_JSON) return s;
   const r = structuredClone(result);
   while (s.length > MAX_JSON) {
     const g = r.groups.reduce((a, b) => (b.rows.length > (a?.rows.length || 0) ? b : a), null);
-    if (!g || !g.rows.length) break;
-    g.rows.splice(Math.ceil(g.rows.length / 2));
+    if (!g || g.rows.length <= 1) break;
+    const keep = new Set([...g.rows].sort((a, b) => rowSize(b) - rowSize(a)).slice(0, Math.ceil(g.rows.length / 2)));
+    g.rows = g.rows.filter((x) => keep.has(x));
     r.more = r.groups.reduce((n, x) => n + x.lines, 0) - r.groups.reduce((n, x) => n + x.rows.length, 0);
     s = JSON.stringify(r);
   }
@@ -578,16 +643,19 @@ export function parseStored(value) {
 }
 
 // The cron pass: bill items waiting for their lines (never read, or a retry
-// that is due), PER_TICK a tick. A failed read is retried with backoff; after
-// MAX_TRIES (or a final error) the failure is recorded and grading goes on.
+// that is due), PER_TICK a tick, pending or claimed items first. A failed read
+// is retried with backoff; after MAX_TRIES (or a final error) the failure is
+// recorded and grading goes on. Graded items whose lines are still unread are
+// read for up to LATE_DAYS after ingest, so the app's card gets them; the grade
+// keeps what it saw.
 export async function billLinesPass(env, { limit = PER_TICK } = {}) {
   const now = nowIso();
   const rows = (await env.DB.prepare(
     `SELECT id, url, bill_lines FROM items
-      WHERE source_key IN ${BILL_SOURCES_SQL} AND state IN ('pending','claimed')
+      WHERE source_key IN ${BILL_SOURCES_SQL} AND (state IN ('pending','claimed') OR (state = 'graded' AND ingested_at > ?3))
         AND (bill_lines IS NULL OR (json_extract(bill_lines, '$.status') = 'retry' AND json_extract(bill_lines, '$.next_at') <= ?1))
-      ORDER BY id DESC LIMIT ?2`,
-  ).bind(now, limit).all()).results || [];
+      ORDER BY (state = 'graded'), id DESC LIMIT ?2`,
+  ).bind(now, limit, nowIso(Date.now() - LATE_DAYS * 86_400_000)).all()).results || [];
   const done = [];
   for (const row of rows) {
     const prev = parseStored(row.bill_lines);
@@ -596,7 +664,7 @@ export async function billLinesPass(env, { limit = PER_TICK } = {}) {
     const res = await readBillLines(row.url);
     let stored;
     if (res.status === "ok") stored = { ...res, tries, ms: Date.now() - t0 };
-    else if (!res.final && tries < MAX_TRIES) {
+    else if (!res.final && tries < (res.error === "http_403" ? FORBIDDEN_TRIES : MAX_TRIES)) {
       stored = { v: 1, status: "retry", error: res.error, tries, next_at: nowIso(Date.now() + RETRY_MINUTES[Math.min(tries - 1, RETRY_MINUTES.length - 1)] * 60_000), at: now };
     } else stored = { v: 1, status: "failed", error: res.error, tries, at: now };
     await env.DB.prepare("UPDATE items SET bill_lines = ? WHERE id = ?").bind(storedJson(stored), row.id).run();

@@ -1885,6 +1885,19 @@ class BillLinesUnit(unittest.TestCase):
         no_request = dict(BILL_LINES, totals={"lines": 1, "bill": 5e9, "request": 0, "request_lines": 0})
         self.assertIn("$5.00B (no request figures)", zf.bill_lines_summary(no_request))
 
+    def test_summary_never_shows_a_zero_total(self):
+        # An appropriations act with no autonomy terms: no lines, never "0 lines, $0".
+        none = {"status": "ok", "package": "BILLS-119hr4016rh", "bill": "H.R. 4016", "version": "RH", "stage": "reported in House",
+                "totals": {"lines": 0, "request": 0, "bill": 0, "change": 0, "request_lines": 0}, "groups": []}
+        self.assertEqual(zf.bill_lines_summary(none), "Autonomy lines: H.R. 4016 RH (reported in House): none in the bill text")
+        self.assertEqual(zf.bill_lines_html(none), "")
+        report = dict(none, package="CRPT-119hrpt162", bill="H. Rept. 119-162", version="report", stage="committee report")
+        self.assertEqual(zf.bill_lines_summary(report), "Autonomy lines: H. Rept. 119-162 report (committee report): none in the report text")
+        # Lines, but the only amount row is not added.
+        uncounted = dict(none, totals={"lines": 3, "request": 0, "bill": 0, "change": 0, "request_lines": 0})
+        self.assertEqual(zf.bill_lines_summary(uncounted), "Autonomy lines: H.R. 4016 RH (reported in House): 3 lines, no amounts counted")
+        self.assertIn("(report text only)", zf.bill_lines_summary(dict(BILL_LINES, package="CRPT-119hrpt162")))
+
     def test_grouped_table(self):
         out = zf.bill_lines_html(BILL_LINES)
         self.assertEqual(out.count('<details class="z-bl">'), 2)
@@ -1918,6 +1931,14 @@ class BillLinesCard(AppBase):
         self.assertEqual(len(tables), 1)
         self.assertIn("<summary>Drones / small UAS: 2 lines, $754.0M (request $726.0M)</summary>", tables[0])
         self.assertNotIn("<script>", tables[0])
+
+    def test_no_counted_amount_is_not_shown_as_zero(self):
+        bl = dict(BILL_LINES, totals={"lines": 3, "request": 0, "bill": 0, "change": 0, "request_lines": 0})
+        self.api.items["/v1/feed"][2].update(source_key="drv_govinfo_defense_bills", role="program", bill_lines=bl)
+        self.run_app()
+        self.assertIn("3 lines, no amounts counted", self.cards()[2])
+        exp = [e.label for e in self.at.expander if e.label.startswith("Autonomy lines")]
+        self.assertEqual(exp, ["Autonomy lines (3, no amounts counted)"])
 
     def test_a_failed_read_shows_only_the_summary(self):
         self.api.items["/v1/feed"][2].update(bill_lines={"status": "failed", "error": "http_503"})

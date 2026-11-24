@@ -112,7 +112,8 @@ async function claim(env, body) {
     delete it.bill_lines;
     if (bl) {
       it.autonomy_lines = blockText(bl);
-      if (bl.status !== "ok") it.autonomy_lines_status = `${bl.status}${bl.error ? ` (${bl.error})` : ""}`;
+      // A retry still under way reads "still reading", never "retry (http_503)".
+      if (bl.status !== "ok") it.autonomy_lines_status = bl.status === "failed" ? `failed${bl.error ? ` (${bl.error})` : ""}` : "still reading";
     }
   }
   await env.DB.prepare(

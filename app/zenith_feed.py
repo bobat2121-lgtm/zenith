@@ -356,7 +356,21 @@ def bill_lines_summary(bl) -> str | None:
     t = bl.get("totals") or {}
     name = one_line(f"{bl.get('bill') or ''} {bl.get('version') or ''}")
     stage = f" ({one_line(bl.get('stage'))})" if bl.get("stage") else ""
-    return f"Autonomy lines: {name}{stage}: {_num(t.get('lines'))} lines, {usd(t.get('bill'))} ({_request_text(t)})"
+    report = str(bl.get("package") or "").startswith("CRPT-")
+    # No lines, or no amount counted: never "$0" (the program amounts of an
+    # appropriations act are in its committee report).
+    if not t.get("lines"):
+        return f"Autonomy lines: {name}{stage}: none in the {'report' if report else 'bill'} text"
+    note = " (report text only)" if report else ""
+    return f"Autonomy lines: {name}{stage}: {bill_lines_total_text(t)}{note}"
+
+
+def bill_lines_total_text(t: dict) -> str:
+    """'N lines, $X (request $Y)', or 'N lines, no amounts counted' when no counted
+    line carries an amount."""
+    if not (t.get("bill") or t.get("change") or t.get("request_lines")):
+        return f"{_num(t.get('lines'))} lines, no amounts counted"
+    return f"{_num(t.get('lines'))} lines, {usd(t.get('bill'))} ({_request_text(t)})"
 
 
 def bill_line_rows(group: dict) -> list[list[str]]:
@@ -1220,7 +1234,8 @@ def render_card(page: FeedPage, it: dict) -> None:
     table = bill_lines_html(it.get("bill_lines")) if page.kind != "aux" else ""
     if table:
         t = it["bill_lines"].get("totals") or {}
-        with st.expander(f"Autonomy lines ({_num(t.get('lines'))}, {usd(t.get('bill'))})", expanded=False):
+        amount = usd(t.get("bill")) if (t.get("bill") or t.get("change") or t.get("request_lines")) else "no amounts counted"
+        with st.expander(f"Autonomy lines ({_num(t.get('lines'))}, {amount})", expanded=False):
             # Escaped in bill_lines_html; only its own tags reach the page.
             st.markdown(table, unsafe_allow_html=True)
     choices = label_choices(it)
