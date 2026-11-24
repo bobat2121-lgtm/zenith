@@ -542,3 +542,57 @@ test("GRADER.md hands an empty coverage claim on to the auxiliary pass", () => {
   assert.match(intro, /`\.zenith\/rubric\/aux\.md`/);
   assert.doesNotMatch(intro, /`rubric\/auxiliary\.md`/);
 });
+
+// Relations (plans/round5-expansion-approve-queue.md, A2): the API's submit
+// warnings print as WARN lines beside the REJECTED lines; a warning alone keeps exit 0.
+test("submit and aux-submit print one WARN line per warning and keep exit 0 for warnings alone", async () => {
+  const cwd = claimDir();
+  writeFileSync(zen(cwd, "claim.json"), JSON.stringify({ claim_id: "cov-claim-1", run_id: "run-c", rubric_version: "r-claim", items: [{ item_id: 206 }] }));
+  const rel = [{ type: "acquired", name: "Stemme", evidence: 206 }, { type: "partner", name: "Unusual Machines", evidence: 206 }];
+  writeFileSync(join(cwd, "grades.json"), JSON.stringify([{ item_id: 206, score: 84, relations: rel }]));
+  routes.set("POST /v1/grades", () => ({ json: { accepted: 1, already_accepted: 0, already: [], rejected: [], results: [{ item_id: 206, ticker: "ONDS", score: 84 }],
+    warnings: [{ item_id: 206, warning: 'relation 2 "Unusual Machines" dropped: name is a covered company (UMAC); covered companies are never relations' },
+      { item_id: null, warning: "expansion queue not available yet: migration 0012 is not applied" }] } }));
+  const r = await run(cwd, ["submit", "grades.json"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(requests[0].body.grades, [{ item_id: 206, score: 84, relations: rel }], "relations reach the API unchanged");
+  assert.match(r.stdout, /^accepted 1, already accepted 0, rejected 0\n  WARN item 206: relation 2 "Unusual Machines" dropped: name is a covered company \(UMAC\); covered companies are never relations\n  WARN: expansion queue not available yet: migration 0012 is not applied\n$/);
+
+  // aux-submit: WARN lines follow the REJECTED lines; the exit code comes from the rejects only.
+  writeFileSync(join(cwd, "aux-grades.json"), JSON.stringify([grade(101, { relations: [{ type: "acquired", name: "AGILOX", evidence: 999 }] }), grade(102)]));
+  routes.set("POST /v1/aux/grades", () => ({ json: { accepted: 1, already_accepted: 0, already: [], rejected: [{ item_id: 102, error: "why is required" }],
+    results: [{ item_id: 101, score: 93, band: "lead" }],
+    warnings: [{ item_id: 101, warning: 'relation 1 "AGILOX" dropped: evidence must be the item you are grading (101)' }] } }));
+  const a = await run(cwd, ["aux-submit", "aux-grades.json"]);
+  assert.equal(a.code, 2);
+  assert.match(a.stdout, /  REJECTED item 102: why is required\n  WARN item 101: relation 1 "AGILOX" dropped: evidence must be the item you are grading \(101\)\n/);
+  // An older Worker sends no warnings: no WARN line.
+  routes.set("POST /v1/aux/grades", () => ({ json: { accepted: 2, already_accepted: 0, already: [], rejected: [], results: [{ item_id: 101 }, { item_id: 102 }] } }));
+  const old = await run(cwd, ["aux-submit", "aux-grades.json"]);
+  assert.equal(old.code, 0);
+  assert.doesNotMatch(old.stdout, /WARN/);
+});
+
+test("rubric and GRADER.md: relations are optional, evidence-bound and printed as WARN when dropped", () => {
+  const md = readFileSync(join(root, "grader", "GRADER.md"), "utf8");
+  const core = readFileSync(join(root, "rubric", "core.md"), "utf8");
+  const step = (n) => new RegExp(`^${n}\\. [\\s\\S]*?(?=^${n + 1}\\. |^## )`, "m").exec(md)[0];
+  for (const s of [step(4), step(5)]) {
+    assert.match(s, /[Rr]elations[\s\S]{0,40}optional/);
+    assert.match(s, /evidence/);
+    assert.match(s, /`WARN` line/);
+  }
+  assert.match(core, /^Version 3\.3, /m);
+  assert.match(auxMd, /^Version 1\.3, /m);
+  const sec10 = core.slice(core.indexOf("## 10. Output contract"), core.indexOf("## 11."));
+  assert.match(sec10, /^- \*\*relations:\*\* optional/m);
+  const relations = sec10.slice(sec10.indexOf("### Relations"));
+  assert.ok(sec10.indexOf("### Relations") > sec10.indexOf("### Headline and tag"), "Relations follows Headline and tag");
+  for (const re of [/item itself states\. Never from memory or a sheet/, /ARAN Defense/, /without "Inc\." clauses, roles or descriptions/,
+    /\*\*evidence:\*\* the item_id you are grading/, /Investors are not relations/, /Relations never change the score/]) assert.match(relations, re);
+  for (const t of ["acquired", "acquirer", "customer", "partner", "supplier", "subsidiary", "award"]) assert.ok(relations.includes(`\`${t}\``), t);
+  const aux8 = auxMd.slice(auxMd.indexOf("## 8. Output contract"), auxMd.indexOf("### Headline and tag"));
+  assert.match(aux8, /- \*\*reads_through:\*\*[^\n]*\n- \*\*relations:\*\* optional/);
+  for (const re of [/item itself states/, /Never from memory or a sheet/, /not the main event/, /`evidence` is the item_id you are grading/,
+    /Investors are not relations/, /Relations never change the score/]) assert.match(aux8, re);
+});

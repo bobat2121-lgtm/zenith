@@ -17,8 +17,9 @@ import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
-  olderEventDate, normalizeHeadline, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
+  olderEventDate, normalizeHeadline, normalizeRelations, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
+import { auxEntitySighting, upsertAfterGrades, relationSightings } from "./expansion.js";
 
 export const AUX_BACKFILL_DAYS = 14;
 export const AUX_MAX_CLAIM = 40;
@@ -231,7 +232,8 @@ export function auxItemId(v) {
 const given = (v) => v !== null && v !== undefined && v !== "";
 
 // Validates one auxiliary grade (the aux rubric's output contract). Returns
-// { ok: true, grade } or { ok: false, error }, the error saying how to fix it.
+// { ok: true, grade, relations, warnings } or { ok: false, error }, the error
+// saying how to fix it; warnings say why each dropped relation was dropped.
 //   covered:   the covered ticker list (covered_ticker, reads_through)
 //   dupExists: (id) => whether id is an auxiliary item (dup_of)
 export function normalizeAuxGrade(raw, { covered = COVERED.tickers, dupExists = () => true } = {}) {
@@ -308,9 +310,14 @@ export function normalizeAuxGrade(raw, { covered = COVERED.tickers, dupExists = 
   // Optional headline and tag (aux.md section 8); a bad one rejects this grade only.
   const head = normalizeHeadline(raw);
   if (!head.ok) return head;
+  // Optional relations (plans/round5-expansion-approve-queue.md, A2): bad
+  // entries are dropped with a warning, never a rejection.
+  const rel = normalizeRelations(raw.relations, { itemId, subject: entity });
 
   return {
     ok: true,
+    relations: rel.relations,
+    warnings: rel.warnings,
     grade: {
       item_id: itemId, entity, score, band: finalBand, reason, event_type: eventType || null, why,
       reads_through: JSON.stringify(readsThrough), flags: JSON.stringify(flags), confidence,
@@ -336,7 +343,7 @@ export async function submitAuxGrades(env, body, role) {
   const already = new Set();
   for (const part of chunk(ids)) {
     const ph = part.map(() => "?").join(",");
-    for (const r of (await env.DB.prepare(`SELECT id, state, claim_id FROM aux_items WHERE id IN (${ph})`).bind(...part).all()).results || []) items.set(r.id, r);
+    for (const r of (await env.DB.prepare(`SELECT id, state, claim_id, url, title, nm_first_seen FROM aux_items WHERE id IN (${ph})`).bind(...part).all()).results || []) items.set(r.id, r);
     for (const r of (await env.DB.prepare(`SELECT item_id FROM aux_grades WHERE run_id = ? AND item_id IN (${ph})`).bind(runId, ...part).all()).results || []) {
       already.add(r.item_id);
     }
@@ -346,6 +353,7 @@ export async function submitAuxGrades(env, body, role) {
   const model = String(body.model || "").slice(0, 60) || null;
   const accepted = [], rejected = [], skipped = [];
   const stmts = [];
+  const sightings = [], warnings = [];
   for (const raw of body.grades) {
     const res = normalizeAuxGrade(raw, { covered: COVERED.tickers, dupExists: (id) => items.has(id) });
     if (!res.ok) { rejected.push({ item_id: raw?.item_id ?? null, error: res.error }); continue; }
@@ -376,10 +384,22 @@ export async function submitAuxGrades(env, body, role) {
       ).bind(g.headline, g.headline_tag, now, item.id));
     }
     accepted.push({ item_id: raw.item_id, entity: g.entity, score: g.score, band: g.band });
+    // Aux entity rule (plans/round5-expansion-approve-queue.md, C2): a financing or acquisition grade at 70+.
+    const sighting = auxEntitySighting(g, item);
+    if (sighting) sightings.push(sighting);
+    // Relations (A2-A3): dropped entries are warnings; kept ones become
+    // candidates, subject the grade's entity, tickers its reads_through.
+    for (const w of res.warnings || []) warnings.push({ item_id: raw.item_id, warning: w });
+    const rtTickers = JSON.parse(g.reads_through).map((x) => x.ticker);
+    sightings.push(...relationSightings(res.relations, { kind: "aux", subject: g.entity, tickers: rtTickers,
+      item: { id: item.id, url: item.url, title: item.title, at: item.nm_first_seen } }));
   }
   // All-or-nothing: a failure part-way through commits nothing, so a retry is safe.
   if (stmts.length) await env.DB.batch(stmts);
-  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted });
+  // A second batch, after the grades commit: a failure (a zenith-db before
+  // migration 0012 included) is a warning and never touches the grades.
+  warnings.push(...await upsertAfterGrades(env.DB, sightings, { now }));
+  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted, warnings });
 }
 
 // --- Entity filter (feed and recent) ----------------------------------------

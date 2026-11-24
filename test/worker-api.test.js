@@ -398,3 +398,70 @@ test("feed paging returns every pinned Lead once, even when they fill several pa
   const flat = (await request(worker, env, "GET", `/v1/feed?order=newest&limit=50&before_id=${-leads[3]}`, { role: "app" })).body;
   assert.ok(flat.items.every((i) => i.item_id < leads[3]));
 });
+
+// Relations (plans/round5-expansion-approve-queue.md, A2-A3): through
+// /v1/grades, dropped entries are warnings, kept ones become expansion
+// candidates in a second batch after the grades commit.
+test("grades: relations become expansion candidates; a bad one is a warning and the grade is still stored", async () => {
+  const env = newEnv();
+  const onds = addItem(env, { source_key: "ondas", ticker: "ONDS", title: "Ondas Holdings to acquire Stemme in drone deal" });
+  const umac = addItem(env, { source_key: "unusual", ticker: "UMAC", title: "Unusual Machines completes acquisition of Upgrade Energy" });
+  const spai = addItem(env, { source_key: "safepro", ticker: "SPAI", title: "Safe Pro Group awarded UNMAS contract" });
+  const claim = (await request(worker, env, "POST", "/v1/queue/claim", { role: "grader", body: { limit: 10, run_id: "run-r" } })).body;
+  assert.equal(claim.items.length, 3);
+  const g = (item_id, relations, over = {}) => ({ item_id, score: 84, why: "w", read_source: true, confidence: 0.8, flags: ["reason:material"], relations, ...over });
+  const file = { claim_id: claim.claim_id, run_id: "run-r", grades: [
+    g(onds, [{ type: "acquired", name: "Stemme", evidence: onds }, { type: "partner", name: "Unusual Machines", evidence: onds },
+      { type: "customer", name: "https://stemme.de", evidence: onds }, { type: "acquired", name: "ARAN Defense", evidence: umac }]),
+    g(umac, [{ type: "acquired", name: "Upgrade Energy", evidence: umac }]),
+    g(spai, [{ type: "award", name: "UNMAS", evidence: String(spai) }]),
+    g(`${onds}#UMAC`, [{ type: "partner", name: "Stemme", evidence: onds }], { ticker: "UMAC", flags: ["reason:material", "also:UMAC"] }),
+  ] };
+  const res = (await request(worker, env, "POST", "/v1/grades", { role: "grader", body: file })).body;
+  assert.deepEqual([res.accepted, res.rejected], [4, []], "no grade is rejected for its relations");
+  assert.deepEqual(res.warnings.map((w) => w.item_id), [onds, onds, onds, `${onds}#UMAC`]);
+  assert.match(res.warnings[0].warning, /relation 2 "Unusual Machines" dropped: name is a covered company \(UMAC\)/);
+  assert.match(res.warnings[1].warning, /relation 3 "https:\/\/stemme.de" dropped: name must be/);
+  assert.match(res.warnings[2].warning, new RegExp(`relation 4 "ARAN Defense" dropped: evidence must be the item you are grading \\(${onds}\\)`));
+  assert.match(res.warnings[3].warning, /never a #UMAC grade/);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM grades")[0].n, 4);
+  const cand = () => Object.fromEntries(env.DB.rows("SELECT * FROM expansion_candidates").map((r) => [r.name, r]));
+  let c = cand();
+  assert.deepEqual(Object.keys(c).sort(), ["Stemme", "UNMAS", "Upgrade Energy"]);
+  assert.deepEqual([c.Stemme.status, c.Stemme.relation, c.Stemme.subject, JSON.parse(c.Stemme.tickers), JSON.parse(c.Stemme.origins), c.Stemme.known],
+    ["pending", "acquired", "ONDS", ["ONDS"], ["grader_relation"], null]);
+  assert.deepEqual(JSON.parse(c.Stemme.seen), [`coverage:${onds}`]);
+  const ev = JSON.parse(c.Stemme.evidence)[0];
+  assert.deepEqual([ev.kind, ev.item_id, ev.title, ev.origin], ["coverage", onds, "Ondas Holdings to acquire Stemme in drone deal", "grader_relation"]);
+  assert.ok(ev.url.startsWith("https://ir.example.com/n/") && ev.at);
+  assert.deepEqual([c["Upgrade Energy"].status, JSON.parse(c["Upgrade Energy"].known)], ["pending", ["sheet_term:UMAC"]]);
+  assert.deepEqual([c.UNMAS.status, c.UNMAS.relation, JSON.parse(c.UNMAS.known)], ["pending", "award", ["key_account:SPAI"]]);
+
+  // Re-submitting the same file stores nothing twice and adds no sighting.
+  const again = (await request(worker, env, "POST", "/v1/grades", { role: "grader", body: file })).body;
+  assert.deepEqual([again.accepted, again.already_accepted, again.warnings], [0, 4, []]);
+  // A regrade in a new run is a new accepted grade, but the same item adds no sighting.
+  const re = (await request(worker, env, "POST", "/v1/grades", { body: { run_id: "run-s", grades: [g(onds, [{ type: "acquired", name: "Stemme AG", evidence: onds }])] } })).body;
+  assert.deepEqual([re.accepted, re.warnings], [1, []]);
+  c = cand();
+  assert.equal(Object.keys(c).length, 3, "Stemme AG has Stemme's dedupe key");
+  assert.deepEqual(JSON.parse(c.Stemme.seen), [`coverage:${onds}`], "sightings unchanged");
+  assert.equal(JSON.parse(c.Stemme.evidence).length, 1);
+
+  // Before migration 0012 (or any failed upsert) the grades are still stored, with a warning.
+  env.DB.exec("DROP TABLE expansion_candidates");
+  const late = (await request(worker, env, "POST", "/v1/grades", { body: { run_id: "run-t", grades: [g(umac, [{ type: "supplier", name: "Acme Motors", evidence: umac }])] } })).body;
+  assert.deepEqual([late.accepted, late.rejected], [1, []]);
+  assert.deepEqual(late.warnings.map((w) => w.item_id), [null]);
+  assert.match(late.warnings[0].warning, /expansion queue not available yet: migration 0012 is not applied/);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM grades WHERE run_id = 'run-t'")[0].n, 1);
+  assert.equal(env.DB.rows("SELECT run_id FROM grades WHERE id = (SELECT grade_id FROM items WHERE id = ?)", umac)[0].run_id, "run-t");
+});
+
+test("grades: a grade without relations gets an empty warnings list and makes no candidate", async () => {
+  const env = newEnv();
+  const id = addItem(env);
+  const res = (await request(worker, env, "POST", "/v1/grades", { body: { run_id: "run-n", grades: [{ item_id: id, score: 50, why: "w", flags: ["reason:material"] }] } })).body;
+  assert.deepEqual([res.accepted, res.warnings], [1, []]);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM expansion_candidates")[0].n, 0);
+});

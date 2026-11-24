@@ -83,3 +83,18 @@ test("the committed rubric.generated.js carries the aux constants", async () => 
   if (gen.AUX_RUBRIC) assert.equal(gen.AUX_RUBRIC_VERSION, hash(gen.AUX_RUBRIC));
   else assert.equal(gen.AUX_RUBRIC_VERSION, null);
 });
+
+test("COVERED_NAMES: the sheet's name: or, without one, its first terms entry, plus key-accounts company_names, never other terms", () => {
+  const root = tempRoot();
+  try {
+    const before = build(root);
+    assert.deepEqual(before.COVERED_NAMES, { SYM: ["Symbotic"] }, "no name: line, so the first terms entry");
+    writeFileSync(join(root, "rubric", "companies", "SYM.md"), SHEET.replace("---\nbase_usd", "---\nname: Symbotic Inc.\nbase_usd"));
+    writeFileSync(join(root, "rubric", "key-accounts.json"), JSON.stringify({ company_names: { SYM: ["Symbotic", "GreenBox"] } }));
+    const named = build(root);
+    assert.deepEqual(named.COVERED_NAMES, { SYM: ["Symbotic Inc.", "Symbotic", "GreenBox"] });
+    assert.ok(!named.COVERED_NAMES.SYM.includes("BreakPack"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

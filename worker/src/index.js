@@ -1,6 +1,7 @@
 // zenith-core — graded research feed for the covered universe, plus auxiliary
 // names (every other company or program news-monitor follows; auxiliary.js).
-//   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items
+//   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items,
+//           the one-time expansion backfill, and last the SEC party pass (sec-parties.js)
 //   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers|/aux], GET /v1/labels, GET /v1/recent,
 //           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels,
 //           POST /v1/headlines/claim, POST /v1/headlines (headline-only pass; headlines.js)
@@ -8,6 +9,8 @@
 //           GET /v1/site-changes, GET /v1/source-health (news-monitor ops signals; source-signals.js)
 //   app   : GET /v1/ops, GET|POST /v1/source-prefs, GET /v1/source-yield, GET /v1/left-out, POST /v1/left-out/grade
 //           (grader health and source tuning; tuning.js)
+//   app   : GET /v1/expansion/candidates, POST /v1/expansion/decide, POST /v1/expansion/compiled
+//           (the source-expansion approve queue; expansion.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
@@ -20,6 +23,8 @@ import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRou
 import { mobile } from "./mobile.js";
 import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
+import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill, upsertAfterGrades, relationSightings } from "./expansion.js";
+import { secParties } from "./sec-parties.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 const ALLOW = {
@@ -58,6 +63,10 @@ const ALLOW = {
   "GET /v1/source-yield": ["app", "admin"],
   "GET /v1/left-out": ["app", "admin"],
   "POST /v1/left-out/grade": ["app", "admin"],
+  // Source-expansion approve queue for the Tuning page (expansion.js).
+  "GET /v1/expansion/candidates": ["app", "admin"],
+  "POST /v1/expansion/decide": ["app", "admin"],
+  "POST /v1/expansion/compiled": ["app", "admin"],
 };
 
 async function readJson(request) {
@@ -127,6 +136,7 @@ async function submitGrades(env, body, role) {
   const model = String(body.model || "").slice(0, 60) || null;
   const accepted = [], rejected = [], skipped = [];
   const stmts = [];
+  const warnings = [], sightings = [];
   for (const raw of body.grades) {
     const ref = parseItemRef(raw?.item_id);
     const item = ref ? items.get(ref.id) : undefined;
@@ -167,6 +177,11 @@ async function submitGrades(env, body, role) {
       ).bind(g.headline, g.headline_tag, now, item.id));
     }
     accepted.push({ item_id: raw.item_id, ticker: g.ticker, score: g.score, band: g.band });
+    // Relations (plans/round5-expansion-approve-queue.md, A2-A3): dropped
+    // entries are warnings; kept ones become expansion candidates below.
+    for (const w of res.warnings || []) warnings.push({ item_id: raw.item_id, warning: w });
+    sightings.push(...relationSightings(res.relations, { kind: "coverage", subject: g.ticker, tickers: [g.ticker],
+      item: { id: item.id, url: item.url, title: item.title, at: item.first_seen } }));
   }
   if (runId) {
     stmts.push(env.DB.prepare("UPDATE runs SET last_seen_at=?, graded=graded+?, rejected=rejected+? WHERE id=?")
@@ -174,7 +189,10 @@ async function submitGrades(env, body, role) {
   }
   // All-or-nothing: a failure part-way through commits nothing, so a retry is safe.
   if (stmts.length) await env.DB.batch(stmts);
-  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted });
+  // A second batch, after the grades commit (A3): a failure (a zenith-db before
+  // migration 0012 included) is a warning and never touches the grades.
+  warnings.push(...await upsertAfterGrades(env.DB, sightings, { now }));
+  return json({ accepted: accepted.length, already_accepted: skipped.length, already: skipped.map((s) => s.item_id), rejected, results: accepted, warnings });
 }
 
 // The grade an item shows under a ticker: the primary grade for the item's own
@@ -492,6 +510,9 @@ export default {
       case "GET /v1/source-yield": return sourceYield(env, url);
       case "GET /v1/left-out": return leftOut(env, url);
       case "POST /v1/left-out/grade": return leftOutGrade(env, await readJson(request));
+      case "GET /v1/expansion/candidates": return expansionCandidates(env, url);
+      case "POST /v1/expansion/decide": return expansionDecide(env, await readJson(request), role);
+      case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role);
     }
     return json({ error: "not found" }, 404);
   },
@@ -508,6 +529,11 @@ export default {
       try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
       // Auxiliary names last, on their own: coverage is always served first.
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
+      // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
+      try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
+      // SEC party extraction into the expansion queue (Part B), last: it takes the
+      // SEC lease after the excerpt pass has finished, and stops on 403/429.
+      try { console.log("sec parties", JSON.stringify(await secParties(env))); } catch (e) { console.error("sec parties failed", e?.stack || e); }
     })());
   },
 };
