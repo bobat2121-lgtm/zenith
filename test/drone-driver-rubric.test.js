@@ -42,7 +42,11 @@ for (const t of TICKERS) {
   test(`${t}: the Driver lines section exists with the owner mark, the GRRR precedent and the shared rules`, () => {
     assert.ok(section.length > 0, `${t}.md has "${HEADING}"`);
     assert.match(section, /GRRR\.md "Policy read-through" \(owner:2026-11-24\), cited as the precedent/);
-    assert.match(section, /core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, and the core 4\.5 deduction below 70/);
+    assert.match(section, /core 1 out-of-scope rule for policy and budgets, the core 9 read-through boundary, the core 4\.5 deduction below 70, and, for the credible-report bands only, the core 4\.1 `reported` deduction and `prospective` cap/);
+    assert.match(section, /\*\*Thesis lift \(core 4\.4\):\*\* the bands below already include it\.[^\n]*never above 89/);
+    assert.match(section, /the first copy graded takes the credible-report band, even when it cites another outlet/);
+    // The Drone Dominance and Gauntlet exclusion sits inside Driver lines, the only part #TICKER graders read.
+    assert.match(/^- \*\*Not covered:\*\* .*$/m.exec(section)[0], /Drone Dominance and Gauntlet (results and orders to rivals|selections, phase lists, results and orders)[^\n]*get no `#[A-Z]+` grade from these lines/);
     assert.match(section, /never takes an item scored in a Digest band of these lines \(70-89\) below 70/);
     assert.match(section, /flag no `floor:` id/);
     assert.match(section, /\*\*Published text:\*\* facts only \(core 9\)\. Never write /);
@@ -59,21 +63,20 @@ for (const t of TICKERS) {
     }
   });
 
-  test(`${t}: ids are thesis drivers or marked new, unique, and the bands are the approved ones`, () => {
+  test(`${t}: every block id is in front-matter thesis_drivers (core 10), ids are unique, and the bands are the approved ones`, () => {
     const drivers = thesisDrivers(fm);
     const ids = [];
     for (const [name, block] of Object.entries(blocks)) {
-      const id = /^- \*\*id:\*\* `([a-z0-9_]+)` \((existing thesis driver|new id)/m.exec(block);
+      const id = /^- \*\*id:\*\* `([a-z0-9_]+)` \((existing thesis driver|thesis driver added with these lines)/m.exec(block);
       assert.ok(id, `${t} ${name}: id line`);
-      if (id[2] === "new id") assert.ok(!drivers.includes(id[1]), `${t} ${name}: ${id[1]} is called new but is a thesis driver`);
-      else assert.ok(drivers.includes(id[1]), `${t} ${name}: ${id[1]} is in thesis_drivers`);
+      assert.ok(drivers.includes(id[1]), `${t} ${name}: ${id[1]} is in thesis_drivers`);
       ids.push(id[1]);
       const band = /^- \*\*band:\*\* (.*)$/m.exec(block)[1];
       assert.match(band, /Digest (75|80)-(79|85|89)/, `${t} ${name}: final action band inside 75-89`);
       assert.match(band, /70-7[49]/, `${t} ${name}: intent or proposal band inside 70-79`);
       assert.match(band, /Credible report of [^:]*: 70\./, `${t} ${name}: credible report at 70`);
       for (const key of SOURCES[name]) assert.ok(block.includes(`\`${key}\``), `${t} ${name}: names ${key}`);
-      assert.match(block, /^- \*\*overrides:\*\* core 1, core 9 and core 4\.5 below 70/m);
+      assert.match(block, /^- \*\*overrides:\*\* core 1, core 9 and core 4\.5 below 70, as in the shared rules\. Core 4\.1 status effects are lifted for the credible-report band only\./m);
       assert.match(block, /^- \*\*worked example:\*\* .*(final|stale)/m);
     }
     assert.equal(new Set(ids).size, ids.length, `${t}: ids unique`);
@@ -82,6 +85,17 @@ for (const t of TICKERS) {
   test(`${t}: FCC router and camera-only rules are a recorded negative; credible reports of DoW talks score 70`, () => {
     assert.match(blocks["US drone rules"], /reach only routers, surveillance cameras or other gear, not drones[^.]*, are `out_of_scope` 0-15 \(recorded negative\)/);
     assert.match(blocks["US drone rules"], /91 FR 57798; in force 2026-10-13/);
+    assert.match(blocks["US drone rules"], /^- \*\*band:\*\* final rule or order published \(in force or with a set effective date\):/m);
+    assert.match(blocks["US drone rules"], /that changes who may make, sell, import/);
+    assert.match(blocks["US drone rules"], /Airworthiness directives, maintenance and inspection rules[^.]*are `out_of_scope` 0-15 even when they name unmanned aircraft \(recorded negative\)/);
+    assert.match(blocks["US drone rules"], /Inspection Programs for Single-Engine Turbine-Powered Airplanes and Unmanned Aircraft/);
+    assert.match(blocks["US drone rules"], /does not apply to the location-based Covered List entries/);
+    assert.match(blocks["US drone rules"], /21-232 title[^:]*\) alone never shows drone reach/);
+    assert.doesNotMatch(blocks["US drone rules"], /no new equipment authorizations for drones and radios/);
+    const dow = blocks["DoW drone industrial policy"];
+    assert.match(dow, /Drone Dominance or Gauntlet results, rounds, selections, phase lists and orders \(including planned DDP order pools\)/);
+    assert.match(dow, /These are peer wins, not this line/);
+    assert.doesNotMatch(dow, /production-order pools|Drone Dominance office|budget pool not yet awarded/);
     assert.match(blocks["DoW drone industrial policy"], /Pentagon is in talks with GM and Ford[^.]*70, final 70/);
     assert.match(blocks["Defense appropriations and continuing resolutions naming a drone program"], /names no drone program does not count/);
   });
@@ -92,7 +106,7 @@ for (const t of TICKERS) {
     const entry = marks.find((m) => m.line === "Driver lines");
     assert.ok(entry, `${t}: owner_marks entry`);
     assert.equal(entry.mark, "owner:2026-11-24");
-    for (const rule of ["core 1 out-of-scope", "core 9 read-through", "core 4.5 timeliness"]) assert.ok(entry.overrides.includes(rule), `${t}: overrides names ${rule}`);
+    for (const rule of ["core 1 out-of-scope", "core 9 read-through", "core 4.5 timeliness", "core 4.1 reported deduction and prospective cap"]) assert.ok(entry.overrides.includes(rule), `${t}: overrides names ${rule}`);
     assert.ok(md.includes(`\n${HEADING}\n`));
   });
 }
@@ -108,7 +122,8 @@ test("tailoring: the drivers that do not reach a ticker say so", () => {
 test("peer financings stay out of scope, with a pointer for DoW actions; UMAC's policy_tailwinds points at the line", () => {
   const rcat = read("RCAT");
   assert.match(rcat, /\*\*Out of scope \(0-15\):\*\* rival-only follow-on orders, peer financings/);
-  assert.match(rcat, /A DoW action for a peer \(a DoW loan such as an Office of Strategic Capital loan, a DoW production deal or equity stake\) is not a peer financing: it is graded under "Driver lines" below/);
+  assert.match(rcat, /A DoW action for a peer \(a DoW loan, equity stake or production partnership, such as an Office of Strategic Capital loan\) is not a peer financing: it is graded under "Driver lines" below/);
+  for (const t of TICKERS) assert.doesNotMatch(read(t), /production deal/, `${t}: no "production deal" wording`);
   const pusa = read("PUSA");
   assert.match(pusa, /Peer wins, peer financings and sector budgets are `out_of_scope` \(0-15\) for PUSA\. A DoW action for a peer/);
   const umac = read("UMAC");
@@ -136,4 +151,24 @@ test("the built rubric bundles the five Driver lines sections", async () => {
     assert.ok(COMPANIES[t].includes(HEADING), `${t} bundled`);
     assert.ok(COMPANIES[t].includes("### DoW drone industrial policy"), `${t} blocks bundled`);
   }
+});
+
+test("UMAC: Part 108 status pieces are not context, and a new step is graded under Driver lines", () => {
+  const umac = read("UMAC");
+  assert.match(umac, /a credible report of a new step on it \(cleared by OIRA, a publication date set\), are graded under "Driver lines"/);
+  assert.doesNotMatch(umac, /status pieces, explainers\) stays context/);
+});
+
+test("covered.json routes the four graded drone driver sources; the shadow source is left out", () => {
+  const covered = JSON.parse(readFileSync(new URL("../worker/src/covered.json", import.meta.url), "utf8"));
+  const aux = JSON.parse(readFileSync(new URL("../worker/src/aux-sources.json", import.meta.url), "utf8"));
+  for (const key of ["drv_fedreg_drone_rules", "drv_whitehouse_actions", "drv_senate_approps_def", "drv_defense_cr_drones"]) {
+    const cp = covered.counterparty[key];
+    assert.ok(cp, `${key} in covered.json counterparty`);
+    assert.equal(cp.role, "program");
+    assert.deepEqual([...cp.affects].sort(), [...TICKERS].sort(), `${key} affects the five drone tickers`);
+    assert.equal(aux.sources[key]?.coverage_subject, true, `${key} in aux-sources.json with coverage_subject`);
+  }
+  assert.equal(covered.counterparty.drv_drone_industrial_policy, undefined);
+  assert.equal(aux.sources.drv_drone_industrial_policy, undefined);
 });

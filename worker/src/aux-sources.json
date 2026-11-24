@@ -426,6 +426,62 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "drv_defense_cr_drones": {
+      "entity": "drv_defense_cr_drones",
+      "name": "Defense continuing resolutions, stopgaps, shutdowns and anomalies (drone group)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_fedreg_drone_rules": {
+      "entity": "drv_fedreg_drone_rules",
+      "name": "Federal Register",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO"
+      ]
+    },
+    "drv_senate_approps_def": {
+      "entity": "drv_senate_approps_def",
+      "name": "Senate Appropriations",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_whitehouse_actions": {
+      "entity": "drv_whitehouse_actions",
+      "name": "White House presidential actions on drones, counter-UAS and airspace sovereignty (drone group)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO"
+      ]
+    },
     "dsv_autonomy": {
       "entity": "dsv_autonomy",
       "name": "DSV",

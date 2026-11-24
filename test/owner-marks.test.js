@@ -104,3 +104,14 @@ test("build-rubric warns on a bad owner mark, and --strict fails on it", () => {
     rmSync(bad, { recursive: true, force: true });
   }
 });
+
+test("parse: blank and comment lines inside the list, duplicates, and junk after a quoted value", () => {
+  const two = 'owner_marks:\n  - {line: "A", mark: "owner:2026-11-24", overrides: "x"}\n\n  # a comment\n  - {line: "B", mark: "owner:2026-11-24", overrides: "y"}\nnext: 1';
+  assert.deepEqual(parseOwnerMarks(two), { marks: [{ line: "A", mark: "owner:2026-11-24", overrides: "x" }, { line: "B", mark: "owner:2026-11-24", overrides: "y" }], errors: [] });
+  const bad = 'owner_marks:\n  - {line: "A", mark: "owner:2026-11-24", overrides: "x"}\n\n  - {line: "Bogus", mark: "owner:2026-13-40", overrides: "y"}';
+  assert.ok(checkOwnerMarks("## A (owner:2026-11-24)\n", bad).some((p) => /"Bogus": mark "owner:2026-13-40" is not owner:YYYY-MM-DD/.test(p)), "an entry after a blank line is still checked");
+  const dup = 'owner_marks:\n  - {line: "A", mark: "owner:2026-11-24", overrides: "x"}\n  - {line: "A", mark: "owner:2026-11-24", overrides: "x"}';
+  assert.ok(checkOwnerMarks("## A (owner:2026-11-24)\n", dup).some((p) => /duplicate entry for "A"/.test(p)));
+  assert.match(parseOwnerMarks('owner_marks:\n  - {line: "A" junk, mark: "owner:2026-11-24", overrides: "x"}').errors[0], /not a \{line, mark, overrides\} flow map/);
+  assert.match(parseOwnerMarks('owner_marks:\n  - {line: "A", mark: "owner:2026-11-24", overrides: "x"}\n  stray text').errors[0], /not a "- \{line, mark, overrides\}" list item/);
+});

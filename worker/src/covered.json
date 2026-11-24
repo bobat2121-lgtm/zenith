@@ -911,6 +911,46 @@
         "GRRR"
       ]
     },
+    "drv_fedreg_drone_rules": {
+      "role": "program",
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO"
+      ]
+    },
+    "drv_whitehouse_actions": {
+      "role": "program",
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO"
+      ]
+    },
+    "drv_senate_approps_def": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
+    "drv_defense_cr_drones": {
+      "role": "program",
+      "affects": [
+        "RCAT",
+        "UMAC",
+        "ONDS",
+        "PUSA",
+        "DPRO"
+      ]
+    },
     "xtech_announcements": {
       "role": "program",
       "affects": [

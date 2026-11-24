@@ -25,7 +25,10 @@ function parseFlowMap(text) {
     re.lastIndex = pos;
     const m = re.exec(inner);
     if (!m) return null;
-    let v = m[2].trim();
+    const raw = m[2].trim();
+    // A value that opens with a quote must be exactly one quoted string.
+    if (/^["']/.test(raw) && !/^(?:"(?:[^"\\]|\\.)*"|'[^']*')$/.test(raw)) return null;
+    let v = raw;
     if (v.startsWith('"')) v = v.slice(1, -1).replace(/\\(.)/g, "$1");
     else if (v.startsWith("'")) v = v.slice(1, -1);
     out[m[1]] = v;
@@ -48,8 +51,13 @@ export function parseOwnerMarks(frontMatter) {
     return { marks, errors };
   }
   if (rest !== "") return { marks, errors: [`owner_marks must be [] or a list of {line, mark, overrides} (got "${rest}")`] };
+  const seen = new Set();
   for (const l of lines.slice(at + 1)) {
-    if (!/^\s+-\s/.test(l)) break;
+    // Blank and comment lines inside the list are skipped; an unindented line
+    // ends the list; any other indented line is an error, not a silent stop.
+    if (!l.trim() || /^\s+#/.test(l)) continue;
+    if (/^\S/.test(l)) break;
+    if (!/^\s+-\s/.test(l)) { errors.push(`owner_marks line is not a "- {line, mark, overrides}" list item: ${l.trim()}`); continue; }
     const entry = parseFlowMap(l.replace(/^\s+-\s+/, "").replace(/\s+#[^"']*$/, ""));
     if (!entry) { errors.push(`owner_marks entry is not a {line, mark, overrides} flow map: ${l.trim()}`); continue; }
     const keys = Object.keys(entry);
@@ -57,7 +65,11 @@ export function parseOwnerMarks(frontMatter) {
     const extra = keys.filter((k) => !FIELDS.includes(k));
     if (missing.length) errors.push(`owner_marks entry lacks ${missing.join(", ")}: ${l.trim()}`);
     if (extra.length) errors.push(`owner_marks entry has unknown keys ${extra.join(", ")}: ${l.trim()}`);
-    if (!missing.length && !extra.length) marks.push({ line: entry.line, mark: entry.mark, overrides: entry.overrides });
+    if (!missing.length && !extra.length) {
+      const key = `${entry.line}\u0000${entry.mark}`;
+      if (seen.has(key)) errors.push(`owner_marks has a duplicate entry for "${entry.line}" (${entry.mark})`);
+      else { seen.add(key); marks.push({ line: entry.line, mark: entry.mark, overrides: entry.overrides }); }
+    }
   }
   if (!marks.length && !errors.length) errors.push("owner_marks is empty: write owner_marks: []");
   return { marks, errors };
