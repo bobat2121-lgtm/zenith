@@ -235,7 +235,7 @@ official text: the autonomy lines (drones, counter-UAS, large UAS, collaborative
 combat aircraft, uncrewed maritime and ground, other autonomy, and provisions with
 no amount), grouped, with their totals. For such an item:
 - When the block has a total, the headline names the bill, the stage and the
-  autonomy total (for example "S. 2296 reported in Senate: $5.49B in autonomy lines").
+  autonomy total (for example "S. 2296 reported in Senate: $5.55B in autonomy lines").
 - `why` lists the largest groups with their amounts.
 - Use amounts only from the block. Never invent or recompute them.
 - A request is the President's request, never an appropriation. A bill amount is
