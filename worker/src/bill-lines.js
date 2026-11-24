@@ -181,9 +181,9 @@ function textAmounts(text) {
   return out;
 }
 // A cost threshold is not funding: "a contract ... the cost of which exceeds
-// $20,000,000" (S. 4784 RS, the RASCOM section). "not more than $X" is a cap on
-// funds and stays.
-const THRESHOLD_RE = /(?<!\bnot )\b(?:exceeds?|exceeding|in excess of|(?:more|less|greater) than|threshold of)\s*$/i;
+// $20,000,000" (S. 4784 RS, the RASCOM section). "not more than $X" and "not to
+// exceed $X" are caps on funds and stay.
+const THRESHOLD_RE = /(?<!\bnot (?:to )?)\b(?:exceeds?|exceeding|in excess of|(?:more|less|greater) than|threshold of)\s*$/i;
 const fundingAmounts = (text) => textAmounts(text).filter((a) => !THRESHOLD_RE.test(text.slice(Math.max(0, a.index - 40), a.index)));
 
 // ---- Funding tables ------------------------------------------------------------------

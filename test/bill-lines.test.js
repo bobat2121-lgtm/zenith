@@ -231,6 +231,7 @@ test("NDAA text: sourcing and ban provisions with the section header as the term
   const rascom = "The Commander may not enter into a contract under paragraph (1)(A) to procure robotic and autonomous systems equipment and associated capabilities the cost of which exceeds $20,000,000";
   assert.equal(BL.clauseLine(rascom).value, undefined);
   assert.equal(BL.clauseLine("of which not more than $5,000,000 shall be for small unmanned aircraft systems").value, 5_000_000);
+  assert.equal(BL.clauseLine("of which not to exceed $50,000,000 shall be available for unmanned aerial systems").value, 50_000_000);
   // SEC. 1213: an amended cap, in a section whose header names autonomy: the inserted amount, listed and not added.
   const cap = rowsOf(r).find((x) => x.kind === "text");
   assert.deepEqual([cap.group, cap.bill, cap.in_total, cap.note], ["Counter-UAS", 70000000, false, "amends an amount in earlier law: not added"]);
