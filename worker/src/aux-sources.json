@@ -480,7 +480,8 @@
       "entity": "einride",
       "name": "Einride (ENRD)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "electra": {
       "entity": "electra",
@@ -538,7 +539,8 @@
       "entity": "faraday",
       "name": "Faraday Future (FFAI)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "fedreg_av_trucking": {
       "entity": "fedreg_av_trucking",
@@ -827,7 +829,8 @@
       "entity": "iren",
       "name": "IREN (IREN)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "joby": {
       "entity": "joby",
@@ -959,7 +962,8 @@
       "entity": "maymobility",
       "name": "May Mobility (private; pending Nasdaq: MAY)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "mbai_rel": {
       "entity": "mbai_rel",
@@ -1241,7 +1245,8 @@
       "entity": "paccar",
       "name": "PACCAR (PCAR)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "paccar_nasdaq": {
       "entity": "paccar",
@@ -1253,7 +1258,8 @@
       "entity": "palantir",
       "name": "Palantir Technologies (PLTR)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "parrot": {
       "entity": "parrot",
@@ -1603,7 +1609,8 @@
       "entity": "spaceeyes",
       "name": "Space-Eyes (pending SPAC with McKinley Acquisition, MKLY; planned CUAS)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "spai_rel": {
       "entity": "spai_rel",
@@ -1671,7 +1678,8 @@
       "entity": "swarmer",
       "name": "Swarmer (SWMR)",
       "status": "public",
-      "lane": "public_adjacent"
+      "lane": "public_adjacent",
+      "sec": true
     },
     "sym_rel": {
       "entity": "sym_rel",

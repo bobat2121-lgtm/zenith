@@ -13,11 +13,12 @@
 // rubric), not to a covered ticker. Read-through to covered tickers is a side
 // note (reads_through) and never a score.
 import COVERED from "./covered.json";
-import { AUX_RUBRIC_VERSION } from "./rubric.generated.js";
+import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
-  olderEventDate, normalizeHeadline, LABELS, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+  olderEventDate, normalizeHeadline, routeCounterparty, labelReason, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
+import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 export const AUX_BACKFILL_DAYS = 14;
 export const AUX_MAX_CLAIM = 40;
@@ -39,7 +40,22 @@ const STATS_ENTITY_DAYS = 30;
 // rows from the 14-day backfill start up to aux_nm_cursor for those sources
 // only, bounded per run like the main scan, and then stops ('done'). A
 // zenith-db whose first auxiliary run routes them already never needs it.
+//
+// Rival sources (Z11): a rival's item that the coverage key-account gate drops
+// (rival_no_key_account: its title names neither an affected company nor one
+// of its key accounts) is graded here as outside-company news, entity the
+// rival, with coverage_subject and the covered tickers the source affects, so
+// reads_through can still tie it to a covered name. One the gate keeps is
+// graded on Coverage and never stored here: nothing is on both pages. A
+// one-time catch-up (meta aux_rv_cursor) applies this to the rival rows of
+// the last 14 days up to aux_nm_cursor: a dropped row is stored (or, already
+// stored and not yet graded, marked coverage_subject), and a kept one still
+// waiting here is parked as 'on_coverage'.
+//
+// Muted sources (Z7, tuning.js): their new rows are stored skipped, as
+// 'muted_source', so the grader never spends on them.
 export const AUX_CS_DONE = "done";
+const COUNTERPARTY = COVERED.counterparty || {};
 
 export async function ingestAux(env) {
   const db = env.DB;
@@ -48,42 +64,59 @@ export async function ingestAux(env) {
   let cursor = Number(stored);
   if (stored === null || !Number.isFinite(cursor)) {
     cursor = await initialCursor(news, AUX_BACKFILL_DAYS);
-    await db.batch([setMeta(db, "aux_nm_cursor", cursor), setMeta(db, "aux_cs_cursor", AUX_CS_DONE)]);
+    await db.batch([setMeta(db, "aux_nm_cursor", cursor), setMeta(db, "aux_cs_cursor", AUX_CS_DONE), setMeta(db, "aux_rv_cursor", AUX_CS_DONE)]);
   }
-  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor });
-  const catchUp = await catchUpCoverageSubject(db, news, main.cursor);
-  return { ...main, coverage_subject_catch_up: catchUp };
+  const muted = await mutedSources(db);
+  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted });
+  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, only: (route) => route.coverage_subject === true });
+  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, rivalCatchUp: true });
+  return { ...main, coverage_subject_catch_up: subjects, rival_catch_up: rivals };
 }
 
-// The one-time coverage-subject catch-up, up to the main cursor (end). Returns
+// A one-time catch-up (meta cursorKey) up to the main cursor (end). Returns
 // null once done, else what this run scanned.
-async function catchUpCoverageSubject(db, news, end) {
-  const stored = await getMeta(db, "aux_cs_cursor");
+async function catchUp(db, news, end, cursorKey, opts) {
+  const stored = await getMeta(db, cursorKey);
   if (stored === AUX_CS_DONE) return null;
   let cursor = Number(stored);
   if (stored === null || !Number.isFinite(cursor)) cursor = await initialCursor(news, AUX_BACKFILL_DAYS);
   const r = cursor >= end ? { cursor, scanned: 0, matched: 0, inserted: 0, skipped_on_arrival: 0, done: true }
-    : await scanAux(db, news, { cursorKey: "aux_cs_cursor", cursor, end, only: (route) => route.coverage_subject === true });
-  if (r.done) await setMeta(db, "aux_cs_cursor", AUX_CS_DONE).run();
+    : await scanAux(db, news, { cursorKey, cursor, end, ...opts });
+  if (r.done) await setMeta(db, cursorKey, AUX_CS_DONE).run();
   return { ...r, done: Boolean(r.done) };
+}
+
+// For a rival source's row: whether the coverage key-account gate keeps it
+// (the same matcher as the coverage ingest, ingest.js routeRow), and the
+// covered tickers the source affects. null for any other source.
+export function rivalGate(r) {
+  const cp = COUNTERPARTY[r.source_key];
+  if (cp?.role !== "rival") return null;
+  const cov = routeCounterparty(r.title, cp, MATCH);
+  return { onCoverage: Boolean(cov?.ticker && !cov.skip), affects: [...(cp.affects || [])] };
 }
 
 // Scans news-monitor rows after `cursor` (up to `end` when given) in BATCH-row
 // windows, MAX_BATCHES a run, storing every row whose route passes `only`, and
 // keeps the cursor in meta cursorKey with each window. done: the scan reached
-// `end`.
-async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true }) {
+// `end`. rivalCatchUp: rival rows only, as the aux_rv_cursor catch-up above.
+async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false }) {
   const bounded = end !== null;
-  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, done = false;
+  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, done = false;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare(`SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ?${bounded ? " AND rowid <= ?" : ""} ORDER BY rowid LIMIT ?)`)
       .bind(...(bounded ? [cursor, end, BATCH] : [cursor, BATCH])).first();
     if (!win || win.hi == null) { done = bounded; break; }
-    const routed = [];
+    const routed = [], onCoverage = [];
     for (const r of await newsRows(news, cursor, win.hi)) {
-      const route = auxRoute(r.source_key);
-      if (route && only(route)) routed.push({ r, route });
+      let route = auxRoute(r.source_key);
+      if (!route) continue;
+      const rival = rivalGate(r);
+      if (rivalCatchUp && !rival) continue;
+      if (rival?.onCoverage) { if (rivalCatchUp) onCoverage.push(r); continue; }
+      if (rival) route = { ...route, coverage_subject: true, affects: rival.affects };
+      if (only(route)) routed.push({ r, route });
     }
     matched += routed.length;
     const rows = routed.map((x) => x.r);
@@ -101,18 +134,28 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
       ).bind(sourceKey, firstSeen, cursor));
     }
     const updates = stmts.length;
+    // Rival rows the coverage gate keeps, stored here before Z11: graded on Coverage.
+    for (const r of onCoverage) {
+      stmts.push(db.prepare(
+        `UPDATE aux_items SET state = 'skipped', skip_reason = 'on_coverage', claim_id = NULL, claimed_until = NULL
+          WHERE nm_rowid = ? AND (state = 'pending' OR (state = 'claimed' AND claimed_until < ?))`,
+      ).bind(r.nm_rowid, now));
+    }
+    const movedTo = stmts.length;
     for (const { r, route } of routed) {
       const archive = park.has(archiveGroupKey(r.source_key, r.first_seen)) && isArchiveCandidate(r);
       // Only http(s) links are ever shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r);
+      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || (muted.has(r.source_key) ? "muted_source" : null);
       if (reason) skipped++;
       const feed = feedFields(r, { role: null }, now);
       if (feed.status) fromFeed++;
       const subject = route.coverage_subject === true;
+      // The rival catch-up also marks a stored row it would have routed this way.
       stmts.push(db.prepare(
-        `INSERT OR IGNORE INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
+        `INSERT${rivalCatchUp ? "" : " OR IGNORE"} INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
            ingested_at, state, skip_reason, excerpt, excerpt_status, coverage_subject, affects)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${rivalCatchUp
+          ? " ON CONFLICT (nm_rowid) DO UPDATE SET coverage_subject = 1, affects = excluded.affects WHERE aux_items.state != 'graded'" : ""}`,
       ).bind(r.nm_rowid, r.source_key, route.entity_key, route.entity_name, route.status, r.url || "", r.title || "(untitled)", r.published ?? null,
         r.category ?? null, r.first_seen, now, reason ? "skipped" : "pending", reason || null, feed.status ? feed.excerpt : null, feed.status,
         subject ? 1 : 0, subject && route.affects?.length ? route.affects.join(",") : null));
@@ -121,13 +164,16 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     stmts.push(setMeta(db, cursorKey, win.hi));
     stmts.push(setMeta(db, "aux_last_ingest_at", now));
     const res = await db.batch(stmts);
-    inserted += res.slice(updates, n).reduce((k, x) => k + (x.meta?.changes || 0), 0);
-    parkedEarlier += res.slice(0, updates).reduce((k, x) => k + (x.meta?.changes || 0), 0);
+    const changes = (from, to) => res.slice(from, to).reduce((k, x) => k + (x.meta?.changes || 0), 0);
+    inserted += changes(movedTo, n);
+    parkedEarlier += changes(0, updates);
+    moved += changes(updates, movedTo);
     scanned += win.n;
     cursor = win.hi;
     if (win.n < BATCH || (bounded && cursor >= end)) { done = bounded; break; }
   }
   const out = { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed };
+  if (rivalCatchUp) out.parked_on_coverage = moved;
   return bounded ? { ...out, done } : out;
 }
 
@@ -135,8 +181,14 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
 const CLAIM_COLS = `i.id AS item_id, i.source_key, i.entity_key, i.entity_name, i.status, i.title, i.url, i.published,
   i.nm_first_seen AS first_seen, i.excerpt, i.excerpt_status, i.coverage_subject, i.affects`;
 
+// Claim order (Z1): items first seen more than AUX_OLD_HOURS ago come first,
+// oldest first, so a backlog drains instead of aging out; then newest first.
+// ?1 is the AUX_OLD_HOURS cutoff.
+export const AUX_OLD_HOURS = 72;
+const CLAIM_ORDER = "(i.nm_first_seen >= ?1), CASE WHEN i.nm_first_seen < ?1 THEN i.nm_first_seen END, i.nm_first_seen DESC, i.id DESC";
+
 // Same lease rules as the coverage claim: a 45-minute lease, attempts + 1, and
-// items that failed grading MAX_ATTEMPTS times leave the queue. Newest first.
+// items that failed grading MAX_ATTEMPTS times leave the queue.
 export async function auxClaim(env, body) {
   const limit = Math.max(1, Math.min(AUX_MAX_CLAIM, Math.trunc(Number(body?.limit)) || AUX_DEFAULT_CLAIM));
   const runId = String(body?.run_id || crypto.randomUUID()).slice(0, 80);
@@ -147,14 +199,15 @@ export async function auxClaim(env, body) {
     .bind(MAX_ATTEMPTS, now).run();
   // One statement, so concurrent claims can never share items or reopen a
   // graded one: the outer WHERE re-checks state.
+  const old = nowIso(Date.now() - AUX_OLD_HOURS * 3_600_000);
   await env.DB.prepare(
-    `UPDATE aux_items SET state='claimed', claim_id=?1, claimed_until=?2, attempts=attempts+1
-      WHERE id IN (SELECT id FROM aux_items WHERE state='pending' OR (state='claimed' AND claimed_until < ?3)
-                    ORDER BY nm_first_seen DESC, id DESC LIMIT ?4)
-        AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
-  ).bind(claimId, until, now, limit).run();
-  const items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC, i.id DESC`)
-    .bind(claimId).all()).results || [];
+    `UPDATE aux_items SET state='claimed', claim_id=?2, claimed_until=?3, attempts=attempts+1
+      WHERE id IN (SELECT i.id FROM aux_items i WHERE i.state='pending' OR (i.state='claimed' AND i.claimed_until < ?4)
+                    ORDER BY ${CLAIM_ORDER} LIMIT ?5)
+        AND (state='pending' OR (state='claimed' AND claimed_until < ?4))`,
+  ).bind(old, claimId, until, now, limit).run();
+  const items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ?2 ORDER BY ${CLAIM_ORDER}`)
+    .bind(old, claimId).all()).results || [];
   // Timeliness is measured from first sighting, never from grading time.
   for (const it of items) {
     it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
@@ -386,7 +439,7 @@ export async function auxLabels(env, url) {
   const days = Math.max(1, Math.min(365, Number(q.get("days")) || 30));
   const since = nowIso(Date.now() - days * 86_400_000);
   const rows = (await env.DB.prepare(
-    `SELECT f.id AS feedback_id, f.label, f.note, f.created_at, i.id AS item_id, COALESCE(cg.entity, g.entity, i.entity_name) AS entity,
+    `SELECT f.id AS feedback_id, f.label, f.reason, f.note, f.created_at, i.id AS item_id, COALESCE(cg.entity, g.entity, i.entity_name) AS entity,
             i.entity_key, i.status, i.source_key, i.title, i.url,
             g.score AS graded_score, g.band AS graded_band, g.why AS graded_why,
             cg.score AS current_score, cg.band AS current_band, cg.why AS current_why
@@ -424,21 +477,28 @@ const parseList = (s) => { try { const v = JSON.parse(s || "[]"); return Array.i
 export async function auxFeed(env, url) {
   const q = url.searchParams;
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 50));
+  const toLabel = q.get("sort") === "to_label";
   const where = [], binds = [];
   const pinParam = Number(q.get("pin_lead_hours") ?? PIN_LEAD_HOURS);
-  const pinHours = q.get("order") === "newest" ? 0 : Math.max(0, Math.min(24 * 30, Number.isFinite(pinParam) ? pinParam : PIN_LEAD_HOURS));
+  const pinHours = q.get("order") === "newest" || toLabel ? 0 : Math.max(0, Math.min(24 * 30, Number.isFinite(pinParam) ? pinParam : PIN_LEAD_HOURS));
   const pinSince = nowIso(Date.now() - pinHours * 3_600_000);
+  // For You (the default order): a demoted source's cards count DEMOTE_POINTS
+  // lower for pinning and min_score, as in /v1/feed.
+  const forYou = q.get("order") !== "newest" && !toLabel;
+  const SCORE = forYou ? `(g.score - CASE WHEN i.source_key IN ${DEMOTED_SQL} THEN ${DEMOTE_POINTS} ELSE 0 END)` : "g.score";
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
-  const PINNED = pinHours > 0 ? "(CASE WHEN g.band = 'lead' AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)" : "0";
+  const PINNED = pinHours > 0 ? `(CASE WHEN g.band = 'lead' AND ${SCORE} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   const entity = squash(q.get("entity") || "").slice(0, 80);
   if (entity) { const m = entityFilter(entity); where.push(m.sql); binds.push(...m.binds); }
+  // A muted source's cards are hidden (source prefs, tuning.js).
+  where.push(`i.source_key NOT IN ${MUTED_SQL}`);
   // Paging, as /v1/feed: a negative cursor means the last page ended inside the
   // pinned Leads (the rest of them come next, then the newest-first list); a
   // positive one continues the newest-first list after every pinned Lead.
   const before = Number(q.get("before_id"));
   const BEFORE = "i.nm_rowid < (SELECT b.nm_rowid FROM aux_items b WHERE b.id = ?)";
-  if (Number.isInteger(before) && before !== 0) {
+  if (Number.isInteger(before) && before !== 0 && !toLabel) {
     if (pinHours > 0 && before < 0) { where.push(`(${PINNED} = 0 OR ${BEFORE})`); binds.push(pinSince, -before); }
     else if (pinHours > 0) { where.push(BEFORE, `${PINNED} = 0`); binds.push(before, pinSince); }
     else { where.push(BEFORE); binds.push(Math.abs(before)); }
@@ -446,30 +506,38 @@ export async function auxFeed(env, url) {
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
   if (q.get("include_covered") !== "1") where.push("(g.band IS NULL OR g.band != 'covered')", "(i.coverage_subject = 0 OR i.grade_id IS NOT NULL)");
   const minScore = Number(q.get("min_score"));
-  if (q.get("min_score") !== null && q.get("min_score") !== "" && Number.isFinite(minScore)) { where.push("g.score >= ?"); binds.push(minScore); }
+  if (q.get("min_score") !== null && q.get("min_score") !== "" && Number.isFinite(minScore)) { where.push(`${SCORE} >= ?`); binds.push(minScore); }
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
-  if (q.get("unlabeled") === "1") where.push("NOT EXISTS (SELECT 1 FROM aux_feedback f WHERE f.item_id = i.id)");
+  if (q.get("unlabeled") === "1" || toLabel) where.push("NOT EXISTS (SELECT 1 FROM aux_feedback f WHERE f.item_id = i.id)");
+  // sort=to_label (Z10, lib.js TO_LABEL_ORDER): graded, unlabeled, recent; no paging.
+  if (toLabel) {
+    where.push("i.state = 'graded'", "g.score IS NOT NULL", "i.nm_first_seen >= ?");
+    binds.push(nowIso(Date.now() - TO_LABEL_DAYS * 86_400_000));
+  }
   const sql = `SELECT i.id AS item_id, COALESCE(g.entity, i.entity_name) AS entity, i.entity_key, i.status, i.source_key, i.title, i.url, i.published,
       i.nm_first_seen AS first_seen, i.state, i.skip_reason, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet,
       g.id AS grade_id, g.score, g.band, g.event_type, g.why, g.reads_through, g.confidence, g.read_source, g.flags, g.covered_ticker, g.dup_of,
-      g.graded_at, ${PINNED} AS pinned,
+      g.graded_at, ${PINNED} AS pinned, (i.source_key IN ${DEMOTED_SQL}) AS demoted,
       (SELECT label FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label,
-      (SELECT note FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label_note
+      (SELECT note FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label_note,
+      (SELECT reason FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS my_reason
     FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
-    ORDER BY pinned DESC, i.nm_rowid DESC LIMIT ?`;
+    ORDER BY ${toLabel ? `${TO_LABEL_ORDER}, i.nm_rowid DESC` : "pinned DESC, i.nm_rowid DESC"} LIMIT ?`;
   const rows = (await env.DB.prepare(sql).bind(...pinBinds, ...binds, limit).all()).results || [];
   for (const r of rows) {
     r.reads_through = parseList(r.reads_through);
     r.flags = parseList(r.flags);
     r.pinned = r.pinned ? 1 : 0;
+    r.demoted = r.demoted ? 1 : 0;
+    r.my_label = r.label;
     // The event date, when it is older than news-monitor's first sighting.
     r.event_date = olderEventDate(r.published, r.first_seen);
   }
   let next = null;
-  if (rows.length === limit) {
+  if (rows.length === limit && !toLabel) {
     const last = rows[rows.length - 1];
     next = last.pinned ? -last.item_id : last.item_id;
   }
@@ -483,6 +551,8 @@ export async function auxFeedback(env, body) {
   const label = String(body?.label || "").toLowerCase();
   if (!Number.isInteger(itemId)) return json({ error: "item_id required" }, 400);
   if (!LABELS.includes(label)) return json({ error: `label must be one of ${LABELS.join(", ")}` }, 400);
+  const why = labelReason(body);
+  if (!why.ok) return json({ error: why.error }, 400);
   const item = await env.DB.prepare("SELECT i.id, i.grade_id, g.score FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id WHERE i.id = ?")
     .bind(itemId).first();
   if (!item) return json({ error: "unknown item" }, 404);
@@ -490,9 +560,9 @@ export async function auxFeedback(env, body) {
     return json({ error: `${label} needs a scored grade to compare against` }, 400);
   }
   const note = body?.note ? String(body.note).slice(0, 1000) : null;
-  const res = await env.DB.prepare("INSERT INTO aux_feedback (item_id, grade_id, label, note, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(itemId, item.grade_id ?? null, label, note, nowIso()).run();
-  return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: item.grade_id ?? null });
+  const res = await env.DB.prepare("INSERT INTO aux_feedback (item_id, grade_id, label, note, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(itemId, item.grade_id ?? null, label, note, why.reason, nowIso()).run();
+  return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: item.grade_id ?? null, reason: why.reason });
 }
 
 // The aux block of GET /v1/stats. entities: the names graded in the last 30

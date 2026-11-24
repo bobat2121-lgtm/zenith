@@ -185,6 +185,10 @@ test("entity: a peers key, else the longest peers or auxiliary key prefix, else 
   assert.equal(sources.volvo_autonomous.entity, "volvo");
   assert.equal(sources.verkada_updates.entity, "verkada", "prefix is another auxiliary source");
   assert.equal(sources.space_eyes_sec.entity, "space_eyes", "longest prefix wins over space");
+  // SEC filing adapters are marked sec (zenith-core never mutes them); other sources are not.
+  assert.equal(sources.maymobility_sec.sec, true);
+  assert.equal(sources.space_eyes_sec.sec, true);
+  assert.equal(sources.maymobility_news.sec, undefined);
   assert.equal(sources.nga.entity, "nga");
 });
 

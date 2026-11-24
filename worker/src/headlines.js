@@ -22,11 +22,14 @@ export const EXCERPT_CHARS = 1200;
 // shown: only cards the app can show get a backfilled headline, so the pass
 // never spends its batches on duplicates, covered-name auxiliary items or
 // tickers dropped from coverage (SSTI, REKR).
+// A muted source's cards are hidden too (source_prefs, tuning.js MUTED_SQL;
+// written out here, as tuning.js imports this module).
+const NOT_MUTED = "source_key NOT IN (SELECT source_key FROM source_prefs WHERE action = 'mute')";
 const KINDS = {
   coverage: { table: "items", grades: "grades", name: "i.ticker",
-    shown: `ticker IN ${universeSql(COVERED.tickers)} AND (SELECT band FROM grades WHERE grades.id = items.grade_id) IS NOT 'duplicate'` },
+    shown: `ticker IN ${universeSql(COVERED.tickers)} AND (SELECT band FROM grades WHERE grades.id = items.grade_id) IS NOT 'duplicate' AND ${NOT_MUTED}` },
   aux: { table: "aux_items", grades: "aux_grades", name: "COALESCE(g.entity, i.entity_name) AS entity",
-    shown: "(SELECT band FROM aux_grades WHERE aux_grades.id = aux_items.grade_id) NOT IN ('duplicate', 'covered')" },
+    shown: `(SELECT band FROM aux_grades WHERE aux_grades.id = aux_items.grade_id) NOT IN ('duplicate', 'covered') AND ${NOT_MUTED}` },
 };
 
 const clampInt = (v, lo, hi, dflt) => Math.max(lo, Math.min(hi, Math.trunc(Number(v)) || dflt));
@@ -68,6 +71,15 @@ export async function headlineClaim(env, body) {
     remaining += left?.n || 0;
   }
   return { claim_id: claimId, lease_minutes: LEASE_MINUTES, days, items, remaining };
+}
+
+// Graded cards the app shows that still have no headline (both kinds, leased
+// or not), first seen in the last `days` days: the grader health backlog (GET /v1/ops).
+export async function headlinesWaiting(env, days = HEADLINE_DEFAULT_DAYS) {
+  const since = nowIso(Date.now() - days * 86_400_000);
+  let n = 0;
+  for (const k of Object.values(KINDS)) n += (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${k.table} WHERE ${waiting(k)}`).bind(since).first())?.n || 0;
+  return n;
 }
 
 const itemId = (v) => {

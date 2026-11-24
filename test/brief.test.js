@@ -153,7 +153,7 @@ test("calibration: label ranges, explicit too high / too low, per band and ticke
   const db = new D1();
   // Stand-in for the grading stream's 0005 migration, which adds the too_high /
   // too_low labels: the feedback CHECK in 0001 allows only the four range labels.
-  db.exec(`CREATE TABLE feedback2 (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, label TEXT NOT NULL, note TEXT, grade_id INTEGER, created_at TEXT NOT NULL);
+  db.exec(`CREATE TABLE feedback2 (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, label TEXT NOT NULL, note TEXT, grade_id INTEGER, reason TEXT, created_at TEXT NOT NULL);
            DROP TABLE feedback; ALTER TABLE feedback2 RENAME TO feedback;`);
   const now = Date.now();
   const label = async (ticker, score, lab, ageDays = 1) => {

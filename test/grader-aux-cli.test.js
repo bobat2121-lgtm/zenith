@@ -295,6 +295,46 @@ test("aux-labels leaves out labels the grade agrees with and grades with no scor
   assert.deepEqual(readJson(zen(cwd, "aux-labels.json")).map((l) => [l.item_id, l.gap]), [[4, 25]]);
 });
 
+test("labels and aux-labels print the analyst's reason code (reason=...) and what the codes are", async () => {
+  const cwd = workdir();
+  routes.set("GET /v1/labels", () => ({ json: { labels: [
+    { item_id: 5, ticker: "RCAT", title: "Red Cat webinar", label: "noise", reason: "marketing", graded_score: 72, current_score: 72, current_band: "digest", note: null },
+    { item_id: 6, ticker: "PL", title: "Planet Q3", label: "too_low", reason: "missed_detail", graded_score: 60, current_score: 60, current_band: "borderline" },
+    { item_id: 9, ticker: "SYM", title: "Symbotic order", label: "high", reason: null, graded_score: 50, current_score: 50, current_band: "borderline" },
+  ] } }));
+  const r = await run(cwd, ["labels"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /reason= is why the analyst labelled it \(GRADER\.md step 3\): not_material, duplicate, wrong_company, stale, marketing, not_my_focus, missed_detail\./);
+  const lines = r.stdout.split("\n").filter((l) => l.startsWith("- "));
+  assert.deepEqual(lines, [
+    "- [RCAT] item_id=5 analyst=NOISE (0-29) reason=marketing grade now=72 (digest) :: Red Cat webinar",
+    "- [SYM] item_id=9 analyst=HIGH (80-100) grade now=50 (borderline) :: Symbotic order",
+    "- [PL] item_id=6 analyst=TOO LOW of 60 (61-100) reason=missed_detail grade now=60 (borderline) :: Planet Q3",
+  ]);
+  assert.equal(readJson(zen(cwd, "labels.json"))[0].reason, "marketing");
+
+  routes.set("GET /v1/aux/labels", () => ({ json: { labels: [
+    { item_id: 7, entity: "Waymo", title: "Waymo in Denver", label: "noise", reason: "wrong_company", graded_score: 60, current_score: 60, current_band: "borderline" },
+  ] } }));
+  const a = await run(cwd, ["aux-labels"]);
+  assert.equal(a.code, 0, a.stderr);
+  assert.match(a.stdout, /reason= is why the analyst labelled it/);
+  assert.deepEqual(a.stdout.split("\n").filter((l) => l.startsWith("- ")),
+    ["- [Waymo] item_id=7 analyst=NOISE (0-29) reason=wrong_company grade now=60 (borderline) :: Waymo in Denver"]);
+});
+
+test("GRADER.md says what each label reason code means, for coverage and auxiliary labels", () => {
+  const md = readFileSync(join(root, "grader", "GRADER.md"), "utf8");
+  const step3 = /^3\. [\s\S]*?(?=^4\. )/m.exec(md)[0];
+  for (const code of ["not_material", "duplicate", "wrong_company", "stale", "marketing", "not_my_focus", "missed_detail"]) assert.ok(step3.includes(`\`${code}\`: `), code);
+  assert.match(step3, /`wrong_company`: the item is not about that company; check the ticker routing/);
+  assert.match(step3, /`stale`: old news when first seen; apply the timeliness rule more strictly to\s+that source/);
+  const step5 = /^5\. [\s\S]*?(?=^6\. )/m.exec(md)[0];
+  assert.match(step5, /aux-labels 30[\s\S]*`reason=<code>` means what step 3 says/);
+  // Rival items routed to the auxiliary pass (round 4 Z11).
+  assert.match(step5, /A rival's item that names neither a covered company nor one of its key accounts/);
+});
+
 function claimDir() {
   const cwd = workdir();
   mkdirSync(zen(cwd, "rubric"), { recursive: true });

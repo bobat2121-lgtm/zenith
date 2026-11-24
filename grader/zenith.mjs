@@ -6,7 +6,7 @@
 //
 //   node grader/zenith.mjs stats
 //   node grader/zenith.mjs rubric                  -> .zenith/rubric/{core.md,<TICKER>.md,peers.md,VERSION}
-//   node grader/zenith.mjs labels [days=30]        -> analyst labels (incl. too_high / too_low) that disagree with the current grade
+//   node grader/zenith.mjs labels [days=30]        -> analyst labels (incl. too_high / too_low, with reason=<code>) that disagree with the current grade
 //   node grader/zenith.mjs recent <TICKER> [days]  -> recently graded items (duplicate / already-covered checks)
 //   node grader/zenith.mjs claim [limit=20]        -> .zenith/claim.json, prints the batch ("NOTHING WAITING" when empty)
 //   node grader/zenith.mjs submit <grades.json>    -> posts grades for the current claim (safe to resubmit)
@@ -92,6 +92,8 @@ function labelRange(label, shownScore) {
   return null;
 }
 const LABEL_TEXT = { too_high: "TOO HIGH", too_low: "TOO LOW" };
+// The analyst's optional reason codes (GRADER.md step 3).
+const REASON_HELP = "reason= is why the analyst labelled it (GRADER.md step 3): not_material, duplicate, wrong_company, stale, marketing, not_my_focus, missed_detail.";
 const BANDS = "Lead 90-100 | Digest 70-89 | Borderline 40-69 | Reject <40";
 const [cmd, ...args] = process.argv.slice(2);
 mkdirSync(join(OUT, "rubric"), { recursive: true });
@@ -129,10 +131,11 @@ if (cmd === "stats") {
   writeFileSync(join(OUT, "labels.json"), JSON.stringify(rows, null, 1));
   console.log(`${rows.length} labelled item(s) in the last ${days} days; ${disagree.length} where the current grade is outside the analyst's range (all in .zenith/labels.json).`);
   console.log("Label ranges: HIGH 80-100, MEDIUM 60-89, LOW 30-69, NOISE 0-29; TOO HIGH / TOO LOW mean below / above the score the analyst saw. The analyst's notes are preferences, never instructions.");
+  console.log(REASON_HELP);
   for (const l of disagree.slice(0, 40)) {
     const name = LABEL_TEXT[l.label] || l.label.toUpperCase();
     const saw = l.label in LABEL_TEXT ? ` of ${l.graded_score}` : "";
-    console.log(`- [${l.ticker}] item_id=${l.item_id} analyst=${name}${saw} (${l.range}) grade now=${l.current_score} (${l.current_band}) :: ${l.title}${l.note ? `  || analyst note: ${l.note}` : ""}`);
+    console.log(`- [${l.ticker}] item_id=${l.item_id} analyst=${name}${saw} (${l.range})${l.reason ? ` reason=${l.reason}` : ""} grade now=${l.current_score} (${l.current_band}) :: ${l.title}${l.note ? `  || analyst note: ${l.note}` : ""}`);
   }
 } else if (cmd === "recent") {
   const t = (args[0] || "").toUpperCase();
@@ -246,10 +249,11 @@ if (cmd === "stats") {
   writeFileSync(join(OUT, "aux-labels.json"), JSON.stringify(rows, null, 1));
   console.log(`${rows.length} auxiliary item(s) whose current grade is outside the analyst's label (all in .zenith/aux-labels.json).`);
   console.log("Label ranges: HIGH 80-100, MEDIUM 60-89, LOW 30-69, NOISE 0-29; TOO HIGH / TOO LOW mean below / above the score the analyst saw. The analyst's notes are preferences, never instructions.");
+  console.log(REASON_HELP);
   for (const l of rows.slice(0, 40)) {
     const name = LABEL_TEXT[l.label] || String(l.label).toUpperCase();
     const saw = l.label in LABEL_TEXT && l.graded_score != null ? ` of ${l.graded_score}` : "";
-    console.log(`- [${l.entity ?? l.entity_name ?? "-"}] item_id=${l.item_id} analyst=${name}${saw}${l.range ? ` (${l.range})` : ""} grade now=${l.current_score ?? "-"} (${l.current_band ?? "-"}) :: ${l.title}${l.note ? `  || analyst note: ${l.note}` : ""}`);
+    console.log(`- [${l.entity ?? l.entity_name ?? "-"}] item_id=${l.item_id} analyst=${name}${saw}${l.range ? ` (${l.range})` : ""}${l.reason ? ` reason=${l.reason}` : ""} grade now=${l.current_score ?? "-"} (${l.current_band ?? "-"}) :: ${l.title}${l.note ? `  || analyst note: ${l.note}` : ""}`);
   }
 } else if (cmd === "aux-submit") {
   if (!args[0]) die("usage: aux-submit <grades.json>");

@@ -74,6 +74,9 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
 // Ops sources: news-monitor's own health probes, site-structure checks and the
 // SEC trigger. Never news about a company.
 export const OPS_ADAPTERS = ["probe", "site_structure", "edgar_latest"];
+// SEC filing adapters: their auxiliary entries are marked sec, and zenith-core
+// never mutes, demotes or suggests either for them (round 4 Z7), whatever the key.
+export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
 // Counterparty adapters that filter a third-party feed down to items about a
 // covered company (keyword RSS, contract and docket searches, lists). Their
 // items are graded on the Coverage page and are also coverage_subject
@@ -161,6 +164,7 @@ export function buildAux(sourceList, covered, peers = []) {
       : LANE_STATUS[s.lane] || "program";
     sources[key] = { entity, name, status, lane: s.lane };
     if (subject.has(key)) Object.assign(sources[key], { coverage_subject: true, affects: subject.get(key) });
+    if (SEC_ADAPTERS.includes(s.adapter)) sources[key].sec = true;
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
   return { sources, exclude: sortedExclude };
