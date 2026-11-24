@@ -1491,9 +1491,10 @@ def _decide(row: dict, action: str) -> None:
     key = _exp_key(row)
     reason = st.session_state.get(f"{key}:reason") if action == "reject" else None
     tickers = st.session_state.get(f"{key}:tk") if action == "approve" else None
+    # Any decision clears the reject picker and its confirm together, saved or not:
+    # a reason left showing with no confirm row could not be re-picked to get it back.
     st.session_state.pop(f"{key}:confirm", None)
-    if action == "reject":
-        st.session_state[f"{key}:reason"] = None  # the picker starts empty again, saved or not
+    st.session_state[f"{key}:reason"] = None
     body = decide_body(row, action, reason, tickers)
     try:
         post_json("/v1/expansion/decide", body)

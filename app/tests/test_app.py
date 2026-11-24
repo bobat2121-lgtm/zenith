@@ -1769,6 +1769,23 @@ class ExpansionPages(AppBase):
         self.assertTrue(self.toasts()[0].startswith("UNMAS not saved: "))
         self.assertIsNone(self.at.selectbox(key="tune-exp-9:reason").value)
 
+    def test_refused_approve_after_a_reason_keeps_picker_and_confirm_in_step(self):
+        self.api.post_errors["/v1/expansion/decide"] = (400, "nope")
+        self.open_tuning()
+        self.at.selectbox(key="tune-exp-7:reason").set_value("duplicate")
+        self.run_app()
+        self.assertTrue([b for b in self.at.button if b.key == "tune-exp-7:yes"])
+        self.at.button(key="tune-exp-7:approve").click()
+        self.run_app()
+        self.assertEqual(self.toasts(), ["Upgrade Energy not saved: nope"])
+        # No reason left showing without its confirm row.
+        self.assertIsNone(self.at.selectbox(key="tune-exp-7:reason").value)
+        self.assertFalse([b for b in self.at.button if b.key == "tune-exp-7:yes"])
+        # Picking the same reason again brings the confirm back.
+        self.at.selectbox(key="tune-exp-7:reason").set_value("duplicate")
+        self.run_app()
+        self.assertTrue([b for b in self.at.button if b.key == "tune-exp-7:yes"])
+
     def test_approved_filter_offers_reject_only(self):
         self.open_tuning()
         self.at.segmented_control(key="tune-exp-status").set_value("approved")
