@@ -225,7 +225,7 @@ test("status: peers public/private, else companyStatus, else from the lane", () 
   assert.equal(sources.regional_news.status, "program");
 });
 
-test("a shadow source (shadow: true) is never written to covered.json or aux-sources.json, with one warning per key", () => {
+test("a shadow source (shadow: true) is never in covered.json and is excluded in aux-sources.json, with one warning per key", () => {
   const list = [
     { key: "redcat", lane: "covered", covered: true, coveredTicker: "RCAT", adapter: "rss", name: "Red Cat (RCAT)" },
     { key: "unusual", lane: "covered", covered: true, coveredTicker: "UMAC", adapter: "rss", name: "Unusual Machines (UMAC)" },
@@ -241,7 +241,7 @@ test("a shadow source (shadow: true) is never written to covered.json or aux-sou
   assert.equal(covered.sources.drv_drone_industrial_policy, undefined);
   for (const key of ["drv_drone_industrial_policy", "drv_shadow_plain"]) {
     assert.equal(covered.warnings.filter((w) => w.startsWith(`${key}:`)).length, 1, `${key} warned once`);
-    assert.match(covered.warnings.find((w) => w.startsWith(`${key}:`)), /shadow source \(shadow: true\), left out of covered\.json and aux-sources\.json/);
+    assert.match(covered.warnings.find((w) => w.startsWith(`${key}:`)), /shadow source \(shadow: true\), left out of covered\.json and excluded in aux-sources\.json/);
   }
   const aux = buildAux(list, covered, []);
   for (const key of ["drv_drone_industrial_policy", "drv_shadow_plain"]) {

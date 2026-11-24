@@ -116,7 +116,8 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
     }
   }
   for (const [key, why] of Object.entries(aux.exclude)) {
-    assert.equal(why, "ops", `${key} ${why}`);
+    assert.ok(why === "ops" || why === "shadow", `${key} ${why}`);
+    if (why === "shadow") assert.ok(!(key in covered.sources) && !(key in covered.counterparty), `${key} shadow is not covered`);
     assert.equal(auxRoute(key), null, key);
   }
   assert.equal(auxRoute("anduril").entity_key, "anduril");
