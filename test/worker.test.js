@@ -33,7 +33,9 @@ test("routes: brief, calendar and calibration need the right role", async () => 
   const cal = await (await call(env, "/v1/calendar?days=60&ticker=pl", { token: "grader-t" })).json();
   assert.ok(cal.entries.length > 0 && cal.entries.every((e) => e.ticker === "PL"));
   const c = await (await call(env, "/v1/calibration", { token: "app-t" })).json();
-  assert.equal(c.all_time.n, 0);
+  assert.equal(c.coverage.all_time.n, 0);
+  assert.equal(c.aux.all_time.n, 0);
+  assert.deepEqual(c.reasons, {});
 });
 
 test("/m is served by zenith-core, labels land through the real feedback handler", async () => {

@@ -1,11 +1,13 @@
-"""Zenith — graded research feeds in two pages.
+"""Zenith — graded research feeds in two pages, plus Tuning.
 
 Coverage Universe (default): the covered universe, from zenith-core's /v1/feed,
 labels to /v1/feedback. Auxiliary Names: material news on every other company
 or program news-monitor follows, from /v1/aux/feed, labels to
 /v1/aux/feedback. Both read /v1/stats; the Coverage page also reads
-/v1/source-health and /v1/site-changes. These are the only routes the app token
-may use. Shared code lives in zenith_feed.py; the pages are in views/.
+/v1/source-health, /v1/site-changes and /v1/ops. Tuning reads /v1/calibration,
+/v1/source-yield, /v1/left-out and /v1/ops, and saves /v1/source-prefs and
+/v1/left-out/grade. These are the only routes the app token may use. Shared code
+lives in zenith_feed.py; the pages are in views/.
 Configure with .streamlit/secrets.toml (ZENITH_API, ZENITH_APP_TOKEN) or the
 same names as environment variables.
 """
@@ -30,4 +32,5 @@ if not api_base() or not setting("ZENITH_APP_TOKEN"):
 st.navigation([
     st.Page("views/coverage.py", title="Coverage Universe", icon=":material/star:", default=True),
     st.Page("views/auxiliary.py", title="Auxiliary Names", icon=":material/travel_explore:", url_path="auxiliary"),
+    st.Page("views/tuning.py", title="Tuning", icon=":material/tune:", url_path="tuning"),
 ], position="top").run()

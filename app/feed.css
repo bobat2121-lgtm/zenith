@@ -43,6 +43,7 @@ a { color: var(--z-red-text) !important; }
 .z-badge.pending { border-style: dashed; }
 .z-badge.duplicate, .z-badge.covered, .z-badge.other { color: var(--z-faint); border-style: dotted; }
 .z-badge.also { color: var(--z-text); }
+.z-badge.pick { border-color: var(--z-red-text); color: var(--z-text); }
 .z-badge.src { font-weight: 600; }
 
 /* One hairline between cards (keyed card containers carry st-key-zcard-*). */
@@ -77,3 +78,48 @@ div.st-key-zhealth [data-testid="stPopover"] button { min-height: 1.5rem; paddin
 .z-site.notable { border-left: 3px solid var(--z-red); padding-left: .5rem; }
 .z-site-detail { color: var(--z-soft); font-size: .84rem; line-height: 1.35; margin-top: .12rem; overflow-wrap: anywhere; }
 .z-site-detail code { font-size: .78rem; }
+
+/* Coverage page: grader health strip from /v1/ops (same look as the source-health strip). */
+div.st-key-zgrader { flex-wrap: wrap !important; row-gap: .2rem; margin-top: -.6rem; }
+div.st-key-zgrader [data-testid="stPopover"] button { min-height: 1.5rem; padding: 0 .55rem; font-size: .74rem; border-radius: 999px;
+  white-space: nowrap; }
+/* At 375 px a strip (or a Source yield row) wraps and its control drops to the next row:
+   Streamlit's -1rem markdown margin would pull the control over the text. */
+div.st-key-zhealth [data-testid="stMarkdownContainer"], div.st-key-zgrader [data-testid="stMarkdownContainer"],
+div[class*="st-key-zyield-"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
+
+/* Reason picker under a card's label row: one compact select that stays on one line
+   at 375 px. Like the label buttons, it never spills past the card and its text never wraps. */
+div[class*="st-key-zreason-"] { max-width: 100%; min-width: 0; margin-top: -.3rem; }
+div[class*="st-key-zreason-"] [data-testid="stSelectbox"] { max-width: 100%; min-width: 0; }
+div[class*="st-key-zreason-"] [data-baseweb="select"] > div { min-height: 1.75rem; font-size: .78rem; }
+div[class*="st-key-zreason-"] [data-baseweb="select"] * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Tuning page: tables scroll inside their own box on a narrow screen, never the page. */
+.z-scroll { overflow-x: auto; max-width: 100%; }
+.z-table { border-collapse: collapse; font-size: .8rem; width: 100%; color: var(--z-soft); }
+.z-table th { color: var(--z-dim); font-weight: 600; text-align: left; }
+.z-table th, .z-table td { border-bottom: 1px solid var(--z-line); padding: .2rem .45rem; white-space: nowrap; }
+.z-table td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 12rem; }
+/* Source yield rows: the counts and the Mute / Demote / Normal control wrap as a whole,
+   each button's text on one line (the label-row rules). */
+div[class*="st-key-zyield-"], div[class*="st-key-zconfirm-"] { flex-wrap: wrap !important; row-gap: .3rem; max-width: 100%; }
+div[class*="st-key-zyield-"] { border-bottom: 1px solid var(--z-line); padding-bottom: .3rem; }
+div[class*="st-key-zyield-"] > div, div[class*="st-key-zconfirm-"] > div { max-width: 100%; min-width: 0; }
+div[class*="st-key-zyield-"] [data-testid="stButtonGroup"] { flex-wrap: wrap; max-width: 100%; row-gap: .35rem; }
+div[class*="st-key-zyield-"] [data-testid="stButtonGroup"] button { min-height: 1.75rem; padding: 0 .55rem; font-size: .78rem;
+  white-space: nowrap; flex: 0 0 auto; width: auto; min-width: max-content; }
+div[class*="st-key-zyield-"] [data-testid="stButtonGroup"] button * { white-space: nowrap; }
+.z-yield { min-width: 0; }
+.z-yield .z-name { overflow-wrap: anywhere; }
+.z-yield-stats { color: var(--z-dim); font-size: .78rem; overflow-wrap: anywhere; }
+
+/* Sort control and its "How labels work" popover: one row that wraps at 375 px,
+   each button's text on one line. */
+div[class*="st-key-zmode-"] { flex-wrap: wrap !important; row-gap: .3rem; max-width: 100%; justify-content: flex-end; }
+div[class*="st-key-zmode-"] > div { max-width: 100%; min-width: 0; }
+div[class*="st-key-zmode-"] [data-testid="stButtonGroup"] { flex-wrap: wrap; max-width: 100%; row-gap: .35rem; }
+div[class*="st-key-zmode-"] [data-testid="stButtonGroup"] button,
+div[class*="st-key-zmode-"] [data-testid="stPopover"] button { white-space: nowrap; flex: 0 0 auto; min-width: max-content; }
+div[class*="st-key-zmode-"] [data-testid="stPopover"] button { min-height: 1.75rem; padding: 0 .6rem; font-size: .78rem; border-radius: 999px; }
+div[class*="st-key-zmode-"] button * { white-space: nowrap; }

@@ -53,12 +53,53 @@ test("covered.json counterparty map only names covered tickers and polled roles"
   assert.ok(!covered.tickers.includes("SSTI") && !covered.tickers.includes("REKR"), "SSTI and REKR left coverage on 2026-11-20");
 });
 
-test("every covered ticker has match terms, and key accounts come from its sheet", () => {
+// Key accounts come from the sheet, or from due diligence (an entry with a
+// source field, e.g. "dd-2026-11-23"), which need not appear in the sheet.
+const keyAccounts = JSON.parse(readFileSync(new URL("../rubric/key-accounts.json", import.meta.url), "utf8"));
+const ACCOUNT_KINDS = new Set(["customer", "program", "channel_partner", "partner"]);
+
+test("every covered ticker has match terms, and key accounts come from its sheet or carry a source", () => {
   for (const t of covered.tickers) {
     assert.ok(MATCH[t]?.terms.length, `${t} has sheet terms`);
     const sheet = readFileSync(new URL(`../rubric/companies/${t}.md`, import.meta.url), "utf8").toLowerCase();
-    for (const a of MATCH[t].accounts) assert.ok(sheet.includes(a.toLowerCase()), `${t} key account "${a}" appears in its sheet`);
+    for (const a of keyAccounts[t] || []) {
+      if (a.source) continue;
+      for (const term of a.terms) {
+        if (term.length >= 3) assert.ok(sheet.includes(term.toLowerCase()), `${t} key account "${term}" appears in its sheet`);
+      }
+    }
+    for (const a of MATCH[t].accounts) assert.ok((keyAccounts[t] || []).some((e) => e.terms.includes(a)), `${t} account "${a}" is in key-accounts.json`);
   }
+});
+
+test("key-account entries have a known kind, terms, and only the due-diligence source", () => {
+  for (const [t, list] of Object.entries(keyAccounts)) {
+    if (t.startsWith("_") || t === "company_names") continue;
+    assert.ok(covered.tickers.includes(t), `${t} is covered`);
+    for (const a of list) {
+      assert.ok(ACCOUNT_KINDS.has(a.kind), `${t} ${a.name} kind ${a.kind}`);
+      assert.ok(a.name && a.terms.length, `${t} ${a.name} has terms`);
+      if ("source" in a) assert.equal(a.source, "dd-2026-11-23", `${t} ${a.name} source`);
+    }
+  }
+});
+
+test("due-diligence key accounts reach the match for the 8 tickers (Z12)", () => {
+  for (const t of ["ASST", "AXON", "GRRR", "MSTR", "ONDS", "PUSA", "SERV", "SPAI"]) {
+    const dd = keyAccounts[t];
+    assert.ok(dd?.length, `${t} has key accounts`);
+    assert.ok(dd.every((a) => a.source === "dd-2026-11-23"), `${t} entries keep their source`);
+    assert.ok(MATCH[t].accounts.length, `${t} accounts in the built match`);
+  }
+  assert.ok(keyAccounts.SPAI.some((a) => a.terms.includes("Anduril")) && keyAccounts.SPAI.some((a) => a.terms.includes("Forterra")), "owner named Anduril and Forterra for SPAI");
+  assert.ok(keyAccounts.SERV.some((a) => a.kind === "partner"), "partner kind is used");
+  // A rival item naming a due-diligence account now passes the gate.
+  const flock = covered.counterparty.flock;
+  assert.equal(flock.role, "rival");
+  const r = routeCounterparty("Flock Safety loses NYPD camera contract", flock, MATCH);
+  assert.equal(r.skip, null);
+  assert.equal(r.ticker, "AXON");
+  assert.equal(routeCounterparty("Flock Safety raises Series G", flock, MATCH).skip, "rival_no_key_account");
 });
 
 // Rival headlines that name the covered company by its everyday name (review

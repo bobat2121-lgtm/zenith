@@ -6,18 +6,21 @@
 //           POST /v1/headlines/claim, POST /v1/headlines (headline-only pass; headlines.js)
 //   app   : GET /v1/feed, POST /v1/feedback, GET /v1/stats, GET /v1/aux/feed, POST /v1/aux/feedback,
 //           GET /v1/site-changes, GET /v1/source-health (news-monitor ops signals; source-signals.js)
+//   app   : GET /v1/ops, GET|POST /v1/source-prefs, GET /v1/source-yield, GET /v1/left-out, POST /v1/left-out/grade
+//           (grader health and source tuning; tuning.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
 import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
-import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
 import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
+import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -48,6 +51,13 @@ const ALLOW = {
   // Headline-only pass for graded items without a headline (headlines.js).
   "POST /v1/headlines/claim": ["grader", "admin"],
   "POST /v1/headlines": ["grader", "admin"],
+  // Grader health and source tuning for the app's Tuning page (tuning.js).
+  "GET /v1/ops": ["app", "admin"],
+  "GET /v1/source-prefs": ["app", "admin"],
+  "POST /v1/source-prefs": ["app", "admin"],
+  "GET /v1/source-yield": ["app", "admin"],
+  "GET /v1/left-out": ["app", "admin"],
+  "POST /v1/left-out/grade": ["app", "admin"],
 };
 
 async function readJson(request) {
@@ -173,7 +183,7 @@ async function submitGrades(env, body, role) {
 const SHOWN_GRADE = `(SELECT MAX(gt.id) FROM grades gt WHERE gt.item_id = i.id AND gt.ticker = ?
          AND (gt.ticker = i.ticker OR gt.run_id IS (SELECT run_id FROM grades WHERE id = i.grade_id)))`;
 
-// Lead items first seen in the last PIN_LEAD_HOURS come first, then newest.
+// Lead items (and owner-High cards, Z13) first seen in the last PIN_LEAD_HOURS come first, then newest.
 const PIN_LEAD_HOURS = 72;
 // The feed shows today's universe only: a ticker dropped from covered.json
 // leaves the app with its old items (owner, 2026-11-23).
@@ -182,59 +192,83 @@ const IN_UNIVERSE = universeSql(COVERED.tickers);
 async function feed(env, url) {
   const q = url.searchParams;
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 50));
+  const toLabel = q.get("sort") === "to_label";
   const where = [], binds = [];
   const ticker = (q.get("ticker") || "").toUpperCase();
   const gradeJoin = ticker ? `LEFT JOIN grades g ON g.id = ${SHOWN_GRADE}` : "LEFT JOIN grades g ON g.id = i.grade_id";
   const joinBinds = ticker ? [ticker] : [];
+  // Labels belong to the grade shown: the item under the ticker it is shown for.
+  const LABEL_OF = "f.item_id = i.id AND f.ticker = COALESCE(g.ticker, i.ticker)";
   // order=newest (or pin_lead_hours=0) turns Lead pinning off.
   const pinParam = Number(q.get("pin_lead_hours") ?? PIN_LEAD_HOURS);
-  const pinHours = q.get("order") === "newest" ? 0 : Math.max(0, Math.min(24 * 30, Number.isFinite(pinParam) ? pinParam : PIN_LEAD_HOURS));
+  const pinHours = q.get("order") === "newest" || toLabel ? 0 : Math.max(0, Math.min(24 * 30, Number.isFinite(pinParam) ? pinParam : PIN_LEAD_HOURS));
   const pinSince = nowIso(Date.now() - pinHours * 3_600_000);
+  // For You (the default order): a demoted source's cards count DEMOTE_POINTS
+  // lower for pinning and min_score. Latest (order=newest) and stored scores,
+  // bands and alerts are unchanged.
+  const forYou = q.get("order") !== "newest" && !toLabel;
+  const SCORE = forYou ? `(g.score - CASE WHEN i.source_key IN ${DEMOTED_SQL} THEN ${DEMOTE_POINTS} ELSE 0 END)` : "g.score";
+  // The owner's latest label (lf, joined below) overrides For You placement (Z13, lib.js ownerRank).
+  const owner = ownerRank(SCORE, "lf.label");
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
-  const PINNED = pinHours > 0 ? "(CASE WHEN g.band = 'lead' AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)" : "0";
+  const PINNED = pinHours > 0
+    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
   where.push(`COALESCE(g.ticker, i.ticker) IN ${IN_UNIVERSE}`);
+  // A muted source's cards are hidden (source prefs, tuning.js).
+  where.push(`i.source_key NOT IN ${MUTED_SQL}`);
   // Paging: pass next_before_id back unchanged. A negative cursor means the
   // last page ended inside the pinned Leads: the rest of them (below that id)
   // come next, then the whole newest-first list. A positive one continues the
   // newest-first list after every pinned Lead was shown.
   const before = Number(q.get("before_id"));
-  if (Number.isInteger(before) && before !== 0) {
+  if (Number.isInteger(before) && before !== 0 && !toLabel) {
     if (pinHours > 0 && before < 0) { where.push(`(${PINNED} = 0 OR i.id < ?)`); binds.push(pinSince, -before); }
     else if (pinHours > 0) { where.push("i.id < ?", `${PINNED} = 0`); binds.push(before, pinSince); }
     else { where.push("i.id < ?"); binds.push(Math.abs(before)); }
   }
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
   const minScore = Number(q.get("min_score"));
-  if (q.get("min_score") !== null && Number.isFinite(minScore)) { where.push("g.score >= ?"); binds.push(minScore); }
+  const floor = q.get("min_score") !== null && Number.isFinite(minScore) ? minScore : null;
+  if (floor !== null) {
+    // For You: the owner's High is in whatever the score or state; Noise is out whatever the score.
+    where.push(forYou ? `(${owner.high} OR (${SCORE} >= ? AND NOT ${owner.noise}))` : `${SCORE} >= ?`);
+    binds.push(floor);
+  }
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
-  // Labels belong to the grade shown: the item under the ticker it is shown for.
-  const LABEL_OF = "f.item_id = i.id AND f.ticker = COALESCE(g.ticker, i.ticker)";
-  if (q.get("unlabeled") === "1") where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
+  if (q.get("unlabeled") === "1" || toLabel) where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
+  if (toLabel) {
+    where.push("i.state = 'graded'", "g.score IS NOT NULL", "i.nm_first_seen >= ?");
+    binds.push(nowIso(Date.now() - TO_LABEL_DAYS * 86_400_000));
+  }
   const sql = `SELECT ${ITEM_COLS}, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score, g.band, g.rung,
       g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct, g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source,
-      g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned,
+      g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned, (i.source_key IN ${DEMOTED_SQL}) AS demoted,
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
         WHERE gx.item_id = i.id AND g.id IS NOT NULL AND gx.ticker != g.ticker AND gx.run_id IS g.run_id
           AND gx.ticker IN ${IN_UNIVERSE}) AS also,
-      (SELECT label FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label,
-      (SELECT note FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label_note
+      lf.label AS label, lf.note AS label_note, lf.reason AS my_reason
     FROM items i ${gradeJoin}
+    LEFT JOIN feedback lf ON lf.id = (SELECT MAX(f.id) FROM feedback f WHERE ${LABEL_OF})
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
-    ORDER BY pinned DESC, i.id DESC LIMIT ?`;
+    ORDER BY ${toLabel ? `${TO_LABEL_ORDER}, i.id DESC` : "pinned DESC, i.id DESC"} LIMIT ?`;
   const rows = (await env.DB.prepare(sql).bind(...pinBinds, ...joinBinds, ...binds, limit).all()).results || [];
   for (const r of rows) {
     r.thesis_drivers = r.thesis_drivers ? JSON.parse(r.thesis_drivers) : [];
     r.flags = r.flags ? JSON.parse(r.flags) : [];
     r.pinned = r.pinned ? 1 : 0;
+    r.demoted = r.demoted ? 1 : 0;
+    r.my_label = r.label;
+    // In For You only because of the owner's High (Z13): the app's "Your pick".
+    r.owner_pick = forYou ? ownerPick(r, floor, DEMOTE_POINTS) : 0;
     // The event date, when it is older than news-monitor's first sighting.
     r.event_date = olderEventDate(r.published, r.first_seen);
   }
   let next = null;
-  if (rows.length === limit) {
+  if (rows.length === limit && !toLabel) {
     const last = rows[rows.length - 1];
     next = last.pinned ? -last.item_id : last.item_id;
   }
@@ -248,6 +282,8 @@ async function feedback(env, body) {
   const label = String(body?.label || "").toLowerCase();
   if (!Number.isInteger(itemId)) return json({ error: "item_id required" }, 400);
   if (!LABELS.includes(label)) return json({ error: `label must be one of ${LABELS.join(", ")}` }, 400);
+  const why = labelReason(body);
+  if (!why.ok) return json({ error: why.error }, 400);
   const item = await env.DB.prepare("SELECT id, ticker, grade_id FROM items WHERE id = ?").bind(itemId).first();
   if (!item) return json({ error: "unknown item" }, 404);
   const ticker = body?.ticker ? String(body.ticker).toUpperCase() : null;
@@ -271,9 +307,9 @@ async function feedback(env, body) {
   }
   const labelTicker = grade?.ticker ?? item.ticker;
   const note = body?.note ? String(body.note).slice(0, 1000) : null;
-  const res = await env.DB.prepare("INSERT INTO feedback (item_id, label, note, grade_id, ticker, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(itemId, label, note, grade?.id ?? null, labelTicker, nowIso()).run();
-  return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: grade?.id ?? null, ticker: labelTicker });
+  const res = await env.DB.prepare("INSERT INTO feedback (item_id, label, note, grade_id, ticker, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(itemId, label, note, grade?.id ?? null, labelTicker, why.reason, nowIso()).run();
+  return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: grade?.id ?? null, ticker: labelTicker, reason: why.reason });
 }
 
 // Latest label per item and ticker (a corrected label supersedes the earlier
@@ -282,7 +318,7 @@ async function labels(env, url) {
   const since = url.searchParams.get("since") || "1970-01-01";
   const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit")) || 200));
   const rows = (await env.DB.prepare(
-    `SELECT f.id AS feedback_id, f.label, f.note, f.created_at, i.id AS item_id, COALESCE(f.ticker, i.ticker) AS ticker,
+    `SELECT f.id AS feedback_id, f.label, f.reason, f.note, f.created_at, i.id AS item_id, COALESCE(f.ticker, i.ticker) AS ticker,
             i.ticker AS item_ticker, i.title, i.url, i.source_key,
             g.score AS graded_score, g.band AS graded_band, g.why AS graded_why,
             cg.score AS current_score, cg.band AS current_band
@@ -314,11 +350,15 @@ async function recent(env, url) {
 }
 
 async function stats(env) {
-  const byState = (await env.DB.prepare("SELECT state, COUNT(*) AS n FROM items GROUP BY state").all()).results || [];
-  const byBand = (await env.DB.prepare("SELECT g.band, COUNT(*) AS n FROM items i JOIN grades g ON g.id = i.grade_id GROUP BY g.band").all()).results || [];
+  // Counts cover today's universe only: a ticker dropped from covered.json
+  // (SSTI, REKR) keeps its rows but leaves the totals.
+  const byState = (await env.DB.prepare(`SELECT state, COUNT(*) AS n FROM items WHERE ticker IN ${IN_UNIVERSE} GROUP BY state`).all()).results || [];
+  const byBand = (await env.DB.prepare(`SELECT g.band, COUNT(*) AS n FROM items i JOIN grades g ON g.id = i.grade_id WHERE i.ticker IN ${IN_UNIVERSE} GROUP BY g.band`).all()).results || [];
   const lastRun = await env.DB.prepare("SELECT * FROM runs ORDER BY last_seen_at DESC LIMIT 1").first();
-  const oldestPending = await env.DB.prepare("SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed')").first();
-  const labelCount = await env.DB.prepare("SELECT COUNT(DISTINCT item_id) AS n FROM feedback").first();
+  const oldestPending = await env.DB.prepare(`SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed') AND ticker IN ${IN_UNIVERSE}`).first();
+  const labelCount = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT f.item_id) AS n FROM feedback f JOIN items i ON i.id = f.item_id WHERE COALESCE(f.ticker, i.ticker) IN ${IN_UNIVERSE}`,
+  ).first();
   const meta = Object.fromEntries(((await env.DB.prepare("SELECT key, value FROM meta").all()).results || []).map((r) => [r.key, r.value]));
   // The auxiliary block never takes the coverage stats down with it.
   let aux = null;
@@ -446,6 +486,12 @@ export default {
       case "GET /v1/source-health": return sourceHealth(env);
       case "POST /v1/headlines/claim": return json(await headlineClaim(env, await readJson(request)));
       case "POST /v1/headlines": return submitHeadlines(env, await readJson(request), role);
+      case "GET /v1/ops": return ops(env);
+      case "GET /v1/source-prefs": return getSourcePrefs(env);
+      case "POST /v1/source-prefs": return postSourcePrefs(env, await readJson(request));
+      case "GET /v1/source-yield": return sourceYield(env, url);
+      case "GET /v1/left-out": return leftOut(env, url);
+      case "POST /v1/left-out/grade": return leftOutGrade(env, await readJson(request));
     }
     return json({ error: "not found" }, 404);
   },

@@ -1,5 +1,5 @@
 {
- "_about": "Key accounts per covered ticker, extracted 2026-11-20 from each rubric sheet (every term appears in its sheet). Zenith ingests a rival-feed item only when its title names the covered company (sheet terms) or one of these accounts (core.md section 9 rule 4).",
+ "_about": "Key accounts per covered ticker. Entries without a source field were extracted 2026-11-20 from each rubric sheet (every term appears in its sheet). Entries with source \"dd-2026-11-23\" come from due diligence on 2026-11-23 (filings, releases and contract records, each re-checked by a verifier; plans/key-accounts-dd.md) and need not appear in the sheet. Kinds: customer, program, channel_partner, partner. Zenith ingests a rival-feed item only when its title names the covered company (sheet terms) or one of these accounts (core.md section 9 rule 4).",
  "_company_names_about": "Everyday names the sheets use for each covered company (sheet `terms` hold the formal forms). Added to the company match for counterparty routing; every name appears in its sheet.",
  "company_names": {
   "AGLT": [
@@ -1069,6 +1069,715 @@
     "Associated Wholesale Grocers",
     "AWG"
    ]
+  }
+ ],
+ "ASST": [
+  {
+   "name": "Cantor Fitzgerald & Co.",
+   "kind": "channel_partner",
+   "terms": [
+    "Cantor Fitzgerald"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Barclays Capital Inc.",
+   "kind": "channel_partner",
+   "terms": [
+    "Barclays Capital"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Clear Street LLC",
+   "kind": "channel_partner",
+   "terms": [
+    "Clear Street"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "MSCI Inc. (MSCI index eligibility: non-operating company rule for digital-asset treasury companies)",
+   "kind": "program",
+   "terms": [
+    "MSCI"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "FTSE Russell (Russell US Indexes reconstitution)",
+   "kind": "program",
+   "terms": [
+    "FTSE Russell"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "AXON": [
+  {
+   "name": "U.S. Immigration and Customs Enforcement (DHS/ICE): TASER/CEW buyer (T10 IDV 70CMSW23D00000003)",
+   "kind": "customer",
+   "terms": [
+    "Immigration and Customs Enforcement",
+    "ICE Taser",
+    "ICE Tasers",
+    "70CMSW23D00000003"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "DHS C-UAS multiple-award IDIQ 70RDA226D00000001 (DHS OPO; Dedrone Defense one awardee; $1.5B shared ceiling)",
+   "kind": "program",
+   "terms": [
+    "DHS C-UAS IDIQ",
+    "DHS counter-UAS",
+    "DHS counter-drone",
+    "70RDA226D00000001"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Customs and Border Protection (DHS SSV body-worn camera IDIQ 70B03C23D00000006; CBP, ICE and FPS order)",
+   "kind": "customer",
+   "terms": [
+    "Customs and Border Protection",
+    "CBP",
+    "70B03C23D00000006"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "TSA Law Enforcement / Federal Air Marshal Service (Dedrone RF-560 sole-source intent)",
+   "kind": "customer",
+   "terms": [
+    "Federal Air Marshal Service",
+    "TSA counter-drone",
+    "TSA counter-UAS"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Department of Veterans Affairs Police (IDIQ 36C10X22D0024)",
+   "kind": "customer",
+   "terms": [
+    "Veterans Affairs Police",
+    "VA Police Service"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Marshals Service (TASER 10 IDIQ 15M10424DA4700002)",
+   "kind": "customer",
+   "terms": [
+    "U.S. Marshals Service",
+    "US Marshals Service"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Los Angeles Police Department (LAPD)",
+   "kind": "customer",
+   "terms": [
+    "LAPD",
+    "Los Angeles Police Department",
+    "Los Angeles Police Commission"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "New York City Police Department (NYPD)",
+   "kind": "customer",
+   "terms": [
+    "NYPD",
+    "New York City Police Department",
+    "New York Police Department"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Baltimore Police Department",
+   "kind": "customer",
+   "terms": [
+    "Baltimore Police"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "New York State DOCCS",
+   "kind": "customer",
+   "terms": [
+    "DOCCS",
+    "New York State Department of Corrections"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Maryland DPSCS",
+   "kind": "customer",
+   "terms": [
+    "Maryland DPSCS",
+    "Maryland Department of Public Safety and Correctional Services"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "North Carolina Department of Adult Correction (NCDAC)",
+   "kind": "customer",
+   "terms": [
+    "North Carolina Department of Adult Correction",
+    "NCDAC"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Royal Canadian Mounted Police (via PSPC body-worn camera/DEMS contract)",
+   "kind": "customer",
+   "terms": [
+    "RCMP",
+    "Royal Canadian Mounted Police"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Sourcewell cooperative contract 101223-AXN",
+   "kind": "channel_partner",
+   "terms": [
+    "Sourcewell"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "GRRR": [
+  {
+   "name": "Yotta Data Services Private Limited (Yotta 1 / Yotta 2, India)",
+   "kind": "customer",
+   "terms": [
+    "Yotta Data Services",
+    "Yotta",
+    "Shakti Cloud"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "NeutraDC Nxera Batam (host of the US$2.5B Batam GPUaaS contract; tenant unnamed)",
+   "kind": "partner",
+   "terms": [
+    "NeutraDC",
+    "Nxera Batam"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Government of Egypt (GoE; secure air-gapped government network contract)",
+   "kind": "customer",
+   "terms": [
+    "Government of Egypt"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Taiwan Criminal Investigation Bureau (CIB)",
+   "kind": "customer",
+   "terms": [
+    "Taiwan Criminal Investigation Bureau",
+    "Taiwan's Criminal Investigation Bureau",
+    "Taiwan CIB"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Taoyuan International Airport",
+   "kind": "customer",
+   "terms": [
+    "Taoyuan International Airport",
+    "Taoyuan Airport"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Freyr Technology AI Pte. Ltd. (US$1.4B Southeast Asia programme)",
+   "kind": "customer",
+   "terms": [
+    "Freyr Technology",
+    "Freyr Singapore"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "MSTR": [
+  {
+   "name": "MSCI Inc. (MSCI USA / ACWI index eligibility, non-operating-company rules)",
+   "kind": "program",
+   "terms": [
+    "MSCI USA Index",
+    "MSCI ACWI",
+    "MSCI"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Nasdaq-100 Index (Nasdaq, Inc.)",
+   "kind": "program",
+   "terms": [
+    "Nasdaq-100"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "S&P Dow Jones Indices (S&P 500 eligibility)",
+   "kind": "program",
+   "terms": [
+    "S&P Dow Jones Indices",
+    "S&P DJI"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "FTSE Russell (Russell 1000 / FTSE Digital Asset Treasury series)",
+   "kind": "program",
+   "terms": [
+    "FTSE Russell",
+    "Russell 1000"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "S&P Global Ratings (issuer credit rating B-)",
+   "kind": "partner",
+   "terms": [
+    "S&P Global Ratings"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Coinbase Custody Trust Company, LLC (bitcoin custodian)",
+   "kind": "partner",
+   "terms": [
+    "Coinbase Custody"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Anchorage Digital Bank N.A. (bitcoin custodian; STRC allocator)",
+   "kind": "partner",
+   "terms": [
+    "Anchorage Digital"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Fidelity Digital Assets, NA (bitcoin custodian)",
+   "kind": "partner",
+   "terms": [
+    "Fidelity Digital Assets"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "IRS/Treasury corporate alternative minimum tax (CAMT) on unrealized bitcoin gains",
+   "kind": "program",
+   "terms": [
+    "corporate alternative minimum tax",
+    "CAMT"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "ONDS": [
+  {
+   "name": "U.S. Army Lethal Unmanned Systems (LUS) IDIQ, HERO-120 (Mistral prime)",
+   "kind": "program",
+   "terms": [
+    "Lethal Unmanned Systems",
+    "Lethal Unmanned Strike",
+    "LUS IDIQ",
+    "HERO-120",
+    "HERO 120"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "UVision Air Ltd. / Uvision Inc. (HERO-120 developer, Mistral teaming partner)",
+   "kind": "partner",
+   "terms": [
+    "UVision"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Air Force Life Cycle Management Center (main ULTRA customer)",
+   "kind": "customer",
+   "terms": [
+    "Air Force Life Cycle Management Center",
+    "AFLCMC"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Air Force Research Laboratory, incl. Center for Rapid Innovation (ULTRA Turbo, Long-Range Grasshopper)",
+   "kind": "customer",
+   "terms": [
+    "Air Force Research Laboratory",
+    "AFRL",
+    "Center for Rapid Innovation"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "ULTRA long-endurance ISR program (DoW program-of-record candidate)",
+   "kind": "program",
+   "terms": [
+    "Unmanned Long-endurance Tactical Reconnaissance Aircraft",
+    "Uncrewed Long-endurance Tactical Reconnaissance Aircraft",
+    "ULTRA Turbo"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Israel Ministry of Defense (Digital Bat, INDO, 4M border demining)",
+   "kind": "customer",
+   "terms": [
+    "Israel Ministry of Defense",
+    "Israeli Ministry of Defense",
+    "Israel Ministry of Defence",
+    "Israeli Ministry of Defence",
+    "Israel MoD",
+    "Israeli MoD",
+    "IMOD",
+    "Digital Bat",
+    "Eastern Border Security Barrier"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Lockheed Martin Sanctum C-UAS platform (Sentrycs integration)",
+   "kind": "channel_partner",
+   "terms": [
+    "Lockheed Martin Sanctum",
+    "Lockheed Martin's Sanctum",
+    "Sanctum C-UAS",
+    "Sanctum counter-UAS"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "HIFraser (Australian Department of Defence distributor)",
+   "kind": "channel_partner",
+   "terms": [
+    "HIFraser"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "SSE plc / SSEN Transmission and SSEN Distribution (Cyberhawk inspection)",
+   "kind": "customer",
+   "terms": [
+    "SSE plc",
+    "Scottish and Southern Electricity Networks",
+    "SSEN"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Heidelberger Druckmaschinen AG / HD Advanced Technologies (ONBERG JV partner)",
+   "kind": "partner",
+   "terms": [
+    "Heidelberger Druckmaschinen",
+    "Heidelberger Druck",
+    "HD Advanced Technologies"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "PUSA": [
+  {
+   "name": "U.S. Air Force Group 1 Aerial Denial UAS IDIQ (FA8629-26-D-B006, AFLCMC SOF/PR; Tandem Defense, Guardian)",
+   "kind": "program",
+   "terms": [
+    "Group 1 Aerial Denial",
+    "Aerial Denial UAS",
+    "aerial denial IDIQ"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Air Force special operations community (AFSOC), Guardian end users (company-reported)",
+   "kind": "customer",
+   "terms": [
+    "Air Force Special Operations Command",
+    "AFSOC"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Pakistan Ministry of Defence",
+   "kind": "customer",
+   "terms": [
+    "Pakistan Ministry of Defence",
+    "Pakistan Ministry of Defense",
+    "Pakistan's Ministry of Defence",
+    "Pakistan's Ministry of Defense",
+    "Pakistan MoD"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "DoW Drone Dominance program (MatrixFold entry)",
+   "kind": "program",
+   "terms": [
+    "Drone Dominance"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Unusual Machines (UMAC), investor and component supplier",
+   "kind": "partner",
+   "terms": [
+    "Unusual Machines"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Digital Force Technologies (C-UAS kill-chain partner, Seraphim C2)",
+   "kind": "partner",
+   "terms": [
+    "Digital Force Technologies"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Aerospread Technologies (exclusive xFold agent, Australia, New Zealand and South Pacific)",
+   "kind": "channel_partner",
+   "terms": [
+    "Aerospread"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Sprig Aerospace (U.S. xFold distributor and fleet operator)",
+   "kind": "channel_partner",
+   "terms": [
+    "Sprig Aerospace"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Worldwide Friends Foundation (related-party customer)",
+   "kind": "customer",
+   "terms": [
+    "Worldwide Friends Foundation"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "SERV": [
+  {
+   "name": "Uber Eats (Uber Technologies)",
+   "kind": "customer",
+   "terms": [
+    "Uber Eats"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "DoorDash, Inc. (incl. DoorDash Australia)",
+   "kind": "customer",
+   "terms": [
+    "DoorDash"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Grubhub (Wonder Group)",
+   "kind": "customer",
+   "terms": [
+    "Grubhub"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Magna International (Gen3 contract manufacturer)",
+   "kind": "partner",
+   "terms": [
+    "Magna International"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Children's Hospital Los Angeles (Moxi)",
+   "kind": "customer",
+   "terms": [
+    "Children's Hospital Los Angeles",
+    "Children’s Hospital Los Angeles",
+    "CHLA"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Endeavor Health (Edward Hospital, Moxi)",
+   "kind": "customer",
+   "terms": [
+    "Endeavor Health"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Providence Saint John's Health Center (Moxi)",
+   "kind": "customer",
+   "terms": [
+    "Providence Saint John's",
+    "Providence Saint John’s",
+    "Providence St. John's",
+    "Providence St. John’s"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Northwestern Medicine (Moxi)",
+   "kind": "customer",
+   "terms": [
+    "Northwestern Medicine"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "ChristianaCare (Moxi)",
+   "kind": "customer",
+   "terms": [
+    "ChristianaCare"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Rochester General Hospital (Moxi)",
+   "kind": "customer",
+   "terms": [
+    "Rochester General Hospital"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Bedrock Robotics (Physical AI Services launch customer)",
+   "kind": "customer",
+   "terms": [
+    "Bedrock Robotics"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "City of Vancouver sidewalk delivery robot pilot",
+   "kind": "program",
+   "terms": [
+    "Vancouver delivery robots",
+    "Vancouver delivery robot",
+    "Vancouver robot pilot"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Gold Coast footpath delivery robot pilot (with DoorDash)",
+   "kind": "program",
+   "terms": [
+    "Gold Coast delivery robots",
+    "Gold Coast delivery robot",
+    "Gold Coast footpath",
+    "City of Gold Coast"
+   ],
+   "source": "dd-2026-11-23"
+  }
+ ],
+ "SPAI": [
+  {
+   "name": "Anduril Industries (Ghost-X / Lattice; platform partner on the $2.5M Army CSO prime)",
+   "kind": "partner",
+   "terms": [
+    "Anduril",
+    "Ghost-X"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Forterra (defense prime; $1.3M UGV subcontract, prime named by press only)",
+   "kind": "customer",
+   "terms": [
+    "Forterra"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Army CSO \"Ground Threat Detection through Aerial Reconnaissance\" (Abrams protection)",
+   "kind": "program",
+   "terms": [
+    "Ground Threat Detection through Aerial Reconnaissance"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Army Medium Range Reconnaissance (MRR) program (Ghost-X selection)",
+   "kind": "program",
+   "terms": [
+    "Medium Range Reconnaissance",
+    "Army MRR"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Army Project Sandhills (XVIII Airborne Corps autonomous breaching; Forterra Sandhills prime)",
+   "kind": "program",
+   "terms": [
+    "Project Sandhills",
+    "Sandhills Project",
+    "Sandhills 2.0"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Red Cat Holdings (Black Widow; Army Threat Analysis Kit / NODE orders)",
+   "kind": "channel_partner",
+   "terms": [
+    "Red Cat",
+    "Black Widow drone"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "UNMAS / Ukrainian Deminers Association",
+   "kind": "customer",
+   "terms": [
+    "UNMAS",
+    "United Nations Mine Action Service",
+    "Ukrainian Deminers Association"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "U.S. Department of State Ukraine humanitarian demining program (prime unnamed)",
+   "kind": "program",
+   "terms": [
+    "State Department demining",
+    "Weapons Removal and Abatement",
+    "PM/WRA"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Ondas Holdings / 4M Defense (strategic investor, MOU and demining pilot partner)",
+   "kind": "partner",
+   "terms": [
+    "Ondas Holdings",
+    "4M Defense",
+    "Ondas Autonomous Systems"
+   ],
+   "source": "dd-2026-11-23"
+  },
+  {
+   "name": "Florida Power & Light (Airborne Response)",
+   "kind": "customer",
+   "terms": [
+    "Florida Power & Light",
+    "Florida Power and Light"
+   ],
+   "source": "dd-2026-11-23"
   }
  ]
 }

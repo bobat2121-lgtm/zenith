@@ -9,6 +9,58 @@ export const BANDS = [
 // Analyst labels: absolute ranges (high/medium/low/noise) and directional ones
 // (too_high/too_low: the score shown when labelled should have been lower/higher).
 export const LABELS = ["high", "medium", "low", "noise", "too_high", "too_low"];
+// Why a label was given (migration 0011): optional, valid with any label.
+// missed_detail is "too low": the grader missed a figure.
+export const LABEL_REASONS = ["not_material", "duplicate", "wrong_company", "stale", "marketing", "not_my_focus", "missed_detail"];
+// body.reason -> { ok: true, reason (null when absent) } or { ok: false, error }.
+export function labelReason(body) {
+  const v = body?.reason;
+  if (v === undefined || v === null || v === "") return { ok: true, reason: null };
+  const reason = typeof v === "string" ? v.trim().toLowerCase() : "";
+  if (!LABEL_REASONS.includes(reason)) return { ok: false, error: `reason must be one of ${LABEL_REASONS.join(", ")} (or left out)` };
+  return { ok: true, reason };
+}
+// GET /v1/feed and /v1/aux/feed sort=to_label (Z10): graded, unlabeled cards first seen in the last
+// TO_LABEL_DAYS days, the most teaching value first: confidence under 0.6,
+// then scores 60-79 nearest the Digest line (70), then the rest by score.
+// No pinning and no paging (next_before_id is null); limit is honored.
+export const TO_LABEL_DAYS = 14;
+export const TO_LABEL_ORDER = `CASE WHEN g.confidence < 0.6 THEN 0 WHEN g.score BETWEEN 60 AND 79 THEN 1 ELSE 2 END,
+      CASE WHEN g.confidence < 0.6 THEN 0 WHEN g.score BETWEEN 60 AND 79 THEN abs(g.score - 70) ELSE 0 END, g.score DESC`;
+// For You (Z13): the owner's latest label overrides placement. `score` is the
+// For You score SQL (demotion applied), `label` the SQL of the card's latest
+// label (the newest feedback row, as the feed's label field). High: always in
+// For You whatever the score or state, ranked as max(score, 90), an ungraded
+// card as 90, so a recent one pins with the Leads. Noise: never in For You.
+// The feed's other hides (muted source, duplicate, covered name, universe) still apply.
+export const PICK_SCORE = 90;
+export function ownerRank(score, label) {
+  const high = `(${label} IS 'high')`;
+  return {
+    high,
+    noise: `(${label} IS 'noise')`,
+    score: `(CASE WHEN ${high} THEN MAX(COALESCE(${score}, ${PICK_SCORE}), ${PICK_SCORE}) ELSE ${score} END)`,
+  };
+}
+// owner_pick on a For You card: shown only because of the owner's High (no
+// score, or a For You score under the Signal floor).
+export function ownerPick(row, minScore, demotePoints) {
+  if (minScore == null || row.label !== "high") return 0;
+  return row.score == null || row.score - (row.demoted ? demotePoints : 0) < minScore ? 1 : 0;
+}
+// Rival twins (auxiliary.js auxFeed): one news-monitor row stored in both
+// pipelines. `a` is the SQL alias (or table name) of the aux_items row.
+// rivalDropped: its coverage copy was dropped by the key-account gate, so a
+// 'covered' aux grade still shows. rivalOnCoverage: its coverage copy is shown
+// (a rival row the gate keeps), so the aux copy is hidden. Shared with the
+// headline pass (headlines.js), so a card gets a headline exactly when it shows.
+export const rivalDroppedSql = (a) => `EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = ${a}.nm_rowid AND c.state = 'skipped'
+      AND c.skip_reason = 'rival_no_key_account')`;
+export const rivalOnCoverageSql = (a) => `EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = ${a}.nm_rowid AND c.state != 'skipped' AND c.role = 'rival')`;
+// The aux band hides of the feed: duplicate always; covered unless its rival
+// twin was gate-dropped; and every copy whose rival twin is on Coverage.
+export const auxBandShownSql = (a, band) =>
+  `(${band} IS NULL OR ${band} != 'duplicate') AND (${band} IS NULL OR ${band} != 'covered' OR ${rivalDroppedSql(a)}) AND NOT ${rivalOnCoverageSql(a)}`;
 export const MAX_CLAIM = 60;
 export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;
@@ -254,8 +306,24 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
 // headline-only pass. Stored on the item; the app shows "<headline> - <tag>".
 export const HEADLINE_MIN = 8;
 export const HEADLINE_MAX = 140;
-// The tag: the SEC form exactly as filed, else one of HEADLINE_TAGS.
-export const SEC_FORM_RE = /^(8-K|8-K\/A|10-Q|10-Q\/A|10-K|10-K\/A|6-K|6-K\/A|20-F|40-F|S-1|S-1\/A|S-3|S-3\/A|S-4|S-8|F-1|F-3|424B[1-8]|SC 13D|SC 13D\/A|SC 13G|SC 13G\/A|13F-HR|Form 3|Form 4|Form 5|DEF 14A|DEFA14A|PRE 14A|25-NSE|NT 10-Q|NT 10-K|1-U|1-K|C|D)$/;
+// The tag: the SEC form exactly as filed, else one of HEADLINE_TAGS. An
+// explicit list (never a catch-all): every form news-monitor can deliver (its
+// material lists in src/sec-material.js, operating and fund issuers, plus the
+// ownership and offering forms older titles carry), each also with "/A".
+export const SEC_FORMS = [
+  "8-K", "8-K12B", "10-Q", "10-K", "20-F", "40-F", "6-K", "10-12B",
+  "S-1", "S-3", "S-3ASR", "S-3MEF", "S-4", "S-8", "F-1", "F-3", "F-3ASR", "F-4", "F-10",
+  "424B1", "424B2", "424B3", "424B4", "424B5", "424B6", "424B7", "424B8", "SUPPL", "EFFECT",
+  "DEF 14A", "PRE 14A", "DEFM14A", "PREM14A", "DEFA14A", "DFAN14A", "PREC14A", "DEFC14A",
+  "SC TO-T", "SC TO-I", "SC TO-C", "SC 14D9", "SC14D9C", "425", "SC 13E3",
+  "SCHEDULE 13D", "SC 13D", "SCHEDULE 13G", "SC 13G", "13F-HR",
+  "Form 3", "Form 4", "Form 5",
+  "NT 10-Q", "NT 10-K", "NT 20-F", "NT-NCSR", "25-NSE", "25", "15-12B", "15-12G",
+  "497", "497AD", "N-2", "N-CSR", "N-CSRS",
+  "1-A", "253G2", "1-U", "1-K", "C", "D",
+];
+// The names hold letters, digits, spaces and "-" only, so they need no escaping.
+export const SEC_FORM_RE = new RegExp(`^(?:${SEC_FORMS.join("|")})(?:/A)?$`);
 export const HEADLINE_TAGS = ["Press release", "Presentation", "Shareholder letter", "Event", "Contract notice", "Program notice", "News", "Blog",
   "Video", "Filing", "Report", "Interview"];
 const LINE_BREAK_RE = /[\r\n\u0085\u2028\u2029]/;
