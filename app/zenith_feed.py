@@ -313,6 +313,111 @@ def read_through_chips(value) -> str:
     return "".join(chips)
 
 
+# ---- Bill autonomy lines (unit tested) --------------------------------------------
+# /v1/feed's bill_lines for a bill item (zenith-core bill-lines.js): status "ok" with
+# groups of rows and totals in dollars, "retry" while the bill is read, or "failed".
+def usd(value) -> str:
+    """$1.23B / $726.0M / $509K / $250, like zenith-core's grader block; "-" when unknown."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return "-"
+    a, sign = abs(value), "-" if value < 0 else ""
+    if a >= 1e9:
+        return f"{sign}${a / 1e9:.{1 if a >= 1e11 else 2}f}B"
+    if a >= 1e6:
+        return f"{sign}${a / 1e6:.1f}M"
+    if a >= 1e3:
+        return f"{sign}${round(a / 1e3)}K"
+    return f"{sign}${a:g}"
+
+
+def signed_usd(value) -> str:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return "-"
+    if value == 0:
+        return "0"
+    return f"+{usd(value)}" if value > 0 else usd(value)
+
+
+def _request_text(t: dict) -> str:
+    return f"request {usd(t.get('request'))}" if t.get("request_lines") else "no request figures"
+
+
+def bill_lines_summary(bl) -> str | None:
+    """One plain line for the card: the bill, its stage and the overall autonomy total."""
+    if not isinstance(bl, dict):
+        return None
+    status = bl.get("status")
+    if status == "retry":
+        return "Autonomy lines: reading the bill text"
+    if status == "failed":
+        return f"Autonomy lines: the bill text could not be read ({one_line(bl.get('error')) or 'error'})"
+    if status != "ok":
+        return None
+    t = bl.get("totals") or {}
+    name = one_line(f"{bl.get('bill') or ''} {bl.get('version') or ''}")
+    stage = f" ({one_line(bl.get('stage'))})" if bl.get("stage") else ""
+    report = str(bl.get("package") or "").startswith("CRPT-")
+    # No lines, or no amount counted: never "$0" (the program amounts of an
+    # appropriations act are in its committee report).
+    if not t.get("lines"):
+        return f"Autonomy lines: {name}{stage}: none in the {'report' if report else 'bill'} text"
+    note = " (report text only)" if report else ""
+    return f"Autonomy lines: {name}{stage}: {bill_lines_total_text(t)}{note}"
+
+
+def bill_lines_total_text(t: dict) -> str:
+    """'N lines, $X (request $Y)', or 'N lines, no amounts counted' when no counted
+    line carries an amount."""
+    if not (t.get("bill") or t.get("change") or t.get("request_lines")):
+        return f"{_num(t.get('lines'))} lines, no amounts counted"
+    return f"{_num(t.get('lines'))} lines, {usd(t.get('bill'))} ({_request_text(t)})"
+
+
+def bill_line_rows(group: dict) -> list[list[str]]:
+    """Item, account, request, bill, change for one group's table. A change made inside
+    another line shows where it sits; changes listed under a line are shown under it
+    with an arrow and are not added again."""
+    out = []
+    for r in group.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        item = one_line(r.get("item"))
+        if r.get("note"):
+            item += f" ({one_line(r['note'])})"
+        where = one_line(r.get("account") or r.get("section"))
+        if r.get("line"):
+            where += f", line {one_line(r['line'])}"
+        if r.get("inside"):
+            where += f", inside {one_line(r['inside'])}"
+        if r.get("kind") == "provision":
+            out.append([item, where, "-", "no amount", "-"])
+            continue
+        out.append([item, where, usd(r.get("request")), usd(r.get("bill")), signed_usd(r.get("change"))])
+        for c in (r.get("changes") or [])[:12]:
+            if isinstance(c, dict):
+                out.append([f"↳ {one_line(c.get('item'))}", "", "", "", signed_usd(c.get("change"))])
+    return out
+
+
+def bill_lines_html(bl) -> str:
+    """Grouped, collapsible tables: one <details> per group, its header carrying the
+    group's total. Every string is escaped (html_table)."""
+    if not isinstance(bl, dict) or bl.get("status") != "ok":
+        return ""
+    parts = []
+    for g in bl.get("groups") or []:
+        if not isinstance(g, dict):
+            continue
+        sums = "no amounts" if g.get("name") == "Provisions (no amount)" else f"{usd(g.get('bill'))} ({_request_text(g)})"
+        head = html.escape(f"{one_line(g.get('name'))}: {_num(g.get('lines'))} lines, {sums}")
+        table = html_table(["Item", "Account", "Request", "Bill", "Change"], bill_line_rows(g), wrap=0)
+        parts.append(f'<details class="z-bl"><summary>{head}</summary>{table}</details>')
+    more = _num(bl.get("more"))
+    if more:
+        parts.append(f'<div class="z-bl-more">+{more} smaller lines not stored (they are in the totals)</div>')
+    return "".join(parts)
+
+
 def card_html(page: FeedPage, it: dict) -> str:
     """Line 1: name, source/status tag, score · band, age. Line 2: the link text
     (headline - tag, else the original title; see link_text).
@@ -338,9 +443,12 @@ def card_html(page: FeedPage, it: dict) -> str:
     why = f'<div class="z-why">{html.escape(one_line(it["why"]))}</div>' if it.get("why") else ""
     chips = read_through_chips(it.get("reads_through")) if page.kind == "aux" else ""
     rt = f'<div class="z-rt">{chips}</div>' if chips else ""
+    # A bill item's autonomy total (the grouped table is in the card's expander).
+    summary = bill_lines_summary(it.get("bill_lines")) if page.kind != "aux" else None
+    bl = f'<div class="z-bl-sum">{html.escape(summary)}</div>' if summary else ""
     lead = " lead" if it.get("band") == "lead" else ""
     return (f'<div class="z-card{lead}"><div class="z-head">{head}</div>'
-            f'<div class="z-title">{title}</div>{why}{rt}</div>')
+            f'<div class="z-title">{title}</div>{why}{bl}{rt}</div>')
 
 
 # ---- Coverage page: source health and site changes (unit tested) ----------------
@@ -1123,6 +1231,13 @@ def render_card(page: FeedPage, it: dict) -> None:
             # Third-party and grader text: st.text, never Markdown or HTML.
             for line in lines:
                 st.text(line)
+    table = bill_lines_html(it.get("bill_lines")) if page.kind != "aux" else ""
+    if table:
+        t = it["bill_lines"].get("totals") or {}
+        amount = usd(t.get("bill")) if (t.get("bill") or t.get("change") or t.get("request_lines")) else "no amounts counted"
+        with st.expander(f"Autonomy lines ({_num(t.get('lines'))}, {amount})", expanded=False):
+            # Escaped in bill_lines_html; only its own tags reach the page.
+            st.markdown(table, unsafe_allow_html=True)
     choices = label_choices(it)
     if not choices:
         return

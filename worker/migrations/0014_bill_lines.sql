@@ -1,0 +1,13 @@
+-- Bill autonomy lines (plans/round7-phase1a2-budget.md, B). Additive only: one
+-- new nullable column; no existing column changes.
+--
+-- bill_lines: JSON written by worker/src/bill-lines.js for a Coverage item from
+-- an official bill source (drv_govinfo_defense_bills). NULL until the bill is
+-- read. Its "status" is one of:
+--   ok      the autonomy lines of the bill or report: groups with their rows
+--           and totals (request and bill amounts in dollars)
+--   retry   the read failed and is tried again at next_at (tries counts them)
+--   failed  the read failed for good (error); the item is graded without lines
+-- The claim holds a bill item while its lines are NULL or retry, at most 90
+-- minutes after ingest, so grading never waits longer than that.
+ALTER TABLE items ADD COLUMN bill_lines TEXT;

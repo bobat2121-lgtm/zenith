@@ -1849,3 +1849,99 @@ class ExpansionPages(AppBase):
         self.at.segmented_control(key="tune-exp-status").set_value("rejected")
         self.run_app()
         self.assertIn("No rejected names in the last 30 days.", self.captions())
+
+
+# ---- bill autonomy lines (Coverage card) ---------------------------------------------
+BILL_LINES = {
+    "v": 1, "status": "ok", "package": "BILLS-119hr3838rh", "bill": "H.R. 3838", "version": "RH", "stage": "reported in House",
+    "totals": {"lines": 3, "request": 780888000, "bill": 808888000, "change": 28000000, "request_lines": 2},
+    "groups": [
+        {"name": "Drones / small UAS", "lines": 2, "request": 726034000, "bill": 754034000, "change": 28000000, "request_lines": 1, "rows": [
+            {"kind": "line", "item": "SMALL UNMANNED AERIAL SYSTEMS <b>", "account": "AIRCRAFT PROCUREMENT, ARMY", "line": "057",
+             "request": 726034000, "bill": 744034000, "change": 18000000, "changes": [{"item": "FPV/PBAS Systems", "change": 18000000}], "in_total": True},
+            {"kind": "change", "item": "Small UAS for Marine Corps training", "account": "OPERATION AND MAINTENANCE, MARINE CORPS",
+             "inside": "010 OPERATIONAL FORCES", "request": None, "bill": None, "change": 10000000, "in_total": True}]},
+        {"name": "Provisions (no amount)", "lines": 1, "request": 0, "bill": 0, "change": 0, "request_lines": 0, "rows": [
+            {"kind": "provision", "item": "None of the funds may be used to purchase a drone <script>", "account": None,
+             "section": "SEC. 875. Sourcing", "request": None, "bill": None, "change": None, "in_total": False}]},
+    ],
+    "more": 0,
+}
+
+
+class BillLinesUnit(unittest.TestCase):
+    def test_usd(self):
+        self.assertEqual([zf.usd(v) for v in (1534000000, 726034000, 509000, 250, -27000000, None, True)],
+                         ["$1.53B", "$726.0M", "$509K", "$250", "-$27.0M", "-", "-"])
+        self.assertEqual([zf.signed_usd(v) for v in (18000000, -5000000, 0, None)], ["+$18.0M", "-$5.0M", "0", "-"])
+
+    def test_summary(self):
+        self.assertEqual(zf.bill_lines_summary(BILL_LINES),
+                         "Autonomy lines: H.R. 3838 RH (reported in House): 3 lines, $808.9M (request $780.9M)")
+        self.assertEqual(zf.bill_lines_summary({"status": "retry"}), "Autonomy lines: reading the bill text")
+        self.assertEqual(zf.bill_lines_summary({"status": "failed", "error": "http_404"}),
+                         "Autonomy lines: the bill text could not be read (http_404)")
+        self.assertIsNone(zf.bill_lines_summary(None))
+        no_request = dict(BILL_LINES, totals={"lines": 1, "bill": 5e9, "request": 0, "request_lines": 0})
+        self.assertIn("$5.00B (no request figures)", zf.bill_lines_summary(no_request))
+
+    def test_summary_never_shows_a_zero_total(self):
+        # An appropriations act with no autonomy terms: no lines, never "0 lines, $0".
+        none = {"status": "ok", "package": "BILLS-119hr4016rh", "bill": "H.R. 4016", "version": "RH", "stage": "reported in House",
+                "totals": {"lines": 0, "request": 0, "bill": 0, "change": 0, "request_lines": 0}, "groups": []}
+        self.assertEqual(zf.bill_lines_summary(none), "Autonomy lines: H.R. 4016 RH (reported in House): none in the bill text")
+        self.assertEqual(zf.bill_lines_html(none), "")
+        report = dict(none, package="CRPT-119hrpt162", bill="H. Rept. 119-162", version="report", stage="committee report")
+        self.assertEqual(zf.bill_lines_summary(report), "Autonomy lines: H. Rept. 119-162 report (committee report): none in the report text")
+        # Lines, but the only amount row is not added.
+        uncounted = dict(none, totals={"lines": 3, "request": 0, "bill": 0, "change": 0, "request_lines": 0})
+        self.assertEqual(zf.bill_lines_summary(uncounted), "Autonomy lines: H.R. 4016 RH (reported in House): 3 lines, no amounts counted")
+        self.assertIn("(report text only)", zf.bill_lines_summary(dict(BILL_LINES, package="CRPT-119hrpt162")))
+
+    def test_grouped_table(self):
+        out = zf.bill_lines_html(BILL_LINES)
+        self.assertEqual(out.count('<details class="z-bl">'), 2)
+        self.assertIn("<summary>Drones / small UAS: 2 lines, $754.0M (request $726.0M)</summary>", out)
+        self.assertIn("<summary>Provisions (no amount): 1 lines, no amounts</summary>", out)
+        self.assertIn("<th>Item</th><th>Account</th><th>Request</th><th>Bill</th><th>Change</th>", out)
+        self.assertIn("<td>AIRCRAFT PROCUREMENT, ARMY, line 057</td><td>$726.0M</td><td>$744.0M</td><td>+$18.0M</td>", out)
+        self.assertIn("↳ FPV/PBAS Systems", out)
+        self.assertIn("OPERATION AND MAINTENANCE, MARINE CORPS, inside 010 OPERATIONAL FORCES</td><td>-</td><td>-</td><td>+$10.0M", out)
+        self.assertIn("<td>no amount</td>", out)
+        for raw in ("<b>", "<script>"):
+            self.assertNotIn(raw, out)
+        self.assertEqual(zf.bill_lines_html({"status": "failed"}), "")
+        self.assertIn("+5 smaller lines", zf.bill_lines_html(dict(BILL_LINES, more=5)))
+
+    def test_card_summary_line(self):
+        it = dict(COVERAGE_ITEMS[2], source_key="drv_govinfo_defense_bills", role="program", bill_lines=BILL_LINES)
+        out = zf.card_html(zf.COVERAGE, it)
+        self.assertIn('<div class="z-bl-sum">Autonomy lines: H.R. 3838 RH (reported in House): 3 lines, $808.9M (request $780.9M)</div>', out)
+        self.assertNotIn("z-bl-sum", zf.card_html(zf.COVERAGE, COVERAGE_ITEMS[0]))
+
+
+class BillLinesCard(AppBase):
+    def test_coverage_card_shows_the_grouped_autonomy_lines(self):
+        self.api.items["/v1/feed"][2].update(source_key="drv_govinfo_defense_bills", role="program", bill_lines=BILL_LINES)
+        self.run_app()
+        self.assertIn("z-bl-sum", self.cards()[2])
+        exp = [e for e in self.at.expander if e.label.startswith("Autonomy lines")]
+        self.assertEqual([e.label for e in exp], ["Autonomy lines (3, $808.9M)"])
+        tables = [m.value for m in exp[0].markdown]
+        self.assertEqual(len(tables), 1)
+        self.assertIn("<summary>Drones / small UAS: 2 lines, $754.0M (request $726.0M)</summary>", tables[0])
+        self.assertNotIn("<script>", tables[0])
+
+    def test_no_counted_amount_is_not_shown_as_zero(self):
+        bl = dict(BILL_LINES, totals={"lines": 3, "request": 0, "bill": 0, "change": 0, "request_lines": 0})
+        self.api.items["/v1/feed"][2].update(source_key="drv_govinfo_defense_bills", role="program", bill_lines=bl)
+        self.run_app()
+        self.assertIn("3 lines, no amounts counted", self.cards()[2])
+        exp = [e.label for e in self.at.expander if e.label.startswith("Autonomy lines")]
+        self.assertEqual(exp, ["Autonomy lines (3, no amounts counted)"])
+
+    def test_a_failed_read_shows_only_the_summary(self):
+        self.api.items["/v1/feed"][2].update(bill_lines={"status": "failed", "error": "http_503"})
+        self.run_app()
+        self.assertIn("could not be read (http_503)", self.cards()[2])
+        self.assertFalse([e for e in self.at.expander if e.label.startswith("Autonomy lines")])
