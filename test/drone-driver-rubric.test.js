@@ -99,7 +99,7 @@ for (const t of TICKERS) {
     assert.match(dow, /These are peer wins, not this line/);
     assert.doesNotMatch(dow, /production-order pools|Drone Dominance office|budget pool not yet awarded/);
     assert.match(blocks["DoW drone industrial policy"], /Pentagon is in talks with GM and Ford[^.]*70, final 70/);
-    assert.match(blocks[BUDGET], /Deadline or shutdown talk with no vote, release or new figure[^.]*are `out_of_scope`/);
+    assert.match(blocks[BUDGET], /Deadline, shutdown or plan talk with no vote, release or new figure[^.]*are `out_of_scope` 0-15 \(context only: no calendar card or floor\)/);
   });
 
   test(`${t}: owner_marks has the Driver lines entry naming the overridden core rules`, () => {
@@ -118,15 +118,23 @@ for (const t of TICKERS) {
     const b = blocks[BUDGET];
     const band = /^- \*\*band:\*\* (.*)$/m.exec(b)[1];
     assert.match(band, /^enacted act or line that funds, cuts or blocks a drone program[^:]*or an enacted NDAA sourcing provision on drones or drone parts: Digest 75-(79|89)/);
-    assert.match(band, /New bill version or stage \(committee report, chamber passage, conference text\) that names or funds a drone program or carries autonomy lines[^:]*: 70-7[49]/);
+    assert.match(band, /New bill version or stage \(committee report, chamber passage, conference text, enrolled bill\) that names or funds a drone program or carries autonomy lines[^:]*: 70-7[49]/);
     assert.match(band, /Topline defense budget move with a dollar figure or a vote that names no drone program: Digest 70-74/);
+    if (t !== "DPRO") assert.match(band, /\(74 for an enactment, a chamber passage, or a full-year CR passed by a chamber or enacted; 72 for the others\)/);
+    // ENR is passed by both chambers, not signed: version band, never the enacted band.
+    assert.match(band, /Enacted means signed into law\. An ENR version \(passed both chambers, not yet signed\) takes the version band \(70-7[49]; 7[04] as a topline\), never the enacted band\. The signing[^.]*is the enactment, graded as an update on the ENR \(core 8\), not a duplicate of it\./);
+    assert.match(band, /An introduced version \(IH\/IS\) takes the version band only when it names or funds a drone program or carries autonomy lines/);
     assert.match(band, /Credible report of pending action on any of these \(named outlet, and a named committee, chamber or agency[^:]*: 70\./);
-    assert.match(band, /Deadline or shutdown talk, explainers, op-eds and re-reports: `out_of_scope`, `duplicate` or under 40/);
+    assert.match(band, /Deadline, shutdown or plan talk: `out_of_scope` 0-15\. Explainers, op-eds and re-reports: `duplicate` or under 40/);
     assert.doesNotMatch(band, /-9\d|\b9\d-/, `${t}: never above 89`);
     assert.match(b, /\(owner, 2026-11-24: "Toplines should be in the digest"\)/);
     assert.match(b, /even when it names no drone program/);
     assert.match(b, /NDAA drone and drone-parts sourcing provisions are graded in this block, not under US drone rules/);
-    assert.match(b, /Each bill version \(govinfo RH\/RS reported, EH\/ES passed a chamber, EAH\/EAS amendments between the chambers, ENR enrolled\) is a new stage, graded as an update on the earlier stage \(core 8\), never a duplicate/);
+    assert.match(b, /Only these govinfo bill versions are new stages: IH\/IS introduced[^:]*, RH\/RS reported, EH\/ES passed a chamber, EAH\/EAS amendments between the chambers and ENR enrolled \(passed both chambers, not yet signed\)\. Each is graded as an update on the earlier stage \(core 8\), never a duplicate/);
+    // Procedural reprints repeat a stage; stages link across bill numbers.
+    assert.match(b, /Any other version code \(RDS\/RDH received, RFS\/RFH referred, PCS\/PCH placed on calendar[^)]*\) repeats a stage already graded: `duplicate` of that stage's item/);
+    assert.match(b, /Stages are matched by act and fiscal year, not by bill number/);
+    assert.match(b, /RDS \(received in Senate\)[^\n]*`duplicate` of the EH item[^\n]*\(recorded negative\)/);
     assert.match(b, /NDAA items that move no stage and no money[^.]*are `out_of_scope`/);
     assert.match(b, /For this block the core 9 "sector budgets" exclusion is lifted too, for topline defense budget moves only\./);
     assert.match(b, /a request is never an appropriation/);
@@ -136,6 +144,12 @@ for (const t of TICKERS) {
     assert.match(b, /2026-11-16, "Senate Appropriations Committee Releases Final Five FY 2027 Funding Bills"[^\n]*about \$1\.1T[^\n]*topline figure: Digest 7[02][^\n]*final 70 \(4\.5 stops at 70\)/);
     assert.match(b, /2026-11-17: [^\n]*\$350B reconciliation request[^\n]*credible report, 70, final 70/);
     assert.match(b, /H\.R\. 3838 RH \(FY2026 NDAA[^\n]*AUTONOMY LINES block[^\n]*Outpost Uncrewed Surveillance System Increase \[10,000\]" \(\$10\.0M[^\n]*a new stage with autonomy lines/);
+    // H.R. 3838 has no RS or ENR: the Senate stage is S. 2296 and the act was enacted on S. 1071.
+    assert.match(b, /S\. 2296 RS and ES[^\n]*enacted as S\. 1071, P\.L\. 119-60/);
+    assert.doesNotMatch(b, /ENR of the same bill/);
+    assert.match(b, /2026-11-09: Democrats plan[^\n]*`out_of_scope`, about 10/);
+    assert.doesNotMatch(b, /Plan talk with no vote, release or figure: under 40/);
+    assert.doesNotMatch(b, /version row/);
     assert.match(b, /2026-10-14: Hegseth says the Pentagon needs \$50B for mass drone production\. This is a budget item, not DoW drone industrial policy/);
     assert.match(blocks["DoW drone industrial policy"], /Hegseth's 2026-10-14 \$50B for drone production\) is a budget item, graded under Defense budget, not here\./);
     assert.match(blocks["US drone rules"], /Statutory drone sourcing provisions in an NDAA or appropriations act are graded under Defense budget, not here\./);
