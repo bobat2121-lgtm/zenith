@@ -221,8 +221,10 @@ test("app: For You vs Latest, the entity filter, labels and Unlabeled only on /v
   assert.equal((await http("POST", "/v1/aux/feedback", "app", { item_id: pending, label: "too_low" })).status, 400, "no score to compare");
   assert.equal((await http("POST", "/v1/aux/feedback", "app", { item_id: ids.noise, label: "bogus" })).status, 400);
   assert.equal((await http("POST", "/v1/aux/feedback", "app", { item_id: 999999, label: "high" })).status, 404);
-  const labelled = (await http("GET", "/v1/aux/feed?min_score=70", "app")).body.items[0];
+  const labelled = (await http("GET", "/v1/aux/feed?order=newest", "app")).body.items.find((i) => i.item_id === ids.lead);
   assert.deepEqual([labelled.label, labelled.label_note], ["noise", "A private raise matters less to me"]);
+  // The owner's Noise takes the Lead out of For You (Z13); the High stays in.
+  assert.deepEqual(await feedIds("?min_score=70"), [ids.fort]);
   // Unlabeled only (the app sends state=graded with it).
   assert.deepEqual(await feedIds("?order=newest&unlabeled=1&state=graded"), [ids.skydio, ids.noise]);
   assert.deepEqual(await feedIds("?min_score=70&unlabeled=1&state=graded"), []);

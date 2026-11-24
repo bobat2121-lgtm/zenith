@@ -41,10 +41,20 @@ export function knownSource(key) {
 // covered.json source with no role). Returns null when it may, else the reason
 // it may not.
 export function prefRefusal(key) {
-  if (typeof key !== "string" || !/^[A-Za-z0-9_.:-]{1,120}$/.test(key)) return "source_key must be a source key";
-  if (key.startsWith("edgar_") || (has(AUX.sources, key) && AUX.sources[key].sec === true)) return `${key} is an SEC source: SEC filings are never muted or demoted`;
-  if (!knownSource(key)) return `unknown source ${key}: use a coverage or auxiliary source key`;
-  if (has(COVERED.sources, key)) return `${key} is ${COVERED.sources[key]}'s own channel: a covered company's own sources are never muted or demoted`;
+  const lock = prefLock(key);
+  if (lock === "bad_key") return "source_key must be a source key";
+  if (lock === "sec") return `${key} is an SEC source: SEC filings are never muted or demoted`;
+  if (lock === "unknown") return `unknown source ${key}: use a coverage or auxiliary source key`;
+  if (lock === "own_channel") return `${key} is ${COVERED.sources[key]}'s own channel: a covered company's own sources are never muted or demoted`;
+  return null;
+}
+// Why prefRefusal refuses a key, as a code: bad_key, sec, unknown or
+// own_channel; null when it may be muted or demoted.
+export function prefLock(key) {
+  if (typeof key !== "string" || !/^[A-Za-z0-9_.:-]{1,120}$/.test(key)) return "bad_key";
+  if (key.startsWith("edgar_") || (has(AUX.sources, key) && AUX.sources[key].sec === true)) return "sec";
+  if (!knownSource(key)) return "unknown";
+  if (has(COVERED.sources, key)) return "own_channel";
   return null;
 }
 
@@ -98,6 +108,8 @@ export async function postSourcePrefs(env, body) {
 }
 
 // --- Source yield (Z8) ----------------------------------------------------------
+// Each row carries mutable (false when prefRefusal refuses the key, so the app
+// offers no Mute or Demote) and lock (prefLock's code, null when mutable).
 // suggest: mute when graded >= 10 with no score >= 70 and reject + duplicate
 // >= 90%; demote when graded >= 6 with reject >= 75%; never for a source
 // prefRefusal refuses, nor one already set that way, nor a muted one (a
@@ -133,7 +145,8 @@ export async function sourceYield(env, url) {
     ).bind(since).all()).results || [];
     out[kind] = rows.map((r) => {
       const row = { ...r, pref: prefs.get(r.source_key) || null };
-      return { ...row, suggest: suggestFor(row) };
+      const lock = prefLock(r.source_key);
+      return { ...row, suggest: suggestFor(row), mutable: lock === null, lock };
     });
   }
   return json(out);
@@ -147,16 +160,23 @@ const LEFT = {
 const leftKind = (kind) => (has(LEFT, kind) ? LEFT[kind] : null);
 // The same news-monitor item's row in the other pipeline when it shows there:
 // any coverage row not skipped, or an aux row not skipped and not graded
-// 'covered' (the aux page hides those). Rescuing an item with such a twin
-// would put it on both pages (Z11).
-const TWIN_SQL = {
-  coverage: "SELECT i.id, i.state FROM items i WHERE i.nm_rowid = ? AND i.state != 'skipped'",
-  aux: `SELECT i.id, i.state FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id
-         WHERE i.nm_rowid = ? AND i.state != 'skipped' AND (g.band IS NULL OR g.band != 'covered')`,
+// 'covered' (the aux page hides those, except a rival row's copy while its
+// coverage copy stays rival_no_key_account: rescuing that coverage copy moves
+// the item to Coverage, and the aux feed hides the aux copy again). Rescuing
+// an item with such a twin would put it on both pages (Z11).
+// nm: the SQL of the news-monitor rowid (a bind, or the outer row's column).
+const TWIN_FROM = {
+  coverage: (nm) => `FROM items t WHERE t.nm_rowid = ${nm} AND t.state != 'skipped'`,
+  aux: (nm) => `FROM aux_items t LEFT JOIN aux_grades tg ON tg.id = t.grade_id
+         WHERE t.nm_rowid = ${nm} AND t.state != 'skipped' AND (tg.band IS NULL OR tg.band != 'covered')`,
 };
+const TWIN_SQL = { coverage: `SELECT t.id, t.state ${TWIN_FROM.coverage("?")}`, aux: `SELECT t.id, t.state ${TWIN_FROM.aux("?")}` };
 
 // Skipped items, newest first, with counts per skip reason over the window.
-// archive_seed rows (day-one archive pages) only when asked for by name.
+// archive_seed rows (day-one archive pages) only when asked for by name. Each
+// item carries gradeable (false when leftOutGrade would refuse it: its source
+// is still muted, or its twin is shown on the other page) and blocked (why
+// not, else null).
 export async function leftOut(env, url) {
   const q = url.searchParams;
   const kind = q.get("kind") || "coverage";
@@ -169,13 +189,25 @@ export async function leftOut(env, url) {
   const since = nowIso(Date.now() - days * DAY);
   const base = `FROM ${k.table} i WHERE i.state = 'skipped' AND i.nm_first_seen >= ? AND ${k.where}`;
   const items = (await env.DB.prepare(
-    `SELECT i.id, '${kind}' AS kind, ${k.name}, i.source_key, i.title, i.url, i.nm_first_seen AS first_seen, i.skip_reason
+    `SELECT i.id, '${kind}' AS kind, ${k.name}, i.source_key, i.title, i.url, i.nm_first_seen AS first_seen, i.skip_reason,
+            (SELECT t.id ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_id,
+            (SELECT t.state ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_state
        ${base} AND ${reason ? "i.skip_reason = ?" : "i.skip_reason IS NOT 'archive_seed'"}
       ORDER BY i.nm_first_seen DESC, i.id DESC LIMIT ?`,
   ).bind(since, ...(reason ? [reason] : []), limit).all()).results || [];
   const counts = Object.fromEntries(((await env.DB.prepare(
     `SELECT COALESCE(i.skip_reason, 'unknown') AS r, COUNT(*) AS n ${base} GROUP BY 1 ORDER BY n DESC, r`,
   ).bind(since).all()).results || []).map((r) => [r.r, r.n]));
+  const muted = await mutedSources(env.DB);
+  const page = { coverage: "Coverage", aux: "Auxiliary" }[k.other];
+  for (const it of items) {
+    const { twin_id: twinId, twin_state: twinState } = it;
+    delete it.twin_id;
+    delete it.twin_state;
+    it.blocked = it.skip_reason === "muted_source" && muted.has(it.source_key) ? `${it.source_key} is still muted: set it back to normal first`
+      : twinId != null ? `already on the ${page} page (${k.other} item ${twinId}, ${twinState}): one item is never on both pages` : null;
+    it.gradeable = it.blocked === null;
+  }
   return json({ kind, reason: reason || null, days, counts, items });
 }
 

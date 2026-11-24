@@ -58,14 +58,14 @@ const CONTRACT = {
     for (const q of ["", "?order=newest", "?sort=to_label&unlabeled=1&state=graded", "?ticker=RCAT"]) {
       const b = await ok("GET", `/v1/feed${q}`);
       assert.ok(b.items.length, `/v1/feed${q} has items`);
-      for (const it of b.items) has(it, ["item_id", "ticker", "url", "title", "why", "snippet", "grade_id", "event_date", "score", "band", "confidence", "label", "my_reason", "source_key", "first_seen"], `/v1/feed${q} item`);
+      for (const it of b.items) has(it, ["item_id", "ticker", "url", "title", "why", "snippet", "grade_id", "event_date", "score", "band", "confidence", "label", "my_reason", "source_key", "first_seen", "owner_pick"], `/v1/feed${q} item`);
     }
   },
   "/v1/aux/feed": async () => {
     for (const q of ["", "?order=newest", "?sort=to_label&unlabeled=1&state=graded"]) {
       const b = await ok("GET", `/v1/aux/feed${q}`);
       assert.ok(b.items.length, `/v1/aux/feed${q} has items`);
-      for (const it of b.items) has(it, ["item_id", "url", "title", "why", "entity", "entity_key", "score", "band", "confidence", "label", "my_reason", "source_key", "first_seen"], `/v1/aux/feed${q} item`);
+      for (const it of b.items) has(it, ["item_id", "url", "title", "why", "entity", "entity_key", "score", "band", "confidence", "label", "my_reason", "source_key", "first_seen", "owner_pick"], `/v1/aux/feed${q} item`);
     }
   },
   "/v1/feedback": async () => {
@@ -103,8 +103,8 @@ const CONTRACT = {
     const b = await ok("GET", "/v1/source-yield?days=30");
     has(b, ["coverage", "aux"], "source-yield");
     assert.ok(b.coverage.length && b.aux.length);
-    for (const r of b.coverage) has(r, ["source_key", "graded", "high", "reject", "duplicate", "last_high_at", "pref", "suggest"], "yield row");
-    for (const r of b.aux) has(r, ["source_key", "graded", "high", "reject", "duplicate", "covered", "last_high_at", "pref", "suggest"], "aux yield row");
+    for (const r of b.coverage) has(r, ["source_key", "graded", "high", "reject", "duplicate", "last_high_at", "pref", "suggest", "mutable", "lock"], "yield row");
+    for (const r of b.aux) has(r, ["source_key", "graded", "high", "reject", "duplicate", "covered", "last_high_at", "pref", "suggest", "mutable", "lock"], "aux yield row");
   },
   "/v1/source-prefs": async () => {
     await ok("POST", "/v1/source-prefs", { source_key: "tfvector", action: "demote" });
@@ -115,7 +115,7 @@ const CONTRACT = {
     for (const kind of ["coverage", "aux"]) {
       const b = await ok("GET", `/v1/left-out?kind=${kind}&days=14&limit=20`);
       has(b, ["items", "counts"], `left-out ${kind}`);
-      for (const it of b.items) has(it, ["id", "kind", kind === "aux" ? "entity" : "ticker", "source_key", "title", "url", "first_seen", "skip_reason"], "left-out item");
+      for (const it of b.items) has(it, ["id", "kind", kind === "aux" ? "entity" : "ticker", "source_key", "title", "url", "first_seen", "skip_reason", "gradeable", "blocked"], "left-out item");
     }
     const cov = await ok("GET", "/v1/left-out?kind=coverage&days=14&limit=20");
     assert.ok(cov.items.some((i) => i.skip_reason === "rival_no_key_account"), "the rival item is left out of coverage");
@@ -129,6 +129,7 @@ const CONTRACT = {
     // The rival item's aux copy is graded: rescuing the coverage copy is refused (never on both pages).
     const rival = (await ok("GET", "/v1/left-out?kind=coverage&days=14&limit=20")).items.find((i) => i.skip_reason === "rival_no_key_account");
     assert.equal((await app("POST", "/v1/left-out/grade", { kind: "coverage", id: rival.id })).status, 400);
+    assert.deepEqual([rival.gradeable, typeof rival.blocked], [false, "string"], "the app hides Grade it for it");
   },
 };
 async function ok(method, path, body) {

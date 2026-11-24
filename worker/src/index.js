@@ -14,7 +14,7 @@ import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION 
 import { ingest } from "./ingest.js";
 import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
-import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
@@ -183,7 +183,7 @@ async function submitGrades(env, body, role) {
 const SHOWN_GRADE = `(SELECT MAX(gt.id) FROM grades gt WHERE gt.item_id = i.id AND gt.ticker = ?
          AND (gt.ticker = i.ticker OR gt.run_id IS (SELECT run_id FROM grades WHERE id = i.grade_id)))`;
 
-// Lead items first seen in the last PIN_LEAD_HOURS come first, then newest.
+// Lead items (and owner-High cards, Z13) first seen in the last PIN_LEAD_HOURS come first, then newest.
 const PIN_LEAD_HOURS = 72;
 // The feed shows today's universe only: a ticker dropped from covered.json
 // leaves the app with its old items (owner, 2026-11-23).
@@ -197,6 +197,8 @@ async function feed(env, url) {
   const ticker = (q.get("ticker") || "").toUpperCase();
   const gradeJoin = ticker ? `LEFT JOIN grades g ON g.id = ${SHOWN_GRADE}` : "LEFT JOIN grades g ON g.id = i.grade_id";
   const joinBinds = ticker ? [ticker] : [];
+  // Labels belong to the grade shown: the item under the ticker it is shown for.
+  const LABEL_OF = "f.item_id = i.id AND f.ticker = COALESCE(g.ticker, i.ticker)";
   // order=newest (or pin_lead_hours=0) turns Lead pinning off.
   const pinParam = Number(q.get("pin_lead_hours") ?? PIN_LEAD_HOURS);
   const pinHours = q.get("order") === "newest" || toLabel ? 0 : Math.max(0, Math.min(24 * 30, Number.isFinite(pinParam) ? pinParam : PIN_LEAD_HOURS));
@@ -206,8 +208,11 @@ async function feed(env, url) {
   // bands and alerts are unchanged.
   const forYou = q.get("order") !== "newest" && !toLabel;
   const SCORE = forYou ? `(g.score - CASE WHEN i.source_key IN ${DEMOTED_SQL} THEN ${DEMOTE_POINTS} ELSE 0 END)` : "g.score";
+  // The owner's latest label (lf, joined below) overrides For You placement (Z13, lib.js ownerRank).
+  const owner = ownerRank(SCORE, "lf.label");
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
-  const PINNED = pinHours > 0 ? `(CASE WHEN g.band = 'lead' AND ${SCORE} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
+  const PINNED = pinHours > 0
+    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
   where.push(`COALESCE(g.ticker, i.ticker) IN ${IN_UNIVERSE}`);
@@ -225,12 +230,15 @@ async function feed(env, url) {
   }
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
   const minScore = Number(q.get("min_score"));
-  if (q.get("min_score") !== null && Number.isFinite(minScore)) { where.push(`${SCORE} >= ?`); binds.push(minScore); }
+  const floor = q.get("min_score") !== null && Number.isFinite(minScore) ? minScore : null;
+  if (floor !== null) {
+    // For You: the owner's High is in whatever the score or state; Noise is out whatever the score.
+    where.push(forYou ? `(${owner.high} OR (${SCORE} >= ? AND NOT ${owner.noise}))` : `${SCORE} >= ?`);
+    binds.push(floor);
+  }
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
-  // Labels belong to the grade shown: the item under the ticker it is shown for.
-  const LABEL_OF = "f.item_id = i.id AND f.ticker = COALESCE(g.ticker, i.ticker)";
   if (q.get("unlabeled") === "1" || toLabel) where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
   if (toLabel) {
     where.push("i.state = 'graded'", "g.score IS NOT NULL", "i.nm_first_seen >= ?");
@@ -242,10 +250,9 @@ async function feed(env, url) {
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
         WHERE gx.item_id = i.id AND g.id IS NOT NULL AND gx.ticker != g.ticker AND gx.run_id IS g.run_id
           AND gx.ticker IN ${IN_UNIVERSE}) AS also,
-      (SELECT label FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label,
-      (SELECT note FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS label_note,
-      (SELECT reason FROM feedback f WHERE ${LABEL_OF} ORDER BY f.id DESC LIMIT 1) AS my_reason
+      lf.label AS label, lf.note AS label_note, lf.reason AS my_reason
     FROM items i ${gradeJoin}
+    LEFT JOIN feedback lf ON lf.id = (SELECT MAX(f.id) FROM feedback f WHERE ${LABEL_OF})
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
     ORDER BY ${toLabel ? `${TO_LABEL_ORDER}, i.id DESC` : "pinned DESC, i.id DESC"} LIMIT ?`;
   const rows = (await env.DB.prepare(sql).bind(...pinBinds, ...joinBinds, ...binds, limit).all()).results || [];
@@ -255,6 +262,8 @@ async function feed(env, url) {
     r.pinned = r.pinned ? 1 : 0;
     r.demoted = r.demoted ? 1 : 0;
     r.my_label = r.label;
+    // In For You only because of the owner's High (Z13): the app's "Your pick".
+    r.owner_pick = forYou ? ownerPick(r, floor, DEMOTE_POINTS) : 0;
     // The event date, when it is older than news-monitor's first sighting.
     r.event_date = olderEventDate(r.published, r.first_seen);
   }

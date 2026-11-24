@@ -53,6 +53,20 @@ REASON_TEXT = dict(REASONS)
 DOWN_REASONS = [v for v, _ in REASONS[:6]]
 UP_REASONS = ["missed_detail"]
 SIGNALS = {60: "Broad 60+", 70: "Balanced 70+", 80: "Tight 80+", 90: "Lead 90+"}
+# What each label does (the "How labels work" popover; plain text, our own words).
+LABEL_GUIDE = [
+    ("High", "must see. Always shows in For You, whatever the score. Teaches the grader to score items like this 80+."),
+    ("Medium", "worth knowing. Teaches the grader that items like this belong around 60-89. Where the card shows doesn't change."),
+    ("Low", "minor. Teaches the grader 30-69. Where the card shows doesn't change."),
+    ("Noise", "not useful. Removes the card from For You. Teaches the grader to score items like this under 30."),
+    ("Too high / Too low", "the score is off in that direction. Teaches the grader. Where the card shows doesn't change."),
+    ("Reason (optional)", "tells the grader why, e.g. stale, wrong company or marketing."),
+]
+LABEL_GUIDE_FOOTER = ("A label never rewrites this card's score. Every hourly grader run reads your labels from the last "
+                      "30 days and applies them to similar new items. You can change a label any time; the latest one counts.")
+# The label control's tooltip: the guide, shortened.
+LABEL_HELP = ("High: always in For You. Noise: out of For You. Medium, Low, Too high, Too low: the card stays where it is. "
+              "Every label teaches the grader on its hourly run; it never rewrites this card's score.")
 PAGE_SIZE = 40
 MAX_LIMIT = 200
 # Band names double as CSS classes, so only these reach a class attribute.
@@ -86,7 +100,9 @@ def feed_params(mode: str, min_score: int | None, unlabeled: bool) -> dict:
     """Feed query for the For You | Latest switch and the Unlabeled only toggle.
 
     For You: graded at or above the Signal floor, recent Leads pinned first (the
-    API's default). Latest: newest first, everything not skipped, pending included.
+    API's default); zenith-core also keeps every card you labelled High (graded or
+    not, recent ones pinned, owner_pick when only your label put it there) and drops
+    every card you labelled Noise. Latest: newest first, everything not skipped, pending included.
     To label: graded cards you have not labelled, the ones that teach the grader most
     first (sort=to_label); Unlabeled only is implied.
     """
@@ -111,10 +127,19 @@ def shown_name(page: FeedPage, it: dict) -> str:
 
 
 def label_choices(it: dict) -> list[str]:
-    """Labels a card offers: none until graded; Too high / Too low need a score."""
-    if not it.get("band"):
-        return []
+    """Labels a card offers: High / Medium / Low / Noise always, graded or not (zenith-core
+    records a label on an ungraded card); Too high / Too low only when there is a score."""
     return [v for v, _ in LABELS] + ([v for v, _ in DIRECTIONAL] if it.get("score") is not None else [])
+
+
+def label_toast(label: str) -> str:
+    """What a label click did, in the toast: High pins, Noise removes, the rest teach."""
+    text = LABEL_TEXT.get(label, label)
+    if label == "high":
+        return f"Labeled {text}: pinned to For You"
+    if label == "noise":
+        return f"Labeled {text}: removed from For You"
+    return f"Labeled {text}: the grader will learn from it"
 
 
 def reason_choices(label: str | None) -> list[str]:
@@ -297,8 +322,10 @@ def card_html(page: FeedPage, it: dict) -> str:
     age = f'<span class="z-age" title="first seen {html.escape(str(seen or ""), quote=True)}">{html.escape(ago(seen))}</span>' if seen else ""
     # The event date, when it is older than news-monitor's first sighting.
     event = f'<span class="z-age">· event {html.escape(short_date(it["event_date"]))}</span>' if it.get("event_date") else ""
+    # In For You only because of the owner's High (zenith-core owner_pick).
+    pick = '<span class="z-badge pick">Your pick</span>' if it.get("owner_pick") else ""
     head = (f'<b class="z-name">{name}</b><span class="z-badge src">{html.escape(tag)}</span>'
-            f'{band_badge(it)}{age}{event}{extra}')
+            f'{band_badge(it)}{pick}{age}{event}{extra}')
     title_text = html.escape(link_text(it))
     title = (f'<a href="{html.escape(str(it["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">{title_text}</a>'
              if safe_url(it.get("url")) else title_text)
@@ -644,6 +671,24 @@ def yield_rows(rows) -> list[dict]:
     return sorted(unique.values(), key=lambda r: suggest_of(r) is None)
 
 
+LOCK_TEXT = {"sec": "SEC filings — can't be muted", "own_channel": "Own channel — can't be muted"}
+
+
+def pref_locked(row: dict) -> str | None:
+    """Why zenith-core refuses Mute / Demote for this source (mutable false), else None.
+    An older zenith-core has no mutable field: every row keeps its control."""
+    if row.get("mutable") is not False:
+        return None
+    return LOCK_TEXT.get(str(row.get("lock") or ""), "Own channel / SEC — can't be muted")
+
+
+def left_blocked(it: dict) -> str | None:
+    """Why Grade it would be refused (gradeable false), else None; an older zenith-core has no gradeable."""
+    if it.get("gradeable") is not False:
+        return None
+    return one_line(it.get("blocked")) or "it can't be sent back to the grader from here"
+
+
 def yield_line_html(row: dict, kind: str) -> str:
     """Source key, suggestion and counts for one Source yield row. Escaped."""
     key = html.escape(str(row["source_key"]))
@@ -793,7 +838,7 @@ def _on_label(page: FeedPage, it: dict, key: str) -> None:
         return
     st.session_state[seen] = value
     _remember(page, it, key, value, None, "")
-    _flash(f"Labeled {LABEL_TEXT.get(value, value)}")
+    _flash(label_toast(value))
 
 
 def _on_reason(page: FeedPage, it: dict, key: str, rkey: str) -> None:
@@ -872,7 +917,7 @@ def render_card(page: FeedPage, it: dict) -> None:
     # One wrapping row (not fixed columns): each button keeps its word on one
     # line, and on a narrow screen the row breaks onto a second line inside the card.
     row = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zlabels-{key}")
-    row.segmented_control("Label", choices, format_func=LABEL_TEXT.get, required=True, key=key,
+    row.segmented_control("Label", choices, format_func=LABEL_TEXT.get, required=True, key=key, help=LABEL_HELP,
                           label_visibility="collapsed", width="content", on_change=_on_label, args=(page, it, key))
     with row.popover("Why it matters", width="content"):
         st.text_area("Your note", key=f"{key}:note", placeholder="One line on why this matters (or doesn't)")
@@ -964,6 +1009,13 @@ def _metrics(page: FeedPage, stats: dict) -> None:
         st.caption(f"Last auxiliary ingest {ago(last)} ago" if last else "No auxiliary ingest yet")
 
 
+def label_guide() -> None:
+    """The "How labels work" popover: what each label does, in plain words (our own text)."""
+    for name, text in LABEL_GUIDE:
+        st.markdown(f"**{name}:** {text}")
+    st.caption(LABEL_GUIDE_FOOTER)
+
+
 def health_strip() -> None:
     """Coverage page: the one-line source-health strip, details in a popover."""
     try:
@@ -1032,8 +1084,12 @@ def render(page: FeedPage) -> None:
 
     head, switch = st.columns([3, 2], vertical_alignment="bottom")
     head.markdown(f"#### {page.title}")
-    mode = switch.segmented_control("Sort", MODES, default=MODES[0], required=True, key=f"{page.kind}-mode",
-                                    label_visibility="collapsed", width="stretch", persist_state="session") or MODES[0]
+    # The sort control and, beside it, what each label does; the pair wraps at 375 px (feed.css st-key-zmode-*).
+    ctl = switch.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zmode-{page.kind}")
+    mode = ctl.segmented_control("Sort", MODES, default=MODES[0], required=True, key=f"{page.kind}-mode",
+                                 label_visibility="collapsed", width="content", persist_state="session") or MODES[0]
+    with ctl.popover("How labels work", width="content"):
+        label_guide()
     if page.kind == "cov":
         health_strip()
         grader_strip()
@@ -1135,6 +1191,11 @@ def yield_row(kind: str, row: dict) -> None:
     _sync_label(key, pref_of(row))
     box = st.container(horizontal=True, gap="small", vertical_alignment="center", key=f"zyield-{kind}-{slug}")
     box.markdown(yield_line_html(row, kind), unsafe_allow_html=True)
+    locked = pref_locked(row)
+    if locked:
+        # zenith-core always refuses these: no Mute / Demote to click.
+        box.markdown(f'<div class="z-health">{html.escape(locked)}</div>', unsafe_allow_html=True)
+        return
     box.segmented_control("Preference", [v for v, _ in PREFS], format_func=PREF_TEXT.get, required=True, key=key,
                           label_visibility="collapsed", width="content", help=PREF_HELP,
                           on_change=_on_pref, args=(source_key, key))
@@ -1202,7 +1263,10 @@ def tuning_left_out() -> None:
         # The position keeps the key unique when items have no id.
         with st.container(border=True, key=f"zcard-left-{kind}-{n}-{widget_slug(item_id)}"):
             st.markdown(left_out_item_html(it), unsafe_allow_html=True)
-            if isinstance(item_id, int):
+            blocked = left_blocked(it)
+            if blocked:
+                st.markdown(f'<div class="z-health">Can\'t grade it: {html.escape(blocked)}</div>', unsafe_allow_html=True)
+            elif isinstance(item_id, int):
                 st.button("Grade it", key=f"tune-grade-{kind}-{item_id}", on_click=_grade_left, args=(kind, item_id),
                           help="Back to pending: the next grader run grades it.")
 

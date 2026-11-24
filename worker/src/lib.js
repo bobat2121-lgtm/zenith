@@ -27,6 +27,27 @@ export function labelReason(body) {
 export const TO_LABEL_DAYS = 14;
 export const TO_LABEL_ORDER = `CASE WHEN g.confidence < 0.6 THEN 0 WHEN g.score BETWEEN 60 AND 79 THEN 1 ELSE 2 END,
       CASE WHEN g.confidence < 0.6 THEN 0 WHEN g.score BETWEEN 60 AND 79 THEN abs(g.score - 70) ELSE 0 END, g.score DESC`;
+// For You (Z13): the owner's latest label overrides placement. `score` is the
+// For You score SQL (demotion applied), `label` the SQL of the card's latest
+// label (the newest feedback row, as the feed's label field). High: always in
+// For You whatever the score or state, ranked as max(score, 90), an ungraded
+// card as 90, so a recent one pins with the Leads. Noise: never in For You.
+// The feed's other hides (muted source, duplicate, covered name, universe) still apply.
+export const PICK_SCORE = 90;
+export function ownerRank(score, label) {
+  const high = `(${label} IS 'high')`;
+  return {
+    high,
+    noise: `(${label} IS 'noise')`,
+    score: `(CASE WHEN ${high} THEN MAX(COALESCE(${score}, ${PICK_SCORE}), ${PICK_SCORE}) ELSE ${score} END)`,
+  };
+}
+// owner_pick on a For You card: shown only because of the owner's High (no
+// score, or a For You score under the Signal floor).
+export function ownerPick(row, minScore, demotePoints) {
+  if (minScore == null || row.label !== "high") return 0;
+  return row.score == null || row.score - (row.demoted ? demotePoints : 0) < minScore ? 1 : 0;
+}
 export const MAX_CLAIM = 60;
 export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;

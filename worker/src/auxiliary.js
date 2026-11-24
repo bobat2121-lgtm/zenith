@@ -17,7 +17,7 @@ import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
-  olderEventDate, normalizeHeadline, routeCounterparty, labelReason, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
+  olderEventDate, normalizeHeadline, routeCounterparty, labelReason, ownerRank, ownerPick, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 export const AUX_BACKFILL_DAYS = 14;
@@ -474,6 +474,16 @@ const parseList = (s) => { try { const v = JSON.parse(s || "[]"); return Array.i
 // covered company. Newest first is news-monitor's arrival order (nm_rowid), so
 // rows the one-time coverage-subject catch-up stores late sit by their age;
 // before_id stays an item id.
+//
+// Rival twins (news-monitor rows a rival source delivered, stored in both
+// pipelines): an aux copy graded 'covered' still shows when its coverage copy
+// was dropped by the key-account gate (rival_no_key_account), else it would be
+// on neither page; an aux copy whose coverage copy is shown (not skipped:
+// stored before Z11 for a row the gate keeps) is hidden, so it is never on both.
+// include_covered=1 shows both kinds.
+export const RIVAL_DROPPED = `EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = i.nm_rowid AND c.state = 'skipped'
+      AND c.skip_reason = 'rival_no_key_account')`;
+export const RIVAL_ON_COVERAGE = "EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = i.nm_rowid AND c.state != 'skipped' AND c.role = 'rival')";
 export async function auxFeed(env, url) {
   const q = url.searchParams;
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 50));
@@ -486,8 +496,11 @@ export async function auxFeed(env, url) {
   // lower for pinning and min_score, as in /v1/feed.
   const forYou = q.get("order") !== "newest" && !toLabel;
   const SCORE = forYou ? `(g.score - CASE WHEN i.source_key IN ${DEMOTED_SQL} THEN ${DEMOTE_POINTS} ELSE 0 END)` : "g.score";
+  // The owner's latest label (lf, joined below) overrides For You placement (Z13, lib.js ownerRank).
+  const owner = ownerRank(SCORE, "lf.label");
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
-  const PINNED = pinHours > 0 ? `(CASE WHEN g.band = 'lead' AND ${SCORE} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
+  const PINNED = pinHours > 0
+    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   const entity = squash(q.get("entity") || "").slice(0, 80);
   if (entity) { const m = entityFilter(entity); where.push(m.sql); binds.push(...m.binds); }
@@ -504,9 +517,16 @@ export async function auxFeed(env, url) {
     else { where.push(BEFORE); binds.push(Math.abs(before)); }
   }
   if (q.get("include_duplicates") !== "1") where.push("(g.band IS NULL OR g.band != 'duplicate')");
-  if (q.get("include_covered") !== "1") where.push("(g.band IS NULL OR g.band != 'covered')", "(i.coverage_subject = 0 OR i.grade_id IS NOT NULL)");
+  if (q.get("include_covered") !== "1") {
+    where.push(`(g.band IS NULL OR g.band != 'covered' OR ${RIVAL_DROPPED})`, "(i.coverage_subject = 0 OR i.grade_id IS NOT NULL)", `NOT ${RIVAL_ON_COVERAGE}`);
+  }
   const minScore = Number(q.get("min_score"));
-  if (q.get("min_score") !== null && q.get("min_score") !== "" && Number.isFinite(minScore)) { where.push(`${SCORE} >= ?`); binds.push(minScore); }
+  const floor = q.get("min_score") !== null && q.get("min_score") !== "" && Number.isFinite(minScore) ? minScore : null;
+  if (floor !== null) {
+    // For You: the owner's High is in whatever the score or state; Noise is out whatever the score.
+    where.push(forYou ? `(${owner.high} OR (${SCORE} >= ? AND NOT ${owner.noise}))` : `${SCORE} >= ?`);
+    binds.push(floor);
+  }
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
@@ -520,10 +540,9 @@ export async function auxFeed(env, url) {
       i.nm_first_seen AS first_seen, i.state, i.skip_reason, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet,
       g.id AS grade_id, g.score, g.band, g.event_type, g.why, g.reads_through, g.confidence, g.read_source, g.flags, g.covered_ticker, g.dup_of,
       g.graded_at, ${PINNED} AS pinned, (i.source_key IN ${DEMOTED_SQL}) AS demoted,
-      (SELECT label FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label,
-      (SELECT note FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS label_note,
-      (SELECT reason FROM aux_feedback f WHERE f.item_id = i.id ORDER BY f.id DESC LIMIT 1) AS my_reason
+      lf.label AS label, lf.note AS label_note, lf.reason AS my_reason
     FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id
+    LEFT JOIN aux_feedback lf ON lf.id = (SELECT MAX(f.id) FROM aux_feedback f WHERE f.item_id = i.id)
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
     ORDER BY ${toLabel ? `${TO_LABEL_ORDER}, i.nm_rowid DESC` : "pinned DESC, i.nm_rowid DESC"} LIMIT ?`;
   const rows = (await env.DB.prepare(sql).bind(...pinBinds, ...binds, limit).all()).results || [];
@@ -533,6 +552,8 @@ export async function auxFeed(env, url) {
     r.pinned = r.pinned ? 1 : 0;
     r.demoted = r.demoted ? 1 : 0;
     r.my_label = r.label;
+    // In For You only because of the owner's High (Z13): the app's "Your pick".
+    r.owner_pick = forYou ? ownerPick(r, floor, DEMOTE_POINTS) : 0;
     // The event date, when it is older than news-monitor's first sighting.
     r.event_date = olderEventDate(r.published, r.first_seen);
   }

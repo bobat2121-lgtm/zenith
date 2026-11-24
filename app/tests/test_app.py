@@ -238,7 +238,9 @@ class PureFunctions(unittest.TestCase):
                          ("/v1/aux/feedback", {"item_id": 9, "label": "high", "note": "big round"}))
 
     def test_label_choices(self):
-        self.assertEqual(zf.label_choices({"band": None}), [])
+        # Ungraded: the four labels, no directional ones (zenith-core records them with no grade).
+        self.assertEqual(zf.label_choices({"band": None}), ["high", "medium", "low", "noise"])
+        self.assertEqual(zf.label_choices({"band": None, "score": None}), ["high", "medium", "low", "noise"])
         self.assertEqual(zf.label_choices({"band": "duplicate", "score": None}), ["high", "medium", "low", "noise"])
         self.assertEqual(zf.label_choices({"band": "digest", "score": 75}),
                          ["high", "medium", "low", "noise", "too_high", "too_low"])
@@ -584,7 +586,7 @@ class AppPages(AppBase):
         self.assertEqual(path, "/v1/feedback")
         self.assertEqual(body, {"item_id": 11, "label": "high", "note": None, "ticker": "RCAT", "grade_id": 101})
         self.assertEqual(headers["authorization"], f"Bearer {TOKEN}")
-        self.assertEqual([t.value for t in self.at.toast], ["Labeled High"])
+        self.assertEqual([t.value for t in self.at.toast], ["Labeled High: pinned to For You"])
 
     def test_label_control_shows_server_label_and_directional_only_when_scored(self):
         self.run_app()
@@ -593,8 +595,10 @@ class AppPages(AppBase):
         dup = self.at.segmented_control(key="cov-lbl-10-UMAC")
         self.assertEqual(dup.options, ["High", "Medium", "Low", "Noise"])
         self.assertEqual(dup.value, "noise")
-        # The pending card has no label control.
-        self.assertEqual(len(self.at.segmented_control), 3)  # mode switch + two graded cards
+        # The pending card keeps its "grading…" badge and offers the four labels, no directional ones.
+        self.assertIn("grading…", self.cards()[2])
+        self.assertEqual(self.at.segmented_control(key="cov-lbl-9-KTOS").options, ["High", "Medium", "Low", "Noise"])
+        self.assertEqual(len(self.at.segmented_control), 4)  # mode switch + three cards
 
     def test_failed_label_is_reported_and_reverted(self):
         self.api.post_status = 400
@@ -699,8 +703,9 @@ class AppPages(AppBase):
         self.run_app()
         self.assertEqual(self.api.posts[-1][:2], ("/v1/aux/feedback", {"item_id": 501, "label": "high",
                                                                       "note": "Raises the bar for RCAT's next round"}))
-        # The pending auxiliary card has no label control.
-        self.assertEqual([w.key for w in self.at.segmented_control], ["aux-mode", "aux-lbl-501"])
+        # The pending auxiliary card has a label control too, without the directional labels.
+        self.assertEqual([w.key for w in self.at.segmented_control], ["aux-mode", "aux-lbl-501", "aux-lbl-500"])
+        self.assertEqual(self.at.segmented_control(key="aux-lbl-500").options, ["High", "Medium", "Low", "Noise"])
 
     def test_auxiliary_page_before_the_aux_api_exists(self):
         del self.api.stats["aux"]
@@ -1295,3 +1300,127 @@ class Round4Pages(AppBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- round 4 addendum (A5 labels before grading, F1 controls the server refuses) ----------
+class AddendumFunctions(unittest.TestCase):
+    def test_label_toasts(self):
+        self.assertEqual(zf.label_toast("high"), "Labeled High: pinned to For You")
+        self.assertEqual(zf.label_toast("noise"), "Labeled Noise: removed from For You")
+        for label, text in (("medium", "Medium"), ("low", "Low"), ("too_high", "Too high"), ("too_low", "Too low")):
+            self.assertEqual(zf.label_toast(label), f"Labeled {text}: the grader will learn from it")
+
+    def test_your_pick_badge(self):
+        it = dict(AUX_ITEMS[1], owner_pick=1)
+        self.assertIn('<span class="z-badge pick">Your pick</span>', zf.card_html(zf.AUXILIARY, it))
+        self.assertIn("grading…", zf.card_html(zf.AUXILIARY, it))
+        self.assertNotIn("Your pick", zf.card_html(zf.AUXILIARY, AUX_ITEMS[1]))
+        self.assertNotIn("Your pick", zf.card_html(zf.COVERAGE, dict(COVERAGE_ITEMS[0], owner_pick=0)))
+
+    def test_pref_locked_and_left_blocked(self):
+        self.assertIsNone(zf.pref_locked({"source_key": "heo"}))  # an older zenith-core: no mutable field
+        self.assertIsNone(zf.pref_locked({"source_key": "heo", "mutable": True, "lock": None}))
+        self.assertEqual(zf.pref_locked({"mutable": False, "lock": "sec"}), "SEC filings \u2014 can't be muted")
+        self.assertEqual(zf.pref_locked({"mutable": False, "lock": "own_channel"}), "Own channel \u2014 can't be muted")
+        self.assertEqual(zf.pref_locked({"mutable": False, "lock": "unknown"}), "Own channel / SEC \u2014 can't be muted")
+        self.assertIsNone(zf.left_blocked({"id": 1}))
+        self.assertIsNone(zf.left_blocked({"id": 1, "gradeable": True, "blocked": None}))
+        self.assertEqual(zf.left_blocked({"gradeable": False, "blocked": "heo is still muted"}), "heo is still muted")
+        self.assertEqual(zf.left_blocked({"gradeable": False}), "it can't be sent back to the grader from here")
+
+    def test_mode_row_wraps_at_phone_width(self):
+        row = css_rule('div[class*="st-key-zmode-"] {')
+        self.assertIn("flex-wrap: wrap !important", row)
+        self.assertIn("max-width: 100%", row)
+        button = css_rule('div[class*="st-key-zmode-"] [data-testid="stButtonGroup"] button,')
+        for prop in ("white-space: nowrap", "min-width: max-content", "flex: 0 0 auto"):
+            self.assertIn(prop, button)
+
+
+class AddendumPages(AppBase):
+    def open_tuning(self):
+        self.run_app()
+        self.at.switch_page("views/tuning.py")
+        return self.run_app()
+
+    def guide_text(self) -> str:
+        return "\n".join([m.value for m in self.at.markdown] + [c.value for c in self.at.caption])
+
+    def test_how_labels_work_on_both_pages(self):
+        for open_page in (self.run_app, self.open_aux):
+            open_page()
+            self.assertIn("How labels work", [p.proto.popover.label for p in self.at.get("popover")])
+            text = self.guide_text()
+            self.assertIn("**High:** must see. Always shows in For You, whatever the score. Teaches the grader to score items like this 80+.", text)
+            self.assertIn("**Medium:** worth knowing. Teaches the grader that items like this belong around 60-89. "
+                          "Where the card shows doesn't change.", text)
+            self.assertIn("**Low:** minor. Teaches the grader 30-69. Where the card shows doesn't change.", text)
+            self.assertIn("**Noise:** not useful. Removes the card from For You. Teaches the grader to score items like this under 30.", text)
+            self.assertIn("**Too high / Too low:** the score is off in that direction. Teaches the grader. "
+                          "Where the card shows doesn't change.", text)
+            self.assertIn("**Reason (optional):** tells the grader why, e.g. stale, wrong company or marketing.", text)
+            self.assertIn("A label never rewrites this card's score. Every hourly grader run reads your labels from the last 30 days "
+                          "and applies them to similar new items. You can change a label any time; the latest one counts.", text)
+
+    def test_label_control_has_the_short_help(self):
+        self.run_app()
+        self.assertEqual(self.at.segmented_control(key="cov-lbl-11-RCAT").help, zf.LABEL_HELP)
+        self.assertIn("High: always in For You", zf.LABEL_HELP)
+        self.assertIn("Noise: out of For You", zf.LABEL_HELP)
+
+    def test_ungraded_card_offers_four_labels_and_posts_without_a_grade(self):
+        self.open_aux()
+        self.assertEqual(self.at.segmented_control(key="aux-lbl-500").options, ["High", "Medium", "Low", "Noise"])
+        self.at.segmented_control(key="aux-lbl-500").set_value("high")
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][:2], ("/v1/aux/feedback", {"item_id": 500, "label": "high"}))
+        self.assertEqual([t.value for t in self.at.toast], ["Labeled High: pinned to For You"])
+
+    def test_ungraded_coverage_card_posts_its_ticker(self):
+        self.run_app()
+        self.at.segmented_control(key="cov-lbl-9-KTOS").set_value("noise")
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][:2], ("/v1/feedback", {"item_id": 9, "label": "noise", "note": None, "ticker": "KTOS"}))
+        self.assertEqual([t.value for t in self.at.toast], ["Labeled Noise: removed from For You"])
+
+    def test_teaching_labels_say_the_grader_learns(self):
+        self.run_app()
+        self.at.segmented_control(key="cov-lbl-11-RCAT").set_value("medium")
+        self.run_app()
+        self.assertEqual([t.value for t in self.at.toast], ["Labeled Medium: the grader will learn from it"])
+
+    def test_pinned_card_shows_your_pick(self):
+        self.api.items["/v1/aux/feed"][1]["owner_pick"] = 1
+        self.api.items["/v1/aux/feed"][1]["label"] = "high"
+        self.open_aux()
+        cards = self.cards()
+        self.assertNotIn("Your pick", cards[0])
+        self.assertIn('<span class="z-badge pick">Your pick</span>', cards[1])
+        self.assertIn("grading…", cards[1])
+        self.assertEqual(self.at.segmented_control(key="aux-lbl-500").value, "high")
+
+    def test_locked_sources_have_no_mute_or_demote(self):
+        cov = self.api.routes["/v1/source-yield"]["coverage"]
+        cov.append({"source_key": "redcat", "graded": 12, "high": 0, "reject": 12, "duplicate": 0, "last_high_at": None,
+                    "pref": None, "suggest": None, "mutable": False, "lock": "own_channel"})
+        cov.append({"source_key": "edgar_rcat", "graded": 4, "high": 0, "reject": 4, "duplicate": 0, "last_high_at": None,
+                    "pref": None, "suggest": None, "mutable": False, "lock": "sec"})
+        cov[0]["mutable"] = True
+        self.open_tuning()
+        keys = [w.key for w in self.at.segmented_control if w.key.startswith("tune-pref-")]
+        self.assertIn("tune-pref-coverage-rcat_press", keys)
+        self.assertNotIn("tune-pref-coverage-redcat", keys)
+        self.assertNotIn("tune-pref-coverage-edgar_rcat", keys)
+        text = self.page_text()
+        self.assertIn("Own channel \u2014 can&#x27;t be muted", text)
+        self.assertIn("SEC filings \u2014 can&#x27;t be muted", text)
+
+    def test_left_out_hides_grade_it_when_the_server_would_refuse(self):
+        LEFT = [dict(LEFT_OUT[0], gradeable=False, blocked="already on the Auxiliary page (aux item 9, <pending>)"),
+                dict(LEFT_OUT[1], gradeable=True, blocked=None)]
+        self.api.routes["/v1/left-out"] = lambda params: {"items": copy.deepcopy(LEFT), "counts": {"rival_no_key_account": 1, "muted_source": 1}}
+        self.open_tuning()
+        keys = [b.key for b in self.at.button]
+        self.assertNotIn("tune-grade-coverage-301", keys)
+        self.assertIn("tune-grade-coverage-300", keys)
+        self.assertIn("Can't grade it: already on the Auxiliary page (aux item 9, &lt;pending&gt;)", self.page_text())

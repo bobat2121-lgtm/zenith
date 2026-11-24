@@ -411,7 +411,7 @@ test("Z8 source yield: latest grade per item, sorted by graded, with suggestions
   assert.equal(r.status, 200);
   const cov = Object.fromEntries(r.body.coverage.map((x) => [x.source_key, x]));
   assert.deepEqual(r.body.coverage.map((x) => x.source_key), ["redcat", "tfvector", "skydio", "nga"]);
-  assert.deepEqual({ ...cov.tfvector, last_high_at: undefined }, { source_key: "tfvector", graded: 10, high: 0, reject: 9, duplicate: 1, last_high_at: undefined, pref: null, suggest: "mute" });
+  assert.deepEqual({ ...cov.tfvector, last_high_at: undefined }, { source_key: "tfvector", graded: 10, high: 0, reject: 9, duplicate: 1, last_high_at: undefined, pref: null, suggest: "mute", mutable: true, lock: null });
   assert.deepEqual([cov.skydio.graded, cov.skydio.high, cov.skydio.reject, cov.skydio.pref, cov.skydio.suggest], [8, 2, 6, "demote", null], "already demoted: no suggestion");
   assert.deepEqual([cov.redcat.reject, cov.redcat.suggest], [12, null], "a covered company's own channel is never suggested");
   assert.deepEqual([cov.nga.graded, cov.nga.high, cov.nga.reject], [1, 1, 0]);
@@ -438,7 +438,7 @@ test("Z9 left out: skipped items newest first with counts; archive_seed only by 
   assert.equal((await get(env, "/v1/left-out", "grader")).status, 403);
   const r = (await get(env, "/v1/left-out?kind=coverage")).body;
   assert.deepEqual(r.items.map((i) => i.id), [stale, rival]);
-  assert.deepEqual(Object.keys(r.items[0]).sort(), ["first_seen", "id", "kind", "skip_reason", "source_key", "ticker", "title", "url"]);
+  assert.deepEqual(Object.keys(r.items[0]).sort(), ["blocked", "first_seen", "gradeable", "id", "kind", "skip_reason", "source_key", "ticker", "title", "url"]);
   assert.deepEqual(r.counts, { archive_seed: 1, rival_no_key_account: 1, stale_on_arrival: 1 });
   assert.deepEqual((await get(env, "/v1/left-out?kind=coverage&reason=archive_seed")).body.items.map((i) => i.id), [seed]);
   assert.deepEqual((await get(env, "/v1/left-out?kind=coverage&reason=rival_no_key_account")).body.items.map((i) => i.id), [rival]);
