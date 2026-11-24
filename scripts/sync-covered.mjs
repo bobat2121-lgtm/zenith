@@ -34,7 +34,8 @@ const tickerList = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.spli
 
 // Shadow sources (shadow: true; plans/round7-driver-coverage.md 4.7) run in
 // news-monitor only, so their rows can be counted before anyone decides to
-// grade them. They are never written to covered.json or aux-sources.json.
+// grade them. They are never in covered.json, and aux-sources.json excludes them (an
+// unknown key would otherwise be routed to the auxiliary pass by name).
 export const shadowKeys = (sourceList) => new Set(sourceList.filter((s) => s?.shadow === true).map((s) => s.key));
 
 // sources: news-monitor's SOURCES after priority.js ran. existing: { key: { role, affects } }.
@@ -42,7 +43,7 @@ export const shadowKeys = (sourceList) => new Set(sourceList.filter((s) => s?.sh
 export function buildCovered(sourceList, { counterpartySources = [], existing = {} } = {}) {
   const warnings = [];
   const shadow = shadowKeys(sourceList);
-  for (const key of shadow) warnings.push(`${key}: shadow source (shadow: true), left out of covered.json and aux-sources.json`);
+  for (const key of shadow) warnings.push(`${key}: shadow source (shadow: true), left out of covered.json and excluded in aux-sources.json`);
   sourceList = sourceList.filter((s) => !shadow.has(s.key));
   const sources = {};
   for (const s of sourceList) {
@@ -125,7 +126,10 @@ export function buildAux(sourceList, covered, peers = []) {
   const coveredKeys = new Set(Object.keys(covered?.sources || {}));
   const counterparty = covered?.counterparty || {};
   const tickers = new Set((covered?.tickers || []).map((t) => String(t).toLowerCase()));
-  const exclude = {};
+  // A shadow key must be excluded, not just left out: auxRoute routes an
+  // unknown key by name (its "not synced yet" fallback), which would store and
+  // grade shadow rows in the auxiliary pass.
+  const exclude = Object.fromEntries([...shadow].map((k) => [k, "shadow"]));
   const aux = new Map();
   // Coverage-subject sources (counterparty filters built to watch a covered
   // company) -> the covered tickers they affect.

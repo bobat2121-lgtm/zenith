@@ -5,6 +5,7 @@
 // watch a covered company is auxiliary marked coverage_subject.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { makeAuxRoute } from "../worker/src/aux-route.js";
 import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS, FPDS } from "../scripts/sync-covered.mjs";
 
 const SOURCES = [
@@ -242,9 +243,10 @@ test("a shadow source (shadow: true) is never written to covered.json or aux-sou
   const aux = buildAux(list, covered, []);
   for (const key of ["drv_drone_industrial_policy", "drv_shadow_plain"]) {
     assert.equal(aux.sources[key], undefined, `${key} is not an auxiliary source`);
-    assert.equal(aux.exclude[key], undefined, `${key} is not listed in the exclusions either`);
+    assert.equal(aux.exclude[key], "shadow", `${key} is excluded, so auxRoute's unknown-key fallback never routes it`);
+    assert.equal(makeAuxRoute(aux, covered)(key), null, `${key} never reaches the auxiliary pass`);
   }
   assert.equal(aux.sources.drv_fedreg_drone_rules?.coverage_subject, true);
-  const written = JSON.stringify({ covered, aux });
+  const written = JSON.stringify({ covered, sources: aux.sources });
   assert.doesNotMatch(written.replace(/"warnings":\[[^\]]*\]/, ""), /drv_drone_industrial_policy|drv_shadow_plain/);
 });
