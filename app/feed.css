@@ -101,6 +101,11 @@ div[class*="st-key-zreason-"] [data-baseweb="select"] * { white-space: nowrap; o
 .z-table th { color: var(--z-dim); font-weight: 600; text-align: left; }
 .z-table th, .z-table td { border-bottom: 1px solid var(--z-line); padding: .2rem .45rem; white-space: nowrap; }
 .z-table td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 12rem; }
+/* Coverage card: a bill's autonomy total, and its grouped, collapsible lines. */
+.z-bl-sum { color: var(--z-soft); font-size: .85rem; margin-top: .15rem; }
+details.z-bl { margin: .2rem 0; }
+details.z-bl > summary { cursor: pointer; font-size: .85rem; font-weight: 600; }
+.z-bl-more { color: var(--z-dim); font-size: .78rem; }
 /* Source yield rows: the counts and the Mute / Demote / Normal control wrap as a whole,
    each button's text on one line (the label-row rules). */
 div[class*="st-key-zyield-"], div[class*="st-key-zconfirm-"] { flex-wrap: wrap !important; row-gap: .3rem; max-width: 100%; }

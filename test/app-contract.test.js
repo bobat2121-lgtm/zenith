@@ -111,7 +111,7 @@ const CONTRACT = {
     for (const q of ["", "?order=newest", "?sort=to_label&unlabeled=1&state=graded", "?ticker=RCAT"]) {
       const b = await ok("GET", `/v1/feed${q}`);
       assert.ok(b.items.length, `/v1/feed${q} has items`);
-      for (const it of b.items) has(it, ["item_id", "ticker", "url", "title", "why", "snippet", "grade_id", "event_date", "score", "band", "confidence", "label", "my_reason", "source_key", "first_seen", "owner_pick"], `/v1/feed${q} item`);
+      for (const it of b.items) has(it, ["item_id", "ticker", "url", "title", "why", "snippet", "grade_id", "event_date", "score", "band", "confidence", "label", "my_reason", "source_key", "first_seen", "owner_pick", "bill_lines"], `/v1/feed${q} item`);
     }
   },
   "/v1/aux/feed": async () => {

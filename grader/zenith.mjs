@@ -173,6 +173,9 @@ if (cmd === "stats") {
     console.log(`TITLE: ${i.title}`);
     console.log(`URL: ${i.url}`);
     console.log(i.excerpt ? `EXCERPT (${i.excerpt_status}):\n${i.excerpt}` : `EXCERPT: none (${i.excerpt_status ?? "not fetched yet"})`);
+    // A bill item's autonomy lines, read by zenith-core from the official bill text (GRADER.md, "AUTONOMY LINES").
+    if (i.autonomy_lines) console.log(i.autonomy_lines);
+    else if (i.autonomy_lines_status) console.log(`AUTONOMY LINES: none (${i.autonomy_lines_status})`);
   }
 } else if (cmd === "submit") {
   if (!args[0]) die("usage: submit <grades.json>");

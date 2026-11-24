@@ -11,7 +11,8 @@
 //           (grader health and source tuning; tuning.js)
 //   app   : GET /v1/expansion/candidates, POST /v1/expansion/decide, POST /v1/expansion/compiled
 //           (the source-expansion approve queue; expansion.js)
-//   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim)
+//   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim),
+//           POST /v1/admin/bill-lines (one pass of the bill autonomy lines; bill-lines.js)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
@@ -25,6 +26,7 @@ import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
 import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill, upsertAfterGrades, relationSightings } from "./expansion.js";
 import { secParties } from "./sec-parties.js";
+import { billLinesPass, BILL_HOLD_SQL, HOLD_MINUTES, blockText, parseStored } from "./bill-lines.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 const ALLOW = {
@@ -42,6 +44,7 @@ const ALLOW = {
   "POST /v1/admin/ingest": ["admin"],
   "POST /v1/admin/enrich": ["admin"],
   "POST /v1/admin/requeue": ["admin"],
+  "POST /v1/admin/bill-lines": ["admin"],
   // Auxiliary names (GET /v1/rubric/aux is under GET /v1/rubric).
   "POST /v1/aux/claim": ["grader", "admin"],
   "POST /v1/aux/grades": ["grader", "admin"],
@@ -90,18 +93,28 @@ async function claim(env, body) {
     .bind(MAX_ATTEMPTS, now).run();
   // One statement, so concurrent claims can never share items or reopen a
   // graded one: the outer WHERE re-checks state. Items whose excerpt attempt
-  // has finished come first, then newest first.
+  // has finished come first, then newest first. A bill item waits while its
+  // autonomy lines are being read, at most HOLD_MINUTES after ingest (bill-lines.js).
   await env.DB.prepare(
     `UPDATE items SET state='claimed', claim_id=?1, claimed_until=?2, attempts=attempts+1
-      WHERE id IN (SELECT id FROM items WHERE state='pending' OR (state='claimed' AND claimed_until < ?3)
+      WHERE id IN (SELECT id FROM items WHERE (state='pending' OR (state='claimed' AND claimed_until < ?3)) AND ${BILL_HOLD_SQL("?5")}
                     ORDER BY (excerpt_status IS NULL), nm_first_seen DESC, id DESC LIMIT ?4)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
-  ).bind(claimId, until, now, limit).run();
+  ).bind(claimId, until, now, limit, nowIso(Date.now() - HOLD_MINUTES * 60_000)).run();
   const items = (await env.DB.prepare(
-    `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
+    `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status, i.bill_lines FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
   ).bind(claimId).all()).results || [];
-  // Timeliness is measured from first sighting, never from grading time.
-  for (const it of items) it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
+  for (const it of items) {
+    // Timeliness is measured from first sighting, never from grading time.
+    it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
+    // The grader sees the compact AUTONOMY LINES block, never the stored JSON.
+    const bl = parseStored(it.bill_lines);
+    delete it.bill_lines;
+    if (bl) {
+      it.autonomy_lines = blockText(bl);
+      if (bl.status !== "ok") it.autonomy_lines_status = `${bl.status}${bl.error ? ` (${bl.error})` : ""}`;
+    }
+  }
   await env.DB.prepare(
     `INSERT INTO runs (id, started_at, last_seen_at, claimed, rubric_version, model) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at, claimed=runs.claimed+excluded.claimed`,
@@ -268,7 +281,7 @@ async function feed(env, url) {
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
         WHERE gx.item_id = i.id AND g.id IS NOT NULL AND gx.ticker != g.ticker AND gx.run_id IS g.run_id
           AND gx.ticker IN ${IN_UNIVERSE}) AS also,
-      lf.label AS label, lf.note AS label_note, lf.reason AS my_reason
+      lf.label AS label, lf.note AS label_note, lf.reason AS my_reason, i.bill_lines
     FROM items i ${gradeJoin}
     LEFT JOIN feedback lf ON lf.id = (SELECT MAX(f.id) FROM feedback f WHERE ${LABEL_OF})
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
@@ -284,6 +297,9 @@ async function feed(env, url) {
     r.owner_pick = forYou ? ownerPick(r, floor, DEMOTE_POINTS) : 0;
     // The event date, when it is older than news-monitor's first sighting.
     r.event_date = olderEventDate(r.published, r.first_seen);
+    // A bill item's autonomy lines (bill-lines.js): groups, rows and totals, or
+    // its read status; null for every other item.
+    r.bill_lines = parseStored(r.bill_lines);
   }
   let next = null;
   if (rows.length === limit && !toLabel) {
@@ -493,6 +509,7 @@ export default {
       case "POST /v1/admin/ingest": return json(await ingest(env));
       case "POST /v1/admin/enrich": return json(await enrich(env));
       case "POST /v1/admin/requeue": return requeue(env, await readJson(request));
+      case "POST /v1/admin/bill-lines": return json(await billLinesPass(env));
       case "POST /v1/aux/claim": return json(await auxClaim(env, await readJson(request)));
       case "POST /v1/aux/grades": return submitAuxGrades(env, await readJson(request), role);
       case "GET /v1/aux/recent": return auxRecent(env, url);
@@ -527,6 +544,8 @@ export default {
       // Delivery before enrich: a slow excerpt or PDF read must never cost a tick's Lead pushes.
       try { console.log("delivery", JSON.stringify(await deliveryTick(env, COVERED))); } catch (e) { console.error("delivery failed", e?.stack || e); }
       try { console.log("enrich", JSON.stringify(await enrich(env))); } catch (e) { console.error("enrich failed", e?.stack || e); }
+      // Bill autonomy lines: one bill a tick, read after the excerpts (bill-lines.js).
+      try { console.log("bill lines", JSON.stringify(await billLinesPass(env))); } catch (e) { console.error("bill lines failed", e?.stack || e); }
       // Auxiliary names last, on their own: coverage is always served first.
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
       // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
