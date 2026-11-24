@@ -1,7 +1,8 @@
 // Round 7 Phase 1a "Driver lines" (owner:2026-11-24) on the drone group
 // (RCAT UMAC ONDS PUSA DPRO). The owner approved four US drivers: drone rules,
-// presidential drone and airspace actions, Defense appropriations and CRs
-// naming a drone program, and DoW drone industrial policy. These checks pin the
+// presidential drone and airspace actions, the defense budget (appropriations,
+// NDAA, reconciliation and CRs; Phase 1a.2 adds topline moves in the Digest),
+// and DoW drone industrial policy. These checks pin the
 // sheet text the grader reads: the fixed 8-field shape of each driver block
 // (plans/round7-driver-coverage.md 4.1), the approved bands, the owner mark,
 // the grader step that reads other tickers' Driver lines, and the bundle.
@@ -13,8 +14,9 @@ import { parseOwnerMarks } from "../scripts/owner-marks.mjs";
 const TICKERS = ["RCAT", "UMAC", "ONDS", "PUSA", "DPRO"];
 const HEADING = "## Driver lines (owner:2026-11-24)";
 const FIELDS = ["id", "category", "what counts", "actors", "band", "overrides", "sources", "worked example"];
-const DRIVERS = ["US drone rules", "Presidential drone and airspace actions", "Defense appropriations and continuing resolutions naming a drone program", "DoW drone industrial policy"];
-const SOURCES = { "US drone rules": ["drv_fedreg_drone_rules"], "Presidential drone and airspace actions": ["drv_whitehouse_actions"], "Defense appropriations and continuing resolutions naming a drone program": ["drv_senate_approps_def", "drv_defense_cr_drones"], "DoW drone industrial policy": ["drv_drone_industrial_policy"] };
+const BUDGET = "Defense budget: appropriations, NDAA, reconciliation and CRs";
+const DRIVERS = ["US drone rules", "Presidential drone and airspace actions", BUDGET, "DoW drone industrial policy"];
+const SOURCES = { "US drone rules": ["drv_fedreg_drone_rules"], "Presidential drone and airspace actions": ["drv_whitehouse_actions"], [BUDGET]: ["drv_govinfo_defense_bills", "drv_house_approps", "drv_senate_approps_def", "drv_ndaa_action", "drv_defense_budget_news", "drv_defense_cr_drones"], "DoW drone industrial policy": ["drv_drone_industrial_policy"] };
 
 const read = (t) => readFileSync(new URL(`../rubric/companies/${t}.md`, import.meta.url), "utf8");
 const frontMatterOf = (md) => (/^---\n([\s\S]*?)\n---/.exec(md) || /```ya?ml\n([\s\S]*?)\n```/.exec(md))[1];
@@ -97,7 +99,7 @@ for (const t of TICKERS) {
     assert.match(dow, /These are peer wins, not this line/);
     assert.doesNotMatch(dow, /production-order pools|Drone Dominance office|budget pool not yet awarded/);
     assert.match(blocks["DoW drone industrial policy"], /Pentagon is in talks with GM and Ford[^.]*70, final 70/);
-    assert.match(blocks["Defense appropriations and continuing resolutions naming a drone program"], /names no drone program does not count/);
+    assert.match(blocks[BUDGET], /Deadline or shutdown talk with no vote, release or new figure[^.]*are `out_of_scope`/);
   });
 
   test(`${t}: owner_marks has the Driver lines entry naming the overridden core rules`, () => {
@@ -106,10 +108,65 @@ for (const t of TICKERS) {
     const entry = marks.find((m) => m.line === "Driver lines");
     assert.ok(entry, `${t}: owner_marks entry`);
     assert.equal(entry.mark, "owner:2026-11-24");
-    for (const rule of ["core 1 out-of-scope", "core 9 read-through", "core 4.5 timeliness", "core 4.1 reported deduction and prospective cap"]) assert.ok(entry.overrides.includes(rule), `${t}: overrides names ${rule}`);
+    for (const rule of ["core 1 out-of-scope", "core 9 read-through", "for topline defense budget moves only, its sector-budgets exclusion", "core 4.5 timeliness", "core 4.1 reported deduction and prospective cap", "the defense budget (appropriations, NDAA, reconciliation and CRs, including topline moves)"]) assert.ok(entry.overrides.includes(rule), `${t}: overrides names ${rule}`);
     assert.ok(md.includes(`\n${HEADING}\n`));
   });
+
+  // Phase 1a.2 (plans/round7-phase1a2-budget.md section C): the defense budget
+  // block, toplines in the Digest (owner), NDAA counted, bill versions as stages.
+  test(`${t}: the Defense budget block has the Phase 1a.2 bands, stage rule, sector-budget lift and worked examples`, () => {
+    const b = blocks[BUDGET];
+    const band = /^- \*\*band:\*\* (.*)$/m.exec(b)[1];
+    assert.match(band, /^enacted act or line that funds, cuts or blocks a drone program[^:]*or an enacted NDAA sourcing provision on drones or drone parts: Digest 75-(79|89)/);
+    assert.match(band, /New bill version or stage \(committee report, chamber passage, conference text\) that names or funds a drone program or carries autonomy lines[^:]*: 70-7[49]/);
+    assert.match(band, /Topline defense budget move with a dollar figure or a vote that names no drone program: Digest 70-74/);
+    assert.match(band, /Credible report of pending action on any of these \(named outlet, and a named committee, chamber or agency[^:]*: 70\./);
+    assert.match(band, /Deadline or shutdown talk, explainers, op-eds and re-reports: `out_of_scope`, `duplicate` or under 40/);
+    assert.doesNotMatch(band, /-9\d|\b9\d-/, `${t}: never above 89`);
+    assert.match(b, /\(owner, 2026-11-24: "Toplines should be in the digest"\)/);
+    assert.match(b, /even when it names no drone program/);
+    assert.match(b, /NDAA drone and drone-parts sourcing provisions are graded in this block, not under US drone rules/);
+    assert.match(b, /Each bill version \(govinfo RH\/RS reported, EH\/ES passed a chamber, EAH\/EAS amendments between the chambers, ENR enrolled\) is a new stage, graded as an update on the earlier stage \(core 8\), never a duplicate/);
+    assert.match(b, /NDAA items that move no stage and no money[^.]*are `out_of_scope`/);
+    assert.match(b, /For this block the core 9 "sector budgets" exclusion is lifted too, for topline defense budget moves only\./);
+    assert.match(b, /a request is never an appropriation/);
+    // Worked examples: the 11-16 Senate release (topline, Digest), the 11-17
+    // reconciliation remark (credible), a govinfo NDAA RH with autonomy lines,
+    // and the 10-14 Hegseth remark, decided as budget, not industrial policy.
+    assert.match(b, /2026-11-16, "Senate Appropriations Committee Releases Final Five FY 2027 Funding Bills"[^\n]*about \$1\.1T[^\n]*topline figure: Digest 7[02][^\n]*final 70 \(4\.5 stops at 70\)/);
+    assert.match(b, /2026-11-17: [^\n]*\$350B reconciliation request[^\n]*credible report, 70, final 70/);
+    assert.match(b, /H\.R\. 3838 RH \(FY2026 NDAA[^\n]*AUTONOMY LINES block[^\n]*Outpost Uncrewed Surveillance System Increase \[10,000\]" \(\$10\.0M[^\n]*a new stage with autonomy lines/);
+    assert.match(b, /2026-10-14: Hegseth says the Pentagon needs \$50B for mass drone production\. This is a budget item, not DoW drone industrial policy/);
+    assert.match(blocks["DoW drone industrial policy"], /Hegseth's 2026-10-14 \$50B for drone production\) is a budget item, graded under Defense budget, not here\./);
+    assert.match(blocks["US drone rules"], /Statutory drone sourcing provisions in an NDAA or appropriations act are graded under Defense budget, not here\./);
+    assert.match(b, new RegExp(`The budget moves ${t} because|${t} is a Canadian issuer: US budget moves reach it only through its US sales`));
+    const lines = b.trim().split("\n").length;
+    assert.ok(lines <= 15, `${t}: ${lines} lines`);
+  });
+
+  test(`${t}: no NDAA or sector-budget exclusion conflicts with the Defense budget block`, () => {
+    assert.doesNotMatch(md, /NDAA lines keep the calendar rule|NDAA sourcing text|An NDAA line counts only when it names/);
+    assert.doesNotMatch(md, /Defense appropriations and continuing resolutions naming|Defense appropriations and CRs naming a drone program/);
+    assert.doesNotMatch(md, /a budget request or plan that is not an appropriations bill or CR, is a sector budget/);
+    const notCovered = /^- \*\*Not covered:\*\* .*$/m.exec(section)[0];
+    assert.doesNotMatch(notCovered, /NDAA lines and non-US|NDAA sourcing text and/);
+    if (/sector (C-UAS )?budgets/.test(notCovered)) assert.match(notCovered, /name no program, budget line, bill, act or request/);
+    assert.match(section, /^- \*\*Overrides:\*\* .*For the Defense budget block only, the core 9 "sector budgets" exclusion is lifted too, for topline defense budget moves\.$/m);
+    assert.match(section, /The Defense budget block also counts topline defense budget moves that name no drone program/);
+  });
 }
+
+test("DPRO: US budget moves reach it only through US sales, and its #DPRO grades stay low", () => {
+  const b = blocksOf(sectionOf(read("DPRO")))[BUDGET];
+  assert.match(b, /DPRO is a Canadian issuer: US budget moves reach it only through its US sales/);
+  assert.match(b, /Digest 75-79\./);
+  assert.match(b, /Digest 70-74, scored 70 for DPRO/);
+  assert.match(b, /`why` states only what the text says about allied or Canadian makers/);
+});
+
+test("RCAT: the catalyst calendar sends budget stages to the Defense budget block", () => {
+  assert.match(read("RCAT"), /FY2027 appropriations, NDAA, reconciliation and CRs\. Bill versions, enacted lines, drone lines, NDAA sourcing provisions and topline moves are graded under "Driver lines" below, Defense budget \(owner:2026-11-24\)\. NDAA or budget news that moves no stage and no money stays here as context\./);
+});
 
 test("tailoring: the drivers that do not reach a ticker say so", () => {
   assert.match(sectionOf(read("UMAC")), /BIS drone export rules \*\*do not apply to UMAC\*\*/);
