@@ -161,6 +161,9 @@ const NAME_START_RE = /^(?:[\p{Lu}\p{N}]|\p{Ll}\p{Lu})/u;
 const REFERENCE_RE = /^(?:the|its|our|such|each|said)\b/i;
 const ROLE_KEYS = new Set(["Buyer", "Seller", "Purchaser", "Parent", "Merger Sub", "Company", "Registrant", "Lender", "Borrower", "Agent"].map(dedupeKey));
 const squash = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+// Lowercase words that open a clause after a party name (case-sensitive, so
+// "Made In Space" or "Back To Basics" keep their capitalized words).
+const CLAUSE_RE = /\s+(?:as|pursuant|under|in|dated|entered|which|that|who|whose|whereby|to|with|from|by|on|at|upon|effective|hereinafter|hereby|shall|will|has|have|is|was)\b[\s\S]*$/;
 
 // A party list -> its raw parts (B4 "Splitting a list").
 export function splitList(text) {
@@ -179,6 +182,9 @@ function trimName(s, { suffixCut }) {
   n = n.split(",")[0];
   n = n.replace(/\s+an?\s+(?=\p{Lu})[\s\S]*$/u, "");
   n = n.split("(")[0];
+  // A trailing lowercase clause is not part of the name: "Upgrade Energy as
+  // contemplated by the Merger Agreement" -> "Upgrade Energy" (live, item 18).
+  n = n.replace(CLAUSE_RE, "");
   if (suffixCut) {
     const ms = suffixMatches(n);
     if (ms.length) {
@@ -221,7 +227,11 @@ export function partyFrom(raw, { listed = false } = {}) {
   if ([legal, trade].some((n) => n && coveredTicker(n))) return null;
   const name = trade || legal;
   if (!name || !dedupeKey(name)) return null;
-  const party = squash(text.replace(/,?\s+an?\s+\p{Lu}[\s\S]*$/u, "").split("(")[0]).replace(/[\s,;:]+$/, "").slice(0, 120);
+  // The trailing clause is cut from the party text too, but only after a d/b/a
+  // ("doing business as" itself holds " as").
+  const cutAt = d ? d.index + d[0].length : 0;
+  const ptext = text.slice(0, cutAt) + text.slice(cutAt).replace(CLAUSE_RE, "");
+  const party = squash(ptext.replace(/,?\s+an?\s+\p{Lu}[\s\S]*$/u, "").split("(")[0]).replace(/[\s,;:]+$/, "").slice(0, 120);
   return { name, aliases: trade && legal && dedupeKey(legal) !== dedupeKey(trade) ? [legal] : [], party: party || name };
 }
 
