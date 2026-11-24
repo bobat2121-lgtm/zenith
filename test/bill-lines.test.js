@@ -227,6 +227,10 @@ test("NDAA text: sourcing and ban provisions with the section header as the term
   assert.deepEqual(BL.clauseLine("the Secretary of the Army may not retire, divest, or otherwise take any action", "SEC. 1045. Limitation on retirement of Gray Eagle unmanned aircraft systems"), { provision: true });
   assert.equal(BL.clauseLine("This section shall not be construed to affect the authority of the Secretary", "SEC. 9. Unmanned aircraft"), null);
   assert.equal(BL.clauseLine("the Secretary may not retire, divest, or otherwise take any action", "SEC. 9. Aircraft retirements"), null);
+  // A cost threshold is not funding (S. 4784 RS, the RASCOM section); a cap on funds still counts.
+  const rascom = "The Commander may not enter into a contract under paragraph (1)(A) to procure robotic and autonomous systems equipment and associated capabilities the cost of which exceeds $20,000,000";
+  assert.equal(BL.clauseLine(rascom).value, undefined);
+  assert.equal(BL.clauseLine("of which not more than $5,000,000 shall be for small unmanned aircraft systems").value, 5_000_000);
   // SEC. 1213: an amended cap, in a section whose header names autonomy: the inserted amount, listed and not added.
   const cap = rowsOf(r).find((x) => x.kind === "text");
   assert.deepEqual([cap.group, cap.bill, cap.in_total, cap.note], ["Counter-UAS", 70000000, false, "amends an amount in earlier law: not added"]);

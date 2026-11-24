@@ -180,6 +180,11 @@ function textAmounts(text) {
   }
   return out;
 }
+// A cost threshold is not funding: "a contract ... the cost of which exceeds
+// $20,000,000" (S. 4784 RS, the RASCOM section). "not more than $X" is a cap on
+// funds and stays.
+const THRESHOLD_RE = /(?<!\bnot )\b(?:exceeds?|exceeding|in excess of|(?:more|less|greater) than|threshold of)\s*$/i;
+const fundingAmounts = (text) => textAmounts(text).filter((a) => !THRESHOLD_RE.test(text.slice(Math.max(0, a.index - 40), a.index)));
 
 // ---- Funding tables ------------------------------------------------------------------
 const ROW_RE = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
@@ -307,7 +312,7 @@ function clauses(text) {
 export function clauseLine(clause, context = "") {
   const clean = cleanTerms(clause);
   const term = TERM_RE.exec(clean);
-  const amounts = textAmounts(clause);
+  const amounts = fundingAmounts(clause);
   if (!term) return !amounts.length && context && hasTerm(context) && isProvision(clause) ? { provision: true } : null;
   if (!amounts.length) return isProvision(clause) ? { provision: true } : null;
   // Purpose after the amount: the amount whose span (up to the next amount) holds a term.
@@ -339,7 +344,7 @@ const AMENDS_RE = /\bby striking\s+\$[\d,.]+[^$]*?\binserting\s+\$/i;
 // A clause with an amount and no term, in a section whose header names autonomy
 // (an amended authorization cap): the inserted amount, or the only amount.
 function headerAmount(clause) {
-  const amts = textAmounts(clause);
+  const amts = fundingAmounts(clause);
   const ins = amts.find((a) => /\binserting\s*$/i.test(clause.slice(Math.max(0, a.index - 20), a.index)));
   return ins || (amts.length === 1 ? amts[0] : null);
 }
