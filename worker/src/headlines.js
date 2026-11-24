@@ -10,7 +10,7 @@
 // grading claim and a headline claim can hold the same item at once, and
 // nothing here can change a score, band or state.
 import COVERED from "./covered.json";
-import { json, nowIso, chunk, normalizeHeadline, universeSql, LEASE_MINUTES } from "./lib.js";
+import { json, nowIso, chunk, normalizeHeadline, universeSql, auxBandShownSql, LEASE_MINUTES } from "./lib.js";
 
 export const HEADLINE_MAX_CLAIM = 60;
 const HEADLINE_DEFAULT_CLAIM = 40;
@@ -20,7 +20,8 @@ export const EXCERPT_CHARS = 1200;
 
 // kind -> table and the columns the claim prints for it.
 // shown: only cards the app can show get a backfilled headline, so the pass
-// never spends its batches on duplicates, covered-name auxiliary items or
+// never spends its batches on duplicates, covered-name auxiliary items (but a
+// gate-dropped rival's, which the aux feed shows), rival twins shown on Coverage or
 // tickers dropped from coverage (SSTI, REKR).
 // A muted source's cards are hidden too (source_prefs, tuning.js MUTED_SQL;
 // written out here, as tuning.js imports this module).
@@ -29,7 +30,8 @@ const KINDS = {
   coverage: { table: "items", grades: "grades", name: "i.ticker",
     shown: `ticker IN ${universeSql(COVERED.tickers)} AND (SELECT band FROM grades WHERE grades.id = items.grade_id) IS NOT 'duplicate' AND ${NOT_MUTED}` },
   aux: { table: "aux_items", grades: "aux_grades", name: "COALESCE(g.entity, i.entity_name) AS entity",
-    shown: `(SELECT band FROM aux_grades WHERE aux_grades.id = aux_items.grade_id) NOT IN ('duplicate', 'covered') AND ${NOT_MUTED}` },
+    // The aux feed's band and rival-twin hides (lib.js auxBandShownSql), so the two cannot drift.
+    shown: `${auxBandShownSql("aux_items", "(SELECT band FROM aux_grades WHERE aux_grades.id = aux_items.grade_id)")} AND ${NOT_MUTED}` },
 };
 
 const clampInt = (v, lo, hi, dflt) => Math.max(lo, Math.min(hi, Math.trunc(Number(v)) || dflt));

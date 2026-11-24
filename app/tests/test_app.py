@@ -197,6 +197,10 @@ class FakeApi:
                      and not i.get("label")]
         if params.get("sort") == "to_label":
             items = [i for i in items if i.get("state") == "graded"]
+        if "min_score" in params:
+            # For You (Z13): a card whose latest label is Noise leaves it.
+            last = {(b["item_id"], b.get("ticker")): b.get("label") for p, b, _ in self.posts if p.endswith("/feedback")}
+            items = [i for i in items if last.get((i["item_id"], i.get("grade_ticker") or i.get("ticker"))) != "noise"]
         return Resp({"items": items, "next_before_id": None})
 
     def post(self, url, headers=None, json=None, timeout=None):
@@ -244,6 +248,11 @@ class PureFunctions(unittest.TestCase):
         self.assertEqual(zf.label_choices({"band": "duplicate", "score": None}), ["high", "medium", "low", "noise"])
         self.assertEqual(zf.label_choices({"band": "digest", "score": 75}),
                          ["high", "medium", "low", "noise", "too_high", "too_low"])
+
+    def test_note_toast(self):
+        self.assertEqual(zf.note_toast("low", "low"), "Saved")
+        self.assertEqual(zf.note_toast(None, "high"), "Saved · Labeled High: pinned to For You")
+        self.assertEqual(zf.note_toast("high", "noise"), "Saved · Labeled Noise: removed from For You")
 
     def test_merge_items(self):
         merged = zf.merge_items([[{"item_id": 1}, {"item_id": 5, "pinned": 1}], [{"item_id": 3}, {"item_id": 1}]])
@@ -612,12 +621,63 @@ class AppPages(AppBase):
         self.run_app()
         self.at.text_area(key="cov-lbl-11-RCAT:note").input("Sole-source; moves FY27 numbers")
         self.at.radio(key="cov-lbl-11-RCAT:nl").set_value("medium")
+        self.run_app()  # picking a label reruns the card, which enables Save
         self.at.button(key="cov-lbl-11-RCAT:save").click()
         self.run_app()
         self.assertEqual(self.api.posts[-1][:2], ("/v1/feedback", {"item_id": 11, "label": "medium",
                                                                   "note": "Sole-source; moves FY27 numbers",
                                                                   "ticker": "RCAT", "grade_id": 101}))
+        self.assertEqual([t.value for t in self.at.toast], ["Saved · Labeled Medium: the grader will learn from it"])
+
+    def test_note_on_an_unlabeled_card_needs_a_label(self):
+        # Review finding: the radio defaulted to High, so a note silently labelled (and pinned) the card.
+        self.run_app()
+        self.assertIsNone(self.at.radio(key="cov-lbl-11-RCAT:nl").value)
+        self.assertTrue(self.at.button(key="cov-lbl-11-RCAT:save").disabled)
+        self.assertIsNone(self.at.radio(key="cov-lbl-9-KTOS:nl").value)  # the pending card too
+        self.at.text_area(key="cov-lbl-11-RCAT:note").input("Sole-source")
+        self.run_app()
+        self.assertTrue(self.at.button(key="cov-lbl-11-RCAT:save").disabled)
+        self.assertEqual(self.api.posts, [])
+        self.at.radio(key="cov-lbl-11-RCAT:nl").set_value("high")
+        self.run_app()
+        self.assertFalse(self.at.button(key="cov-lbl-11-RCAT:save").disabled)
+        self.at.button(key="cov-lbl-11-RCAT:save").click()
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][1]["label"], "high")
+        self.assertEqual([t.value for t in self.at.toast], ["Saved · Labeled High: pinned to For You"])
+
+    def test_note_on_a_labelled_card_keeps_its_label(self):
+        self.run_app()
+        self.assertEqual(self.at.radio(key="cov-lbl-10-UMAC:nl").value, "noise")
+        self.assertFalse(self.at.button(key="cov-lbl-10-UMAC:save").disabled)
+        self.at.text_area(key="cov-lbl-10-UMAC:note").input("Same award")
+        self.at.button(key="cov-lbl-10-UMAC:save").click()
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][1]["label"], "noise")
         self.assertEqual([t.value for t in self.at.toast], ["Saved"])
+
+    def test_for_you_keeps_a_card_labelled_noise_for_its_reason(self):
+        # Review finding: Noise in For You removed the card on the next rerun, with its reason picker.
+        self.run_app()
+        self.at.segmented_control(key="cov-lbl-11-RCAT").set_value("noise")
+        self.run_app()
+        self.assertEqual([t.value for t in self.at.toast], ["Labeled Noise: removed from For You"])
+        self.assertNotIn(11, [i["item_id"] for i in self.api.get(API + "/v1/feed", params={"min_score": 70}).json()["items"]])
+        self.assertEqual(len(self.cards()), 3)  # still on screen, in its place (pinned, first)
+        self.assertEqual(self.at.segmented_control(key="cov-lbl-11-RCAT").value, "noise")
+        self.assertIn("Removed from For You", " ".join(c.value for c in self.at.main.caption))
+        self.assertEqual([w.key for w in self.at.segmented_control if w.key.startswith("cov-lbl-")][0], "cov-lbl-11-RCAT")
+        self.at.selectbox(key="cov-lbl-11-RCAT:rsn-down").set_value("marketing")
+        self.run_app()
+        self.assertEqual(self.api.posts[-1][1], {"item_id": 11, "label": "noise", "note": None, "ticker": "RCAT",
+                                                 "grade_id": 101, "reason": "marketing"})
+        self.assertEqual(self.at.selectbox(key="cov-lbl-11-RCAT:rsn-down").value, "marketing")
+        # A new Signal floor starts the list again: the card is gone.
+        self.at.select_slider(key="cov-signal").set_value(60)
+        self.run_app()
+        self.assertEqual(len(self.cards()), 2)
+        self.assertNotIn("Removed from For You", " ".join(c.value for c in self.at.main.caption))
 
     def test_load_more_raises_the_limit(self):
         self.api.items["/v1/feed"] = [dict(COVERAGE_ITEMS[0], item_id=i, label=None) for i in range(40, 0, -1)]
@@ -699,6 +759,7 @@ class AppPages(AppBase):
         self.open_aux()
         self.at.text_area(key="aux-lbl-501:note").input("Raises the bar for RCAT's next round")
         self.at.radio(key="aux-lbl-501:nl").set_value("high")
+        self.run_app()  # picking a label reruns the card, which enables Save
         self.at.button(key="aux-lbl-501:save").click()
         self.run_app()
         self.assertEqual(self.api.posts[-1][:2], ("/v1/aux/feedback", {"item_id": 501, "label": "high",

@@ -142,6 +142,11 @@ def label_toast(label: str) -> str:
     return f"Labeled {text}: the grader will learn from it"
 
 
+def note_toast(before: str | None, label: str) -> str:
+    """The toast after Save in "Why it matters": what the label did too, when the note changed it."""
+    return "Saved" if before == label else f"Saved · {label_toast(label)}"
+
+
 def reason_choices(label: str | None) -> list[str]:
     """Reason codes offered under a label: why the card is worth less (Low, Noise,
     Too high) or more (High, Too low) than graded. Medium and no label offer none."""
@@ -818,8 +823,9 @@ def _kept_key(page: FeedPage) -> str:
 
 
 def _remember(page: FeedPage, it: dict, key: str, label: str | None, reason: str | None, note=None) -> None:
-    # To label leaves labelled cards out: one labelled here stays on screen (with its
-    # new label) until the sort or filter changes, so its reason can still be set.
+    # To label leaves labelled cards out, and For You drops a card labelled Noise (or one
+    # that was in only by your High): one labelled here stays on screen (with its new
+    # label) until the sort or filter changes, so its reason can still be set.
     card = {**it, "label": label, "my_reason": reason}
     if note is not None:
         card["label_note"] = note or None
@@ -859,6 +865,10 @@ def _on_reason(page: FeedPage, it: dict, key: str, rkey: str) -> None:
 
 def _on_note(page: FeedPage, it: dict, key: str) -> None:
     value = st.session_state.get(f"{key}:nl")
+    if value is None:
+        _flash("Pick a label to save the note with", error=True)
+        return
+    before = st.session_state.get(f"{key}:srv")
     note = (st.session_state.get(f"{key}:note") or "").strip()
     # The saved reason goes with the note while the label it belongs to stays.
     reason = card_reason(it) if it.get("label") == value else None
@@ -871,7 +881,7 @@ def _on_note(page: FeedPage, it: dict, key: str) -> None:
     st.session_state[f"{key}:srv"] = value
     st.session_state[f"{key}:note"] = ""
     _remember(page, it, key, value, reason, note)
-    _flash("Saved")
+    _flash(note_toast(before, value))
 
 
 def card_key(page: FeedPage, it: dict) -> str:
@@ -922,9 +932,13 @@ def render_card(page: FeedPage, it: dict) -> None:
     with row.popover("Why it matters", width="content"):
         st.text_area("Your note", key=f"{key}:note", placeholder="One line on why this matters (or doesn't)")
         current = it.get("label")
+        # No label yet: nothing is picked, so a note never records (and pins) High unasked.
         st.radio("Label", choices, format_func=LABEL_TEXT.get, horizontal=True, key=f"{key}:nl",
-                 index=choices.index(current) if current in choices else 0)
-        st.button("Save", key=f"{key}:save", on_click=_on_note, args=(page, it, key))
+                 index=choices.index(current) if current in choices else None)
+        picked = st.session_state.get(f"{key}:nl")
+        if picked is None:
+            st.caption("Pick a label to save the note with.")
+        st.button("Save", key=f"{key}:save", on_click=_on_note, args=(page, it, key), disabled=picked is None)
     reason_picker(page, it, key)
 
 
@@ -963,13 +977,15 @@ def feed(page: FeedPage, base: tuple, picked: tuple) -> None:
         st.session_state.pop(_kept_key(page), None)
     limit = st.session_state.setdefault(limit_key, PAGE_SIZE)
     to_label = dict(base).get("sort") == "to_label"
+    for_you = "min_score" in dict(base) and not to_label
     try:
         items = fetch_items(page, {**dict(base), "limit": limit}, picked)
     except Exception as e:  # noqa: BLE001
         st.warning(f"{page.title} feed unavailable: {e}")
         return
     fetched = len(items)
-    if to_label:
+    kept: dict = {}
+    if to_label or for_you:
         # Cards labelled since this list opened stay in place (the server now leaves them out),
         # one card per item: an item the server still returns (under another picked name) wins,
         # and of two kept cards for one item the later label wins.
@@ -977,7 +993,8 @@ def feed(page: FeedPage, base: tuple, picked: tuple) -> None:
         kept = {c["item_id"]: c for c in (st.session_state.get(_kept_key(page)) or {}).values()
                 if c["item_id"] not in shown}
         if kept:
-            items = sorted(items + list(kept.values()), key=to_label_key)
+            # The kept card keeps the pinned value it was shown with, so it sorts back into its place.
+            items = merge_items([items, list(kept.values())], dict(base).get("sort"))
     if not items:
         st.info("Nothing to label: every graded card from the last 14 days has your label." if to_label else
                 "Nothing here yet. The grader routine runs hourly; ungraded items show in Latest.")
@@ -985,6 +1002,8 @@ def feed(page: FeedPage, base: tuple, picked: tuple) -> None:
     for it in items:
         # Keyed so feed.css can style cards (class st-key-zcard-...).
         with st.container(border=True, key=f"zcard-{page.kind}-{it['item_id']}"):
+            if for_you and it["item_id"] in kept:
+                st.caption("Removed from For You: it stays here until you change the sort or filter.")
             render_card(page, it)
     if fetched >= limit and limit < MAX_LIMIT:
         st.button("Load more", key=f"{page.kind}-more", on_click=_more, args=(limit_key,))

@@ -48,6 +48,19 @@ export function ownerPick(row, minScore, demotePoints) {
   if (minScore == null || row.label !== "high") return 0;
   return row.score == null || row.score - (row.demoted ? demotePoints : 0) < minScore ? 1 : 0;
 }
+// Rival twins (auxiliary.js auxFeed): one news-monitor row stored in both
+// pipelines. `a` is the SQL alias (or table name) of the aux_items row.
+// rivalDropped: its coverage copy was dropped by the key-account gate, so a
+// 'covered' aux grade still shows. rivalOnCoverage: its coverage copy is shown
+// (a rival row the gate keeps), so the aux copy is hidden. Shared with the
+// headline pass (headlines.js), so a card gets a headline exactly when it shows.
+export const rivalDroppedSql = (a) => `EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = ${a}.nm_rowid AND c.state = 'skipped'
+      AND c.skip_reason = 'rival_no_key_account')`;
+export const rivalOnCoverageSql = (a) => `EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = ${a}.nm_rowid AND c.state != 'skipped' AND c.role = 'rival')`;
+// The aux band hides of the feed: duplicate always; covered unless its rival
+// twin was gate-dropped; and every copy whose rival twin is on Coverage.
+export const auxBandShownSql = (a, band) =>
+  `(${band} IS NULL OR ${band} != 'duplicate') AND (${band} IS NULL OR ${band} != 'covered' OR ${rivalDroppedSql(a)}) AND NOT ${rivalOnCoverageSql(a)}`;
 export const MAX_CLAIM = 60;
 export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;

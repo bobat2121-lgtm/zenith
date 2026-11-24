@@ -259,3 +259,33 @@ test("F3 an aux copy whose rival coverage copy is shown is hidden from the aux f
   assert.ok(ids(await get(env, "/v1/aux/feed?order=newest&include_covered=1")).includes(twinPending), "include_covered=1 shows it");
   assert.ok(ids(await get(env, "/v1/feed?order=newest")).includes(covGraded), "the coverage copy stays");
 });
+
+// The headline pass and the backlog count follow the aux feed's F2/F3 rules
+// (lib.js auxBandShownSql), as do the Names filter counts (auxStats).
+test("F2/F3 the headline pass, headlines_waiting and the Names filter count exactly the aux cards the feed shows", async () => {
+  const env = newEnv();
+  const rival = { source_key: "tfvector", entity_key: "tfvector", entity_name: "Vector" };
+  // F2: gate-dropped coverage copy; its aux copy is graded covered and shown.
+  addItem(env, { source_key: "tfvector", ticker: "DPRO", role: "rival", state: "skipped", skip_reason: "rival_no_key_account" });
+  const f2 = addAux(env, { ...rival, nm_rowid: rowid, coverage_subject: 1 }); addAuxGrade(env, f2, { score: null, band: "covered" });
+  addItem(env, { source_key: "tfvector", ticker: "DPRO", role: "rival", state: "skipped", skip_reason: "rival_no_key_account" });
+  const f2b = addAux(env, { ...rival, nm_rowid: rowid }); addAuxGrade(env, f2b, { score: 72 });
+  // F3: the coverage copy is shown (pending); its graded aux copy is hidden.
+  addItem(env, { source_key: "tfvector", ticker: "RCAT", role: "rival" });
+  const f3 = addAux(env, { ...rival, nm_rowid: rowid }); addAuxGrade(env, f3, { score: 85 });
+  addItem(env, { source_key: "tfvector", ticker: "RCAT", role: "rival" });
+  const f3b = addAux(env, { ...rival, nm_rowid: rowid }); addAuxGrade(env, f3b, { score: 60 });
+  // A covered aux card with no twin stays hidden.
+  const alone = addAux(env); addAuxGrade(env, alone, { score: null, band: "covered" });
+  assert.deepEqual(ids(await get(env, "/v1/aux/feed?order=newest")), [f2b, f2]);
+  const ops = await get(env, "/v1/ops");
+  assert.equal(ops.status, 200);
+  assert.equal(ops.body.grader.backlog.headlines_waiting, 2);
+  const claim = await request(worker, env, "POST", "/v1/headlines/claim", { role: "grader", body: {} });
+  assert.equal(claim.status, 200);
+  assert.deepEqual(claim.body.items.map((i) => `${i.kind}:${i.item_id}`), [`aux:${f2b}`, `aux:${f2}`]);
+  assert.equal(claim.body.remaining, 0);
+  // GET /v1/stats: the F2 card's name is in the Names filter; the hidden F3 copy is not counted.
+  const stats = await get(env, "/v1/stats");
+  assert.deepEqual(stats.body.aux.entities, [{ name: "Anduril", n: 2 }]);
+});

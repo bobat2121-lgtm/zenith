@@ -17,7 +17,7 @@ import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
-  olderEventDate, normalizeHeadline, routeCounterparty, labelReason, ownerRank, ownerPick, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
+  olderEventDate, normalizeHeadline, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 export const AUX_BACKFILL_DAYS = 14;
@@ -481,9 +481,9 @@ const parseList = (s) => { try { const v = JSON.parse(s || "[]"); return Array.i
 // on neither page; an aux copy whose coverage copy is shown (not skipped:
 // stored before Z11 for a row the gate keeps) is hidden, so it is never on both.
 // include_covered=1 shows both kinds.
-export const RIVAL_DROPPED = `EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = i.nm_rowid AND c.state = 'skipped'
-      AND c.skip_reason = 'rival_no_key_account')`;
-export const RIVAL_ON_COVERAGE = "EXISTS (SELECT 1 FROM items c WHERE c.nm_rowid = i.nm_rowid AND c.state != 'skipped' AND c.role = 'rival')";
+// (lib.js rivalDroppedSql / rivalOnCoverageSql, shared with the headline pass and auxStats.)
+export const RIVAL_DROPPED = rivalDroppedSql("i");
+export const RIVAL_ON_COVERAGE = rivalOnCoverageSql("i");
 export async function auxFeed(env, url) {
   const q = url.searchParams;
   const limit = Math.max(1, Math.min(200, Number(q.get("limit")) || 50));
@@ -587,7 +587,8 @@ export async function auxFeedback(env, body) {
 }
 
 // The aux block of GET /v1/stats. entities: the names graded in the last 30
-// days outside the duplicate and covered bands (the app's Names filter),
+// days whose cards the feed shows (outside the duplicate and covered bands, a
+// gate-dropped rival's covered card included, a rival twin on Coverage not: the app's Names filter),
 // counted case-insensitively under the latest grade's spelling.
 export async function auxStats(env) {
   const db = env.DB;
@@ -597,7 +598,7 @@ export async function auxStats(env) {
     `WITH names AS (
        SELECT lower(g.entity) AS k, MAX(g.id) AS last_id, COUNT(*) AS n
          FROM aux_items i JOIN aux_grades g ON g.id = i.grade_id
-        WHERE g.graded_at >= ? AND g.band NOT IN ('duplicate', 'covered')
+        WHERE g.graded_at >= ? AND ${auxBandShownSql("i", "g.band")}
         GROUP BY lower(g.entity))
      SELECT x.entity AS name, names.n FROM names JOIN aux_grades x ON x.id = names.last_id
       ORDER BY names.n DESC, names.k LIMIT 200`,
