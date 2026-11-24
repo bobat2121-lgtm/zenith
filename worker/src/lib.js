@@ -443,6 +443,25 @@ export function coveredTicker(name) {
 // A1: what the counterparty is to the grade's subject (its ticker or entity).
 export const RELATION_TYPES = ["acquired", "acquirer", "customer", "partner", "supplier", "subsidiary", "award"];
 export const MAX_RELATIONS = 4;
+// A relation's optional about: what the counterparty is or does, one plain
+// sentence from the item's own text, at most 160 characters.
+export const ABOUT_MAX = 160;
+
+// A relation's about -> { about, warning }. about is the squashed text, or
+// null when absent or dropped; warning says why it was dropped. Dropped (never
+// clipped) when it is not a string, is over ABOUT_MAX characters after the
+// whitespace is squashed, or holds a URL or a control character. The relation
+// itself is kept either way.
+export function normalizeAbout(raw) {
+  if (raw === undefined || raw === null) return { about: null, warning: null };
+  if (typeof raw !== "string") return { about: null, warning: "about must be a string" };
+  const about = raw.replace(/\s+/g, " ").trim();
+  if (!about) return { about: null, warning: null };
+  if (about.length > ABOUT_MAX) return { about: null, warning: `about must be at most ${ABOUT_MAX} characters (got ${about.length})` };
+  if (CONTROL_RE.test(about)) return { about: null, warning: "about must not contain control characters or bidi overrides" };
+  if (URL_RE.test(about)) return { about: null, warning: "about must not contain a URL" };
+  return { about, warning: null };
+}
 
 // A2: a grade's optional relations -> { relations, warnings }. relations:
 // [{ type, name, evidence }], at most 4; warnings: one string per dropped
@@ -451,7 +470,9 @@ export const MAX_RELATIONS = 4;
 // later, is not an object, has a type outside RELATION_TYPES, a name that
 // fails candidateName or has an empty dedupe key, names the subject or a
 // covered company, has evidence other than the graded item's own id, or
-// repeats an earlier kept name (same dedupe key).
+// repeats an earlier kept name (same dedupe key). An entry's optional about
+// (normalizeAbout) is kept on the entry when valid; a bad about is dropped
+// with a warning and the entry is still kept.
 //   itemId:  the graded item's id (the only allowed evidence)
 //   subject: the grade's ticker (coverage) or entity (aux)
 export function normalizeRelations(raw, { itemId, subject } = {}) {
@@ -481,7 +502,9 @@ export function normalizeRelations(raw, { itemId, subject } = {}) {
     if (ev !== itemId) return drop(`evidence must be the item you are grading (${itemId})`);
     if (keys.has(key)) return drop("repeats an earlier relation");
     keys.add(key);
-    relations.push({ type, name, evidence: itemId });
+    const ab = normalizeAbout(r.about);
+    if (ab.warning) warnings.push(`relation ${i + 1}${label} about dropped (the relation is kept): ${ab.warning}`);
+    relations.push(ab.about ? { type, name, evidence: itemId, about: ab.about } : { type, name, evidence: itemId });
   });
   return { relations, warnings };
 }

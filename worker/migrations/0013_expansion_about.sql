@@ -1,0 +1,12 @@
+-- What an expansion candidate is or does (plans/round5-expansion-approve-queue.md,
+-- A1 about). Additive only: one new nullable column; no existing column changes.
+--
+-- about: one plain sentence, at most 160 characters, written by the grader on
+-- a relation entry from the item's own text (lib.js normalizeAbout). The
+-- upsert sets it when the incoming sighting has one and the row's about is
+-- NULL, or when the incoming one is a grader relation (grader text wins over
+-- any other). NULL until then: GET /v1/expansion/candidates then returns
+-- about_fallback, read from the newest graded evidence item's headline and why
+-- (or an SEC party and filing title), never stored here. Code written for
+-- 0013 still upserts and reads on a zenith-db without this column.
+ALTER TABLE expansion_candidates ADD COLUMN about TEXT;

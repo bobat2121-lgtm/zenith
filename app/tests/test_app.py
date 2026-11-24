@@ -1619,6 +1619,53 @@ class ExpansionFunctions(unittest.TestCase):
         self.assertIn("Known: own source ia_rockwell (Auxiliary items)", out)
         self.assertIn("Already has its own source (aux_item:ia_rockwell): use Not the same company to reopen it first", out)
 
+    def test_card_says_what_it_is_from_the_grader(self):
+        row = dict(EXPANSION[3], about="Swiss maker of electric motor gliders", about_fallback=None, about_source="grader")
+        out = zf.expansion_card_html(row)
+        self.assertIn("What it is: Swiss maker of electric motor gliders", out)
+        self.assertNotIn("Seen as:", out)
+        # Right under the name line, before the notes and the evidence.
+        self.assertLess(out.index("</div>"), out.index("What it is:"))
+        self.assertLess(out.index("What it is:"), out.index('class="z-exp-ev"'))
+
+    def test_card_falls_back_to_how_it_was_seen_in_muted_style(self):
+        row = dict(EXPANSION[1], about=None, about_source="grade_headline",
+                   about_fallback="Genesis AI raises $105M seed for robot foundation models. A large seed round.")
+        out = zf.expansion_card_html(row)
+        self.assertIn('<span class="z-health">Seen as: Genesis AI raises $105M seed for robot foundation models. A large seed round.</span>', out)
+        self.assertNotIn("What it is:", out)
+        # The grader's about wins when both are present.
+        both = zf.expansion_card_html(dict(row, about="Robot foundation-model startup"))
+        self.assertIn("What it is: Robot foundation-model startup", both)
+        self.assertNotIn("Seen as:", both)
+        # Neither (an older zenith-core): no line text, only the search link.
+        plain = zf.expansion_card_html(EXPANSION[1])
+        self.assertNotIn("What it is:", plain)
+        self.assertNotIn("Seen as:", plain)
+        self.assertIn("Search the web", plain)
+
+    def test_card_about_lines_are_escaped(self):
+        out = zf.expansion_card_html(dict(EXPANSION[0], about="Maker <script>alert(1)</script> & co"))
+        self.assertNotIn("<script>", out)
+        self.assertIn("What it is: Maker &lt;script&gt;alert(1)&lt;/script&gt; &amp; co", out)
+        out = zf.expansion_card_html(dict(EXPANSION[0], about=None, about_fallback='"DroneNX <b>LLC</b>" in 8-K'))
+        self.assertNotIn("<b>LLC", out)
+        self.assertIn("Seen as: &quot;DroneNX &lt;b&gt;LLC&lt;/b&gt;&quot; in 8-K", out)
+
+    def test_card_has_a_web_search_link_for_the_quoted_name(self):
+        out = zf.expansion_card_html(EXPANSION[0])
+        self.assertIn('<a class="z-exp-search" href="https://www.bing.com/search?q=%22Upgrade+Energy%22" target="_blank" '
+                      'rel="noopener noreferrer">Search the web</a>', out)
+        self.assertEqual(zf.web_search_url("  AT&T   Labs "), "https://www.bing.com/search?q=%22AT%26T+Labs%22")
+        self.assertIsNone(zf.web_search_url(""))
+        self.assertTrue(zf.safe_url(zf.web_search_url("Stemme")))
+        # A hostile name stays inside the query: encoded, then escaped for the attribute.
+        out = zf.expansion_card_html(dict(EXPANSION[0], name='Evil" onclick="x <img>'))
+        href = re.search(r'class="z-exp-search" href="([^"]*)"', out).group(1)
+        self.assertTrue(href.startswith("https://www.bing.com/search?q=%22Evil%22+onclick%3D%22x+%3Cimg%3E%22"), href)
+        self.assertNotIn("<img>", out)
+        self.assertNotIn('onclick="x', out)
+
     def test_decide_body_and_toast(self):
         row = EXPANSION[0]
         self.assertEqual(zf.decide_body(row, "approve", None, ["umac", "RCAT"]), {"id": 7, "action": "approve", "tickers": ["RCAT", "UMAC"]})

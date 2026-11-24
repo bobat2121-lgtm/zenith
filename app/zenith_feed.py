@@ -18,7 +18,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 import requests
 import streamlit as st
@@ -803,8 +803,36 @@ def evidence_html(ev: dict) -> str:
             + f"<div>{link}</div></div>")
 
 
+def web_search_url(name) -> str | None:
+    """A Bing search for the quoted name, or None when there is no name."""
+    name = one_line(name)
+    if not name:
+        return None
+    return "https://www.bing.com/search?q=" + quote_plus(f'"{name}"')
+
+
+def about_html(row: dict) -> str:
+    """What the candidate is: "What it is: <about>" (grader text), else a muted "Seen as: <about_fallback>",
+    then a "Search the web" link for the quoted name. Escaped."""
+    about = one_line(row.get("about"))
+    fallback = one_line(row.get("about_fallback"))
+    if about:
+        text = f'<span class="z-exp-about-text">What it is: {html.escape(about)}</span>'
+    elif fallback:
+        text = f'<span class="z-health">Seen as: {html.escape(fallback)}</span>'
+    else:
+        text = ""
+    url = web_search_url(row.get("name"))
+    link = (f'<a class="z-exp-search" href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">Search the web</a>'
+            if url and safe_url(url) else "")
+    if not text and not link:
+        return ""
+    return f'<div class="z-exp-about">{text}{" " if text and link else ""}{link}</div>'
+
+
 def expansion_card_html(row: dict) -> str:
-    """Name, relation and subject, tickers, sightings, origins, notes, then up to 3 evidence links. Escaped."""
+    """Name, relation and subject, tickers, sightings, origins; what it is (or how it was seen) and a web search
+    link; notes, then up to 3 evidence links. Escaped."""
     head = [f'<b class="z-name">{html.escape(one_line(row.get("name")) or "?")}</b>']
     rel = relation_text(row)
     if rel:
@@ -834,7 +862,7 @@ def expansion_card_html(row: dict) -> str:
     notes = "".join(f'<div class="z-health">{html.escape(x)}</div>' for x in lines)
     evidence = [e for e in row.get("evidence") or [] if isinstance(e, dict)][:EXP_EVIDENCE]
     ev = "".join(evidence_html(e) for e in evidence)
-    return f'<div class="z-card z-exp"><div class="z-head">{"".join(head)}</div>{notes}{ev}</div>'
+    return f'<div class="z-card z-exp"><div class="z-head">{"".join(head)}</div>{about_html(row)}{notes}{ev}</div>'
 
 
 def exp_counts_text(counts) -> str:

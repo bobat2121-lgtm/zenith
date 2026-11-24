@@ -1,6 +1,6 @@
 # Core rubric: covered-company news grader
 
-Version 3.3, 2026-11-24 (adds the optional relations, section 10). Read on every run. Replaces Zenith `firm-core.md` v2 and the legacy `ranking_policy.md`/`ranking_brief.md`. Company sheets (`companies/<TICKER>.md`, section 12) add detail. The more specific rule wins, within the hard rules in section 12. Where old grader behaviour and the owner's grades conflict, follow the owner.
+Version 3.4, 2026-11-24 (adds the optional relations, section 10, and their optional `about`). Read on every run. Replaces Zenith `firm-core.md` v2 and the legacy `ranking_policy.md`/`ranking_brief.md`. Company sheets (`companies/<TICKER>.md`, section 12) add detail. The more specific rule wins, within the hard rules in section 12. Where old grader behaviour and the owner's grades conflict, follow the owner.
 
 **The test:** within 24 hours, would the covering analyst change a model line (revenue, backlog, share count, runway, guidance) or a thesis bullet, or write a sentence in a note? Score how strongly the answer is yes for this event in this window, not for the company. **Bad news ranks like good news of the same size**: a lost contract, guidance cut, slip, recall, failed test or miss on a core program ranks like the matching win.
 
@@ -373,6 +373,7 @@ Every grade carries a `headline` and a `tag`. The app shows them as the card's t
 - Include counterparties that are not the main event: a purchase-order release that also names ARAN Defense lists ARAN Defense.
 - **name:** the company's own name, without "Inc." clauses, roles or descriptions: `Stemme`, not "Stemme AG, a German glider maker (the Seller)". Never a covered company, and never the grade's own company.
 - **evidence:** the item_id you are grading, as a number. Nothing else.
+- **about:** optional: what the counterparty is or does, one plain sentence of at most 160 characters, taken only from this item's own title or excerpt, never from memory: `"about":"Swiss maker of electric motor gliders"`, `"about":"UN agency that runs mine-clearance programs"`. Leave it out when the item does not say. No URL. A bad about (over 160 characters, a URL, a control character) is dropped with a `WARN` line; the relation is kept.
 - Investors are not relations: a financing's investors, lenders and underwriters are never listed.
 - Relations never change the score, the band or any flag.
 - Only the item's own grade (the bare item_id) carries relations; a `<item_id>#<TICKER>` grade sends none.
