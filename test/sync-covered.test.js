@@ -5,8 +5,11 @@
 // watch a covered company is auxiliary marked coverage_subject.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeAuxRoute } from "../worker/src/aux-route.js";
+import { hookJsonImports } from "./helpers/worker-env.js";
 import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS, FPDS } from "../scripts/sync-covered.mjs";
+
+hookJsonImports();
+const { makeAuxRoute } = await import("../worker/src/aux-route.js");
 
 const SOURCES = [
   { key: "redcat", lane: "covered", covered: true, coveredTicker: "RCAT" },
