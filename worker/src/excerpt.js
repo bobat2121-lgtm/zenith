@@ -349,7 +349,7 @@ export function pdfExcerpt(pages) {
 }
 
 // --- SEC filings -------------------------------------------------------------
-const ITEM_RE = /(?:^|\n)[ \t\u00a0]*(?:ITEM|Item)[ \t\u00a0]+\d{1,2}(?:\.\d{1,2})?[A-Z]?\b/g;
+export const ITEM_RE = /(?:^|\n)[ \t\u00a0]*(?:ITEM|Item)[ \t\u00a0]+\d{1,2}(?:\.\d{1,2})?[A-Z]?\b/g;
 // A table-of-contents entry: an Item heading whose stretch to the next
 // heading is short and holds no prose, only titles and page numbers (a 10-Q
 // lists its statements under Item 1). A short real item, such as an 8-K's
@@ -403,7 +403,7 @@ export function filingIndexUrl(url) {
 
 // A link inside the same filing folder on www.sec.gov (inline-XBRL viewer
 // links "/ix?doc=/Archives/..." point at the document itself).
-function sameFiling(href, base) {
+export function sameFiling(href, base) {
   let u;
   try { u = new URL(href.replace(/^\/ix\?doc=/, ""), base); } catch { return null; }
   const f = filingFolder(new URL(base));
@@ -514,7 +514,7 @@ const SEC_LEASE_MS = 120_000;
 // The gap runs from the previous request's actual start: a waiter that wakes
 // late, or alongside another, checks again before it goes.
 let secNextStart = 0;
-async function secPace() {
+export async function secPace() {
   for (;;) {
     const now = Date.now();
     if (now >= secNextStart) { secNextStart = now + SEC_GAP_MS; return; }
@@ -568,7 +568,7 @@ async function fetchTail(url, ua, signal) {
 // One page: { status: "ok", html, finalUrl } or { status: http_<code> | skipped_* | error* }.
 // With opts.pdf a PDF response is read too, as { status: "ok", pdf: [head, tail?],
 // finalUrl }, while opts.budget has a download left (else "deferred_pdf").
-async function fetchPage(url, ua, opts = {}) {
+export async function fetchPage(url, ua, opts = {}) {
   const path = new URL(url).pathname;
   if (/\.(xlsx?|docx?|zip|pptx?)$/i.test(path) || (PDF_PATH_RE.test(path) && !opts.pdf)) return { status: "skipped_binary" };
   // A known PDF takes one of this tick's downloads before it is requested (the
@@ -677,8 +677,11 @@ const redirectedAway = (finalUrl, url) => {
   try { return new URL(finalUrl).pathname.replace(/\/$/, "") !== url.pathname.replace(/\/$/, ""); } catch { return false; }
 };
 
+// sec.gov asks automated clients for a contact address in the User-Agent.
+export const secUserAgent = (env) => `zenith-core ${env.CONTACT_EMAIL}`;
+
 async function fetchSecExcerpt(env, item) {
-  const ua = `zenith-core ${env.CONTACT_EMAIL}`;
+  const ua = secUserAgent(env);
   let docUrl = item.url;
   let page = await fetchPage(docUrl, ua);
   if (page.status !== "ok") return { status: page.status };
@@ -820,6 +823,19 @@ const SEC_URL_SQL = "(url LIKE 'https://www.sec.gov/%' OR url LIKE 'https://sec.
 // spends a try. ?1 = now, ?2 = 1 when CONTACT_EMAIL is set.
 const DUE_SQL = (p = "") => `(${p}excerpt_next_at IS NULL OR ${p}excerpt_next_at <= ?1 OR (?2 = 1 AND COALESCE(${p}excerpt_tries, 0) = 0))`;
 
+// The SEC lease: one sec.gov reader at a time beside the cron's excerpt pass
+// (the admin refresh below, and the SEC parties pass in sec-parties.js).
+// Taken only when free or expired; true when this caller now holds it.
+export async function takeSecLease(db, now = nowIso()) {
+  const lease = await db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE meta.value <= ?3`,
+  ).bind(SEC_LEASE_KEY, nowIso(Date.parse(now) + SEC_LEASE_MS), now).run();
+  return Boolean(lease.meta?.changes);
+}
+export async function releaseSecLease(db) {
+  await db.prepare("DELETE FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).run();
+}
+
 async function secLeaseHeld(env, now) {
   const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).first();
   return Boolean(row && row.value > now);
@@ -887,10 +903,7 @@ export async function refreshSecExcerpts(env, body = {}, tickers = null) {
   if (body.dry_run) return { mode: "sec_excerpts", dry_run: true, ...await counts(), next: rows.map((r) => ({ item_id: r.id, state: r.state, title: r.title })) };
   if (!rows.length) return { mode: "sec_excerpts", cleared: 0, processed: 0, ok: 0, requeued: 0, retry: 0, ...await counts(), items: [] };
   // One refresh at a time, and the cron's SEC pass waits while it runs.
-  const lease = await env.DB.prepare(
-    `INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE meta.value <= ?3`,
-  ).bind(SEC_LEASE_KEY, nowIso(Date.now() + SEC_LEASE_MS), now).run();
-  if (!lease.meta?.changes) return { mode: "sec_excerpts", error: "another SEC excerpt refresh is running; call again in a minute" };
+  if (!await takeSecLease(env.DB, now)) return { mode: "sec_excerpts", error: "another SEC excerpt refresh is running; call again in a minute" };
   try {
     // Statuses written before this reader ran (excerpt_at NULL), and with
     // retry_failed the transient finals, are cleared with their tries: those
@@ -921,6 +934,6 @@ export async function refreshSecExcerpts(env, body = {}, tickers = null) {
       ...await counts(), items,
     };
   } finally {
-    await env.DB.prepare("DELETE FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).run();
+    await releaseSecLease(env.DB);
   }
 }

@@ -1,6 +1,7 @@
 // zenith-core — graded research feed for the covered universe, plus auxiliary
 // names (every other company or program news-monitor follows; auxiliary.js).
-//   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items
+//   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items,
+//           the one-time expansion backfill, and last the SEC party pass (sec-parties.js)
 //   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers|/aux], GET /v1/labels, GET /v1/recent,
 //           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels,
 //           POST /v1/headlines/claim, POST /v1/headlines (headline-only pass; headlines.js)
@@ -23,6 +24,7 @@ import { mobile } from "./mobile.js";
 import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
 import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill } from "./expansion.js";
+import { secParties } from "./sec-parties.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 
 const ALLOW = {
@@ -520,6 +522,9 @@ export default {
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
       // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
       try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
+      // SEC party extraction into the expansion queue (Part B), last: it takes the
+      // SEC lease after the excerpt pass has finished, and stops on 403/429.
+      try { console.log("sec parties", JSON.stringify(await secParties(env))); } catch (e) { console.error("sec parties failed", e?.stack || e); }
     })());
   },
 };
