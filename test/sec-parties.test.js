@@ -78,6 +78,11 @@ test("party names: d/b/a and doing business as, the trims, people, references an
   assert.equal(partyFrom("Northwind Aerial Systems Corp a Delaware corporation").name, "Northwind Aerial Systems Corp", 'trimmed at " a Delaware corporation"');
   assert.equal(partyFrom("Hawkeye Sensors LLC (formerly Hawk Optics)").name, "Hawkeye Sensors LLC", 'trimmed at "("');
   assert.equal(partyFrom("Vantage Drone Works LLC to supply airframes to the Army").name, "Vantage Drone Works LLC", "a legal name ends at its suffix");
+  // Live item 18 party text (2026-11-24): the trailing clause is not part of the trade name.
+  assert.deepEqual(partyFrom("DroneNX LLC d/b/a Upgrade Energy as contemplated by the Merger Agreement entered into as of May 7, 2026."),
+    { name: "Upgrade Energy", aliases: ["DroneNX LLC"], party: "DroneNX LLC d/b/a Upgrade Energy" });
+  assert.equal(partyFrom("Foo LLC d/b/a Bar Aerial pursuant to the Agreement").name, "Bar Aerial");
+  assert.equal(partyFrom("Foo LLC d/b/a Made In Space").name, "Made In Space", "capitalized words stay");
   assert.equal(partyFrom("Matthew Barnard"), null, "a person shows no entity");
   assert.equal(partyFrom("the U.S. Army"), null, "a government buyer shows no entity");
   assert.equal(partyFrom("the Company"), null, "a defined-term reference");
