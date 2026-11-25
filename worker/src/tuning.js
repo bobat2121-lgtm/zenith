@@ -12,7 +12,8 @@ import AUX from "./aux-sources.json";
 import { auxRoute } from "./aux-route.js";
 import { heartbeatChecks } from "./delivery.js";
 import { headlinesWaiting } from "./headlines.js";
-import { json, nowIso, universeSql } from "./lib.js";
+import { json, nowIso, universeSql, HELD_SQL } from "./lib.js";
+import { budgetSettings, releasedToday, heldCounts } from "./budget.js";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -261,6 +262,22 @@ export function graderStatus(lastRunAt, now) {
   return age < OPS_OK_MIN * 60_000 ? "ok" : age <= OPS_LATE_MIN * 60_000 ? "late" : "down";
 }
 
+// News-monitor rows graded in both pipelines, with a grade in either one since
+// `since` (the one-pipeline saving, Phase 0 gates (d), should take this to 0).
+// The coverage copy is found through its (source_key, url) index.
+export async function doubleGraded(db, since) {
+  const r = await db.prepare(
+    `SELECT COUNT(*) AS n FROM (
+       SELECT c.nm_rowid FROM grades g JOIN items c ON c.id = g.item_id
+        WHERE g.graded_at >= ?1 AND EXISTS (SELECT 1 FROM aux_items a JOIN aux_grades ag ON ag.item_id = a.id WHERE a.nm_rowid = c.nm_rowid)
+       UNION
+       SELECT a.nm_rowid FROM aux_grades ag JOIN aux_items a ON a.id = ag.item_id
+        WHERE ag.graded_at >= ?1 AND EXISTS (SELECT 1 FROM items c JOIN grades g ON g.item_id = c.id
+                                              WHERE c.source_key = a.source_key AND c.url = a.url AND c.nm_rowid = a.nm_rowid))`,
+  ).bind(since).first();
+  return r?.n || 0;
+}
+
 export async function ops(env, { now = Date.now() } = {}) {
   const db = env.DB;
   const since = nowIso(now - GAP_DAYS * DAY);
@@ -271,7 +288,11 @@ export async function ops(env, { now = Date.now() } = {}) {
   const last = await db.prepare(`SELECT ${COLS} FROM runs ORDER BY last_seen_at DESC LIMIT 1`).first();
   const day = await db.prepare("SELECT COUNT(*) AS n FROM runs WHERE started_at >= ?").bind(nowIso(now - DAY)).first();
   const count = async (sql) => (await db.prepare(sql).first())?.n || 0;
-  const oldestAux = await db.prepare("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state IN ('pending','claimed')").first();
+  // Phase 0 gates: held rows (waiting for the daily grading budget, budget.js)
+  // are not pending; they are counted on their own.
+  const oldestAux = await db.prepare(`SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
+  const held = await heldCounts(db);
+  const releasedNow = [...(await releasedToday(db, now)).values()].reduce((a, b) => a + b, 0);
   const grader = {
     last_run_at: last?.last_seen_at || null,
     last_run: last ? { id: last.id, started_at: last.started_at, last_seen_at: last.last_seen_at, claimed: last.claimed, graded: last.graded, rejected: last.rejected } : null,
@@ -280,10 +301,15 @@ export async function ops(env, { now = Date.now() } = {}) {
     status: graderStatus(last?.last_seen_at, now),
     checks: await heartbeatChecks(db, now),
     backlog: {
-      coverage_pending: await count(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND ticker IN ${IN_UNIVERSE}`),
-      aux_pending: await count("SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed')"),
+      coverage_pending: await count(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND ticker IN ${IN_UNIVERSE}`),
+      aux_pending: await count(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`),
       headlines_waiting: await headlinesWaiting(env),
       oldest_aux_pending_at: oldestAux?.t || null,
+      coverage_held: held.coverage,
+      aux_held: held.aux,
+      released_today: releasedNow,
+      budget: budgetSettings(env),
+      double_graded_24h: await doubleGraded(db, nowIso(now - DAY)),
     },
   };
   return json({ grader, as_of: nowIso(now) });

@@ -63,6 +63,11 @@ export const rivalOnCoverageSql = (a) => `EXISTS (SELECT 1 FROM items c WHERE c.
 export const auxBandShownSql = (a, band) =>
   `(${band} IS NULL OR ${band} != 'duplicate') AND (${band} IS NULL OR ${band} != 'covered' OR ${rivalDroppedSql(a)}) AND NOT ${rivalOnCoverageSql(a)}`;
 export const MAX_CLAIM = 60;
+// Phase 0 gates: a row the arrival gate (or an admin rescue) admitted waits,
+// held, until the daily grading budget releases it (budget.js). Held rows are
+// pending but never claimable, and never counted as waiting. `a` is the SQL
+// alias prefix ("i.") or "".
+export const HELD_SQL = (a = "") => `(${a}admit IS NOT NULL AND ${a}released_at IS NULL)`;
 export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;
 export const STALE_DAYS = 14;

@@ -847,7 +847,7 @@ export async function enrich(env) {
   const pick = (secOnly, limit) => env.DB.prepare(
     `SELECT id, url, title, excerpt_tries, role, excerpt_source FROM items
       WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
-      ORDER BY nm_first_seen DESC LIMIT ?3`,
+      ORDER BY (admit IS NOT NULL AND released_at IS NULL), nm_first_seen DESC LIMIT ?3`,
   ).bind(now, contact, limit).all().then((r) => r.results || []);
   // An admin SEC refresh in progress has sec.gov's budget to itself.
   const secBusy = await secLeaseHeld(env, now);

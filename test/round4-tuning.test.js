@@ -175,7 +175,9 @@ test("Z3 GET /v1/ops: last run, 24 h count, gaps over 2 h in 7 days, status, hea
   assert.deepEqual(g.gaps_7d.map((x) => Math.round(x.hours)), [60, 135, 5, 12]);
   assert.ok(g.gaps_7d.every((x) => x.hours > 2 && x.from < x.to));
   assert.deepEqual(g.checks.map((c) => c.key), ["grader_stale", "queue_stale"]);
-  assert.deepEqual(g.backlog, { coverage_pending: 2, aux_pending: 2, headlines_waiting: 2, oldest_aux_pending_at: env.DB.rows("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state='pending'")[0].t });
+  // Phase 0 gates added the held counts, the day's releases, the budget and the double-graded count.
+  assert.deepEqual(g.backlog, { coverage_pending: 2, aux_pending: 2, headlines_waiting: 2, oldest_aux_pending_at: env.DB.rows("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state='pending'")[0].t,
+    coverage_held: 0, aux_held: 0, released_today: 0, budget: { total: 20, per_source: 5, guard: 60 }, double_graded_24h: 0 });
 
   addRun(env, "r7", 20 * MIN, 10 * MIN);
   assert.equal((await get(env, "/v1/ops", "admin")).body.grader.status, "ok");

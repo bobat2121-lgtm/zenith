@@ -17,7 +17,8 @@ import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
-  olderEventDate, normalizeHeadline, normalizeRelations, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER } from "./lib.js";
+  olderEventDate, normalizeHeadline, normalizeRelations, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
+  HELD_SQL } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 import { auxEntitySighting, upsertAfterGrades, relationSightings } from "./expansion.js";
 
@@ -199,11 +200,14 @@ export async function auxClaim(env, body) {
   await env.DB.prepare("UPDATE aux_items SET state='skipped', skip_reason='grading_failed' WHERE state IN ('pending','claimed') AND attempts >= ? AND (claimed_until IS NULL OR claimed_until < ?)")
     .bind(MAX_ATTEMPTS, now).run();
   // One statement, so concurrent claims can never share items or reopen a
-  // graded one: the outer WHERE re-checks state.
+  // graded one: the outer WHERE re-checks state. The state test is
+  // parenthesised: a held row (Phase 0 gates, budget.js) is never claimed,
+  // pending or with an expired lease.
   const old = nowIso(Date.now() - AUX_OLD_HOURS * 3_600_000);
   await env.DB.prepare(
     `UPDATE aux_items SET state='claimed', claim_id=?2, claimed_until=?3, attempts=attempts+1
-      WHERE id IN (SELECT i.id FROM aux_items i WHERE i.state='pending' OR (i.state='claimed' AND i.claimed_until < ?4)
+      WHERE id IN (SELECT i.id FROM aux_items i WHERE (i.state='pending' OR (i.state='claimed' AND i.claimed_until < ?4))
+                      AND NOT ${HELD_SQL("i.")}
                     ORDER BY ${CLAIM_ORDER} LIMIT ?5)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?4))`,
   ).bind(old, claimId, until, now, limit).run();
@@ -216,7 +220,7 @@ export async function auxClaim(env, body) {
     it.coverage_subject = it.coverage_subject === 1;
     it.affects = it.affects ? String(it.affects).split(",").filter(Boolean) : [];
   }
-  const pending = await env.DB.prepare("SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed')").first();
+  const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: AUX_RUBRIC_VERSION, items,
     remaining: Math.max(0, (pending?.n || 0) - items.length) };
 }
@@ -550,6 +554,8 @@ export async function auxFeed(env, url) {
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
+  // Held rows (waiting for the daily grading budget, budget.js) only with include_held=1.
+  if (q.get("include_held") !== "1") where.push(`NOT ${HELD_SQL("i.")}`);
   if (q.get("unlabeled") === "1" || toLabel) where.push("NOT EXISTS (SELECT 1 FROM aux_feedback f WHERE f.item_id = i.id)");
   // sort=to_label (Z10, lib.js TO_LABEL_ORDER): graded, unlabeled, recent; no paging.
   if (toLabel) {

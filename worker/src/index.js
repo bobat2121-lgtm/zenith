@@ -18,7 +18,9 @@ import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION 
 import { ingest } from "./ingest.js";
 import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
-import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS, HELD_SQL } from "./lib.js";
+// Phase 0 gates: the daily grading budget (held rows) and the admin rescue.
+import { releaseHeld } from "./budget.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
@@ -95,9 +97,10 @@ async function claim(env, body) {
   // graded one: the outer WHERE re-checks state. Items whose excerpt attempt
   // has finished come first, then newest first. A bill item waits while its
   // autonomy lines are being read, at most HOLD_MINUTES after ingest (bill-lines.js).
+  // Phase 0 gates: a held row (admitted, not yet released by budget.js) is never claimed.
   await env.DB.prepare(
     `UPDATE items SET state='claimed', claim_id=?1, claimed_until=?2, attempts=attempts+1
-      WHERE id IN (SELECT id FROM items WHERE (state='pending' OR (state='claimed' AND claimed_until < ?3)) AND ${BILL_HOLD_SQL("?5")}
+      WHERE id IN (SELECT id FROM items WHERE (state='pending' OR (state='claimed' AND claimed_until < ?3)) AND ${BILL_HOLD_SQL("?5")} AND NOT ${HELD_SQL()}
                     ORDER BY (excerpt_status IS NULL), nm_first_seen DESC, id DESC LIMIT ?4)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
   ).bind(claimId, until, now, limit, nowIso(Date.now() - HOLD_MINUTES * 60_000)).run();
@@ -120,7 +123,8 @@ async function claim(env, body) {
     `INSERT INTO runs (id, started_at, last_seen_at, claimed, rubric_version, model) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at, claimed=runs.claimed+excluded.claimed`,
   ).bind(runId, now, now, items.length, String(body?.rubric_version || ""), String(body?.model || "")).run();
-  const pending = await env.DB.prepare("SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed')").first();
+  // Phase 0 gates: held rows are not waiting.
+  const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: RUBRIC_VERSION, items, remaining: Math.max(0, (pending?.n || 0) - items.length) };
 }
 
@@ -271,6 +275,8 @@ async function feed(env, url) {
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
+  // Phase 0 gates: held rows (waiting for the daily grading budget) only with include_held=1.
+  if (q.get("include_held") !== "1") where.push(`NOT ${HELD_SQL("i.")}`);
   if (q.get("unlabeled") === "1" || toLabel) where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
   if (toLabel) {
     where.push("i.state = 'graded'", "g.score IS NOT NULL", "i.nm_first_seen >= ?");
@@ -387,10 +393,12 @@ async function recent(env, url) {
 async function stats(env) {
   // Counts cover today's universe only: a ticker dropped from covered.json
   // (SSTI, REKR) keeps its rows but leaves the totals.
-  const byState = (await env.DB.prepare(`SELECT state, COUNT(*) AS n FROM items WHERE ticker IN ${IN_UNIVERSE} GROUP BY state`).all()).results || [];
+  // Phase 0 gates: held rows are counted as state 'held', never as pending.
+  const byState = (await env.DB.prepare(`SELECT CASE WHEN state = 'pending' AND ${HELD_SQL()} THEN 'held' ELSE state END AS state, COUNT(*) AS n
+    FROM items WHERE ticker IN ${IN_UNIVERSE} GROUP BY 1`).all()).results || [];
   const byBand = (await env.DB.prepare(`SELECT g.band, COUNT(*) AS n FROM items i JOIN grades g ON g.id = i.grade_id WHERE i.ticker IN ${IN_UNIVERSE} GROUP BY g.band`).all()).results || [];
   const lastRun = await env.DB.prepare("SELECT * FROM runs ORDER BY last_seen_at DESC LIMIT 1").first();
-  const oldestPending = await env.DB.prepare(`SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed') AND ticker IN ${IN_UNIVERSE}`).first();
+  const oldestPending = await env.DB.prepare(`SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND ticker IN ${IN_UNIVERSE}`).first();
   const labelCount = await env.DB.prepare(
     `SELECT COUNT(DISTINCT f.item_id) AS n FROM feedback f JOIN items i ON i.id = f.item_id WHERE COALESCE(f.ticker, i.ticker) IN ${IN_UNIVERSE}`,
   ).first();
@@ -549,6 +557,8 @@ export default {
       try { console.log("bill lines", JSON.stringify(await billLinesPass(env))); } catch (e) { console.error("bill lines failed", e?.stack || e); }
       // Auxiliary names last, on their own: coverage is always served first.
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
+      // Phase 0 gates: release held rows under the daily grading budget (budget.js).
+      try { console.log("gate budget", JSON.stringify(await releaseHeld(env))); } catch (e) { console.error("gate budget failed", e?.stack || e); }
       // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
       try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
       // SEC party extraction into the expansion queue (Part B), last: it takes the

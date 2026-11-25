@@ -285,7 +285,8 @@ test("scheduled: the 5-minute cron ingests auxiliary items after coverage ingest
   } finally {
     console.log = log;
   }
-  assert.deepEqual(order, ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "expansion backfill", "sec parties"]);
+  // Phase 0 gates: the budget release runs right after the auxiliary ingest.
+  assert.deepEqual(order, ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "gate budget", "expansion backfill", "sec parties"]);
   assert.deepEqual(db.rows("SELECT title FROM items").map((x) => x.title), ["Red Cat news"]);
   assert.deepEqual(db.rows("SELECT title FROM aux_items").map((x) => x.title), ["Anduril news"]);
 });
@@ -309,7 +310,8 @@ test("scheduled: an auxiliary ingest failure is logged and leaves the coverage i
   } finally {
     Object.assign(console, { log, error });
   }
-  assert.deepEqual(errors, ["aux ingest failed"]);
+  // Phase 0 gates: the budget release reads aux_items too, and fails on its own.
+  assert.deepEqual(errors, ["aux ingest failed", "gate budget failed"]);
   assert.deepEqual(db.rows("SELECT title FROM items").map((x) => x.title), ["Red Cat news"]);
 });
 

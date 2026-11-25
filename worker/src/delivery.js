@@ -6,7 +6,7 @@
 //     or covered items wait too long for a grade, and one recovery notice.
 //   * Catch-up for scheduled reports whose cron was missed (brief.js).
 // Every channel is a no-op while its webhook secret is unset.
-import { nowIso } from "./lib.js";
+import { nowIso, HELD_SQL } from "./lib.js";
 import { etParts, etToUtc, fmtEt, fmtAge } from "./et.js";
 import { discordSend, escapeMd, clip, link, figures, bandName } from "./discord.js";
 import { catchUpReports, CURRENT_GRADE as CURRENT } from "./brief.js";
@@ -225,9 +225,9 @@ export async function heartbeatChecks(db, now = Date.now()) {
   const arrived = "MAX(i.nm_first_seen, i.ingested_at)";
   const oldest = await db.prepare(
     `SELECT i.id, i.ticker, i.title, ${arrived} AS arrived,
-            (SELECT COUNT(*) FROM items j WHERE j.state IN ('pending','claimed') AND j.role IS NULL
+            (SELECT COUNT(*) FROM items j WHERE j.state IN ('pending','claimed') AND j.role IS NULL AND NOT ${HELD_SQL("j.")}
                AND MAX(j.nm_first_seen, j.ingested_at) >= ?1 AND MAX(j.nm_first_seen, j.ingested_at) <= ?2) AS waiting
-       FROM items i WHERE i.state IN ('pending','claimed') AND i.role IS NULL AND ${arrived} >= ?1
+       FROM items i WHERE i.state IN ('pending','claimed') AND i.role IS NULL AND NOT ${HELD_SQL("i.")} AND ${arrived} >= ?1
       ORDER BY arrived LIMIT 1`,
   ).bind(since, nowIso(now - QUEUE_STALE_MIN * 60_000)).first();
   const age = oldest ? now - Date.parse(oldest.arrived) : 0;
