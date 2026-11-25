@@ -272,7 +272,8 @@
       "coverage_subject": true,
       "affects": [
         "DPRO"
-      ]
+      ],
+      "record": true
     },
     "capeair": {
       "entity": "capeair",
@@ -375,7 +376,8 @@
       "entity": "diu",
       "name": "DIU",
       "status": "program",
-      "lane": "strategic_noncompany"
+      "lane": "strategic_noncompany",
+      "record": true
     },
     "doordash": {
       "entity": "doordash",
@@ -466,7 +468,8 @@
         "PUSA",
         "ONDS",
         "DPRO"
-      ]
+      ],
+      "record": true
     },
     "drv_govinfo_defense_bills": {
       "entity": "drv_govinfo_defense_bills",
@@ -480,7 +483,8 @@
         "ONDS",
         "PUSA",
         "DPRO"
-      ]
+      ],
+      "record": true
     },
     "drv_house_approps": {
       "entity": "drv_house_approps",
@@ -494,7 +498,8 @@
         "ONDS",
         "PUSA",
         "DPRO"
-      ]
+      ],
+      "record": true
     },
     "drv_ndaa_action": {
       "entity": "drv_ndaa_action",
@@ -522,7 +527,8 @@
         "ONDS",
         "PUSA",
         "DPRO"
-      ]
+      ],
+      "record": true
     },
     "drv_whitehouse_actions": {
       "entity": "drv_whitehouse_actions",
@@ -536,7 +542,8 @@
         "PUSA",
         "ONDS",
         "DPRO"
-      ]
+      ],
+      "record": true
     },
     "dsv_autonomy": {
       "entity": "dsv_autonomy",
@@ -593,7 +600,8 @@
       "name": "Einride (ENRD)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "electra": {
       "entity": "electra",
@@ -652,7 +660,8 @@
       "name": "Faraday Future (FFAI)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "fedreg_av_trucking": {
       "entity": "fedreg_av_trucking",
@@ -663,7 +672,8 @@
       "affects": [
         "AUR",
         "KDK"
-      ]
+      ],
+      "record": true
     },
     "fedreg_bis_ai_compute": {
       "entity": "fedreg_bis_ai_compute",
@@ -673,7 +683,8 @@
       "coverage_subject": true,
       "affects": [
         "GRRR"
-      ]
+      ],
+      "record": true
     },
     "figure": {
       "entity": "figure",
@@ -701,7 +712,8 @@
       "coverage_subject": true,
       "affects": [
         "PL"
-      ]
+      ],
+      "record": true
     },
     "fort": {
       "entity": "fort",
@@ -723,7 +735,8 @@
       "coverage_subject": true,
       "affects": [
         "AXON"
-      ]
+      ],
+      "record": true
     },
     "fpds_onds": {
       "entity": "fpds",
@@ -733,7 +746,8 @@
       "coverage_subject": true,
       "affects": [
         "ONDS"
-      ]
+      ],
+      "record": true
     },
     "fpds_pdyn": {
       "entity": "fpds",
@@ -743,7 +757,8 @@
       "coverage_subject": true,
       "affects": [
         "PDYN"
-      ]
+      ],
+      "record": true
     },
     "fpds_pl": {
       "entity": "fpds",
@@ -753,7 +768,8 @@
       "coverage_subject": true,
       "affects": [
         "PL"
-      ]
+      ],
+      "record": true
     },
     "fpds_pusa": {
       "entity": "fpds",
@@ -763,7 +779,8 @@
       "coverage_subject": true,
       "affects": [
         "PUSA"
-      ]
+      ],
+      "record": true
     },
     "fpds_satl": {
       "entity": "fpds",
@@ -773,7 +790,8 @@
       "coverage_subject": true,
       "affects": [
         "SATL"
-      ]
+      ],
+      "record": true
     },
     "fpds_spai": {
       "entity": "fpds",
@@ -783,7 +801,8 @@
       "coverage_subject": true,
       "affects": [
         "SPAI"
-      ]
+      ],
+      "record": true
     },
     "fpl_drones": {
       "entity": "fpl_drones",
@@ -962,7 +981,8 @@
       "name": "IREN (IREN)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "joby": {
       "entity": "joby",
@@ -1040,7 +1060,8 @@
       "coverage_subject": true,
       "affects": [
         "AXON"
-      ]
+      ],
+      "record": true
     },
     "leidos_strike": {
       "entity": "leidos_strike",
@@ -1095,7 +1116,8 @@
       "name": "May Mobility (private; pending Nasdaq: MAY)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "mbai_rel": {
       "entity": "mbai_rel",
@@ -1277,7 +1299,8 @@
       "entity": "nga",
       "name": "NGA",
       "status": "program",
-      "lane": "strategic_noncompany"
+      "lane": "strategic_noncompany",
+      "record": true
     },
     "nhtsa_sgo_ads": {
       "entity": "nhtsa_sgo_ads",
@@ -1288,7 +1311,8 @@
       "affects": [
         "AUR",
         "KDK"
-      ]
+      ],
+      "record": true
     },
     "nslr": {
       "entity": "nslr",
@@ -1378,7 +1402,8 @@
       "name": "PACCAR (PCAR)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "paccar_nasdaq": {
       "entity": "paccar",
@@ -1391,7 +1416,8 @@
       "name": "Palantir Technologies (PLTR)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "parrot": {
       "entity": "parrot",
@@ -1532,7 +1558,8 @@
       "coverage_subject": true,
       "affects": [
         "SRFM"
-      ]
+      ],
+      "record": true
     },
     "rekor": {
       "entity": "rekor",
@@ -1604,7 +1631,8 @@
         "EVLV",
         "XTRAF",
         "AXON"
-      ]
+      ],
+      "record": true
     },
     "saildrone": {
       "entity": "saildrone",
@@ -1742,7 +1770,8 @@
       "name": "Space-Eyes (pending SPAC with McKinley Acquisition, MKLY; planned CUAS)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "spai_rel": {
       "entity": "spai_rel",
@@ -1811,7 +1840,8 @@
       "name": "Swarmer (SWMR)",
       "status": "public",
       "lane": "public_adjacent",
-      "sec": true
+      "sec": true,
+      "record": true
     },
     "sym_rel": {
       "entity": "sym_rel",
@@ -2040,7 +2070,8 @@
       "entity": "wargov_contracts",
       "name": "War.gov Contracts",
       "status": "program",
-      "lane": "strategic_fast_noncompany"
+      "lane": "strategic_fast_noncompany",
+      "record": true
     },
     "wargov_contracts_matched": {
       "entity": "wargov_contracts",
@@ -2062,7 +2093,8 @@
         "UMAC",
         "MRLN",
         "AGLT"
-      ]
+      ],
+      "record": true
     },
     "waymo": {
       "entity": "waymo",
@@ -2138,7 +2170,8 @@
       "entity": "xtech_announcements",
       "name": "U.S. Army xTech",
       "status": "program",
-      "lane": "strategic_noncompany"
+      "lane": "strategic_noncompany",
+      "record": true
     },
     "xtend": {
       "entity": "xtend",
