@@ -141,12 +141,17 @@ export const isOwnLane = (key) => Object.prototype.hasOwnProperty.call(COVERED.s
 const needsSeed = (r) => isArchiveCandidate(r) || !(isOwnLane(r.source_key) || isSecItem(r));
 export const seedMap = (news, rows) => sourceFirstSeen(news, rows.filter(needsSeed).map((r) => r.source_key));
 
+// Phase 1: a Legistar decision row, news-monitor's second item for a matter
+// (its URL plus a fragment): a vote result '#vote-<event id>' or a decisive
+// status '#<status>'. The base row (no fragment) is not one.
+export const isDecisionRow = (r) => String(r?.source_key ?? "").startsWith("legistar_") && /#[a-z0-9-]+$/i.test(String(r?.url ?? ""));
+
 // The gate's context for one row (lib.js arrivalGate). fpds: an FPDS source
-// (records.js isFpdsSource). capped: the row's source is at the day's
-// fast-path cap (budget.js fastPathCounter).
+// (records.js isFpdsSource). decision: a Legistar decision row. capped: the
+// row's source is at the day's fast-path cap (budget.js fastPathCounter).
 export function gateContext(r, pipeline, first, park, { capped = false } = {}) {
   return { pipeline, record: isOfficialRecord(r), seed: isSeedRow(r, first), burst: park.has(archiveGroupKey(r.source_key, r.first_seen)),
-    ownLane: isOwnLane(r.source_key), sec: isSecItem(r), fpds: isFpdsSource(r.source_key), capped };
+    ownLane: isOwnLane(r.source_key), sec: isSecItem(r), fpds: isFpdsSource(r.source_key), decision: isDecisionRow(r), capped };
 }
 
 // The park UPDATE for a group that is a burst in this window: parks what the

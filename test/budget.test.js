@@ -315,6 +315,20 @@ test("releaseHeld releases a record_fresh row ahead of older held rows and insid
   for (const x of per) assert.ok(x.n <= 5, `${x.source_key} released ${x.n}`);
 });
 
+// Phase 1 (Part D §5.2): council outcomes are time-sensitive, as seeds are.
+test("vote rows are released before older held rows, still at most 5 per source and 20 a day", async () => {
+  const env = newEnv();
+  for (const s of ["r1", "r2", "r3", "r4", "r5"]) for (let k = 0; k < 5; k++) addAux(env, held({ source_key: s, nm_first_seen: iso((40 + k) * HOUR) }));
+  for (let k = 0; k < 7; k++) addAux(env, held({ source_key: "legistar_testville", admit: "vote", url: `https://testville.legistar.com/L.aspx?ID=${k}#vote-${k}`, nm_first_seen: iso(HOUR) }));
+  addAux(env, held({ source_key: "r6", admit: "rescue", nm_first_seen: iso(60 * HOUR) }));
+  const r = await releaseHeld(env, { now: Date.now() });
+  assert.equal(r.released.aux, 20);
+  const rel = (sql) => env.DB.rows(sql)[0].n;
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'vote' AND released_at IS NOT NULL"), 5, "votes first, capped at 5 for their source");
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit IN ('record_late','rescue') AND released_at IS NOT NULL"), 15);
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'rescue' AND released_at IS NOT NULL"), 1, "the oldest held row (a rescue) still goes before newer record_late rows");
+});
+
 test("muting a source parks its held rows with admit cleared, so a Left out grade after unmuting is claimable at once, not held again", async () => {
   const env = newEnv();
   const app = (method, path, body) => request(worker, env, method, path, { role: "app", body });

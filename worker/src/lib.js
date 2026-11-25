@@ -599,27 +599,36 @@ export const RECORD_LOOKBACK_DAYS = 120;
 //   ownLane   its source is a covered company's own source (covered.json sources)
 //   sec       it is an SEC item (isSecItem)
 //   fpds      its source is an FPDS source (records.js isFpdsSource; phase 1)
+//   decision  it is a Legistar decision row (ingest.js isDecisionRow; phase 1)
 //   capped    its source already has the day's fast_cap fast-path rows
 //             (budget.js fastPathCounts; phase 1)
 // -> { reason: a skip reason or null, admit: null | 'record_late' |
-//      'seed_window' | 'seed_fresh' | 'record_fresh' | 'source_cap' }. An
-// admitted row is stored pending and held until the daily grading budget
+//      'seed_window' | 'seed_fresh' | 'vote' | 'record_fresh' | 'source_cap' }.
+// An admitted row is stored pending and held until the daily grading budget
 // releases it (budget.js).
-// seed_fresh (integration ruling A1): a fresh row of a new source's first poll
-// is budgeted too, unless its source is a covered own-lane source or it is an
-// SEC item; those keep the fast path.
-// record_fresh (phase 1): an undated row of an FPDS source after its first
-// poll; FPDS posts DoD actions ~90 days late and the adapter leaves later rows
-// undated, so they are budgeted like a seed.
-// source_cap (phase 1): a fresh row past its source's fast_cap fast-path rows
-// of one first-seen UTC day is budgeted, unless its source is a covered
-// own-lane source or it is an SEC item.
+// A row that is neither skipped nor late (undated outside a burst, or dated
+// at most STALE_DAYS before its first sighting) is decided in this order:
+//   seed_fresh (integration ruling A1): a fresh row of a new source's first
+//     poll, unless its source is a covered own-lane source or it is an SEC
+//     item; those keep the fast path.
+//   vote (phase 1): a Legistar decision row ('#vote-<event>' or '#<status>'),
+//     so each council outcome is graded inside the budget.
+//   record_fresh (phase 1): an undated row of an FPDS source after its first
+//     poll; FPDS posts DoD actions ~90 days late and the adapter leaves later
+//     rows undated, so they are budgeted like a seed.
+//   source_cap (phase 1): a fresh row past its source's fast_cap fast-path
+//     rows of one first-seen UTC day, unless its source is a covered own-lane
+//     source or it is an SEC item.
+//   otherwise the fast path (admit null).
+// A vote or record_fresh row is decided before the cap, so it never counts
+// toward it (fastPathCounts counts admit IS NULL rows only).
 export function arrivalGate(row, ctx = {}) {
   const pub = Date.parse(row.published || ""), seen = Date.parse(row.first_seen || "");
   const age = Number.isFinite(pub) && Number.isFinite(seen) ? (seen - pub) / 86_400_000 : null;
   // The decision for a row that is neither skipped nor late.
   const plain = (undated) => {
     if (ctx.seed && !ctx.ownLane && !ctx.sec) return { reason: null, admit: "seed_fresh" };
+    if (ctx.decision) return { reason: null, admit: "vote" };
     if (undated && ctx.fpds && !ctx.seed) return { reason: null, admit: "record_fresh" };
     if (ctx.capped && !ctx.ownLane && !ctx.sec) return { reason: null, admit: "source_cap" };
     return { reason: null, admit: null };
@@ -628,7 +637,7 @@ export function arrivalGate(row, ctx = {}) {
     if (!ctx.burst) return plain(true);
     return { reason: ctx.seed ? "archive_seed" : "undated_burst", admit: null };
   }
-  if (age <= STALE_DAYS) return plain(false);                     // the fast path (seeds, FPDS and capped sources aside)
+  if (age <= STALE_DAYS) return plain(false);                     // the fast path (the admissions above aside)
   if ((ctx.seed || ctx.record) && age <= LATE_WINDOW_DAYS) return { reason: null, admit: ctx.record ? "record_late" : "seed_window" };
   if (ctx.pipeline === "coverage" && ctx.record && !ctx.burst && age <= RECORD_LOOKBACK_DAYS) return { reason: null, admit: "record_late" };
   return { reason: ctx.seed && ctx.burst ? "archive_seed" : "stale_on_arrival", admit: null };

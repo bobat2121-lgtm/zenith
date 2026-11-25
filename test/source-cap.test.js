@@ -229,3 +229,31 @@ test("ops: fast_path_today lists today's top 5 capped sources and budget carries
   assert.equal(b.budget.fast_cap, 7);
   assert.equal(b.source_cap_held, 0);
 });
+
+// Integration (plans/phase1-build-spec.md §I2, PR-GATE commit 3): a vote or
+// record_fresh row is held by its own rule before the cap is considered, and
+// fastPathCounts counts admit IS NULL rows only, so it never uses up the cap.
+test("held vote and record_fresh rows do not count toward the fast cap", async () => {
+  // An FPDS source: 3 undated post-seed rows (record_fresh), then 11 fresh dated rows.
+  const env = newEnv();
+  seedEarlier(env, "fpds_pl", "[PL] FPDS: SYNTHETIC AGENCY earlier order");
+  for (let k = 0; k < 3; k++) nm(env, { source_key: "fpds_pl", first_seen: at(DAY_A, k), published: null, title: `[PL] FPDS: SYNTHETIC AGENCY modification ${k}` });
+  for (let k = 0; k < 11; k++) nm(env, { source_key: "fpds_pl", first_seen: at(DAY_A, 10 + k), title: `[PL] FPDS: SYNTHETIC AGENCY order ${k}` });
+  await ingest(env);
+  assert.deepEqual(admits(env, "items", "fpds_pl"), [...Array(3).fill("record_fresh"), ...Array(10).fill(null), "source_cap"]);
+  // A second ingest the same day: the stored record_fresh rows still do not count.
+  nm(env, { source_key: "fpds_pl", first_seen: at(DAY_A, 40), title: "[PL] FPDS: SYNTHETIC AGENCY later order" });
+  await ingest(env);
+  assert.equal(admits(env, "items", "fpds_pl").at(-1), "source_cap");
+  assert.deepEqual([...await fastPathCounts(env.DB, DAY_A)], [["fpds_pl", 10]]);
+
+  // A Legistar source: 3 decision rows (vote), then 11 fresh base rows.
+  const e2 = newEnv();
+  const key = "legistar_oakland_axon";
+  const url = (k, frag = "") => `https://testville.legistar.com/LegislationDetail.aspx?ID=${k}&GUID=SYNTH${frag}`;
+  seedEarlier(e2, key, "[AXON] Testville City Council earlier matter");
+  for (let k = 0; k < 3; k++) nm(e2, { source_key: key, first_seen: at(DAY_A, k), url: url(k, `#vote-${k}`), title: `[AXON] Testville City Council matter ${k} — vote` });
+  for (let k = 0; k < 11; k++) nm(e2, { source_key: key, first_seen: at(DAY_A, 10 + k), url: url(100 + k), title: `[AXON] Testville City Council matter ${100 + k}` });
+  await ingest(e2);
+  assert.deepEqual(admits(e2, "items", key), [...Array(3).fill("vote"), ...Array(10).fill(null), "source_cap"]);
+});

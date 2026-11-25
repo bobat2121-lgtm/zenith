@@ -1,5 +1,6 @@
 // Phase 0 gates: the daily grading budget. Rows the arrival gate admits past
-// the fast path (lib.js arrivalGate: record_late, seed_window, seed_fresh) and
+// the fast path (lib.js arrivalGate: record_late, seed_window, seed_fresh, and
+// from phase 1 vote, record_fresh and source_cap) and
 // rows an admin rescue turns back into work (admit 'rescue') are stored
 // pending but held (admit set, released_at NULL): the claims never return
 // them. releaseHeld, on every 5-minute cron, releases at most TOTAL a UTC day
@@ -10,7 +11,7 @@
 //
 // Overrides only through Worker secrets (they survive `wrangler deploy`;
 // wrangler.toml has no [vars]): GATE_BUDGET_TOTAL, GATE_BUDGET_PER_SOURCE,
-// GATE_QUEUE_GUARD.
+// GATE_QUEUE_GUARD, and GATE_FAST_CAP (phase 1, the per-source fast-path cap).
 import COVERED from "./covered.json";
 import { HELD_SQL, universeSql, nowIso, chunk, sightingAgeDays, ARCHIVE_SEED_MIN, LATE_WINDOW_DAYS, RECORD_LOOKBACK_DAYS } from "./lib.js";
 import { coverageOwner, OLD_OR_UNDATED_SQL, isOwnLane } from "./ingest.js";
@@ -133,15 +134,16 @@ export async function releaseHeld(env, { now = Date.now() } = {}) {
     if (room <= 0) continue;
     // At most PER_SOURCE candidates per source in SQL, so one big seed never
     // hides every other source. Fresh rows come first, they are
-    // time-sensitive: a new source's first-poll rows (seed_fresh), fast-path
-    // rows over the source cap (source_cap) and an FPDS source's undated rows
-    // after its first poll (record_fresh); then oldest first.
+    // time-sensitive: a new source's first-poll rows (seed_fresh), Legistar
+    // decision rows (vote), an FPDS source's undated rows after its first poll
+    // (record_fresh) and fast-path rows over the source cap (source_cap), all
+    // equal; then oldest first. rescue and record_late rows come after.
     const cands = (await db.prepare(
       `SELECT id, source_key, admit, nm_first_seen, rn FROM (
          SELECT id, source_key, admit, nm_first_seen,
-                ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY (admit IN ('seed_fresh','source_cap','record_fresh')) DESC, nm_first_seen, id) AS rn
+                ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY (admit IN ('seed_fresh','vote','record_fresh','source_cap')) DESC, nm_first_seen, id) AS rn
            FROM ${t.table} WHERE state = 'pending' AND ${HELD_SQL()} ${t.scope})
-        WHERE rn <= ?1 ORDER BY (admit IN ('seed_fresh','source_cap','record_fresh')) DESC, nm_first_seen, id LIMIT 500`,
+        WHERE rn <= ?1 ORDER BY (admit IN ('seed_fresh','vote','record_fresh','source_cap')) DESC, nm_first_seen, id LIMIT 500`,
     ).bind(cfg.per_source).all()).results || [];
     const pick = [];
     for (const c of cands) {
