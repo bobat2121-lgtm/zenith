@@ -355,7 +355,7 @@ class Stop {
   constructor(kind, status) { this.kind = kind; this.status = status; }
 }
 // One document through fetchPage: { html, url } or null (a 404 or another
-// unreadable document is skipped). A 403/429 throws a pause, a 5xx, timeout
+// unreadable document is skipped). A 403/429 or a block page throws a pause, a 5xx, timeout
 // or network error a tick stop.
 async function getDoc(ctx, url) {
   if (ctx.requests >= MAX_REQUESTS) return null;
@@ -363,7 +363,7 @@ async function getDoc(ctx, url) {
   const page = await fetchPage(url, ctx.ua);
   const s = page.status;
   if (s === "ok") return { html: page.html, url };
-  if (s === "http_403" || s === "http_429") throw new Stop("pause", s);
+  if (s === "http_403" || s === "http_429" || s === "blocked") throw new Stop("pause", s);
   if (/^http_5\d\d$/.test(s) || s.startsWith("error")) throw new Stop("stop", s);
   ctx.notes.push(`${url}: ${s}`);
   return null;
