@@ -28,6 +28,8 @@ import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackf
 import { secParties } from "./sec-parties.js";
 import { billLinesPass, BILL_HOLD_SQL, HOLD_MINUTES, blockText, parseStored } from "./bill-lines.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
+// Zenith show (phase 0)
+import { newsOps } from "./source-signals.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -70,6 +72,8 @@ const ALLOW = {
   "GET /v1/expansion/candidates": ["app", "admin"],
   "POST /v1/expansion/decide": ["app", "admin"],
   "POST /v1/expansion/compiled": ["app", "admin"],
+  // Zenith show (phase 0): the Coverage page's ops strip (news-monitor-db, SELECT only).
+  "GET /v1/news-ops": ["app", "admin"],
 };
 
 async function readJson(request) {
@@ -531,6 +535,8 @@ export default {
       case "GET /v1/expansion/candidates": return expansionCandidates(env, url);
       case "POST /v1/expansion/decide": return expansionDecide(env, await readJson(request), role);
       case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role);
+      // Zenith show (phase 0)
+      case "GET /v1/news-ops": return newsOps(env);
     }
     return json({ error: "not found" }, 404);
   },
