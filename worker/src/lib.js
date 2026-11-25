@@ -63,9 +63,31 @@ export const rivalOnCoverageSql = (a) => `EXISTS (SELECT 1 FROM items c WHERE c.
 export const auxBandShownSql = (a, band) =>
   `(${band} IS NULL OR ${band} != 'duplicate') AND (${band} IS NULL OR ${band} != 'covered' OR ${rivalDroppedSql(a)}) AND NOT ${rivalOnCoverageSql(a)}`;
 export const MAX_CLAIM = 60;
+// Phase 0 gates: a row the arrival gate (or an admin rescue) admitted waits,
+// held, until the daily grading budget releases it (budget.js). Held rows are
+// pending but never claimable, and never counted as waiting. `a` is the SQL
+// alias prefix ("i.") or "".
+export const HELD_SQL = (a = "") => `(${a}admit IS NOT NULL AND ${a}released_at IS NULL)`;
 export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;
 export const STALE_DAYS = 14;
+
+// Phase 0 gates (e): an item with no published date can never show as a fresh
+// Lead. A score of 90 or more on an undated item is stored as UNDATED_CAP
+// (89, Digest) with the flag undated_capped_from_<score>. It overrides the
+// floors (buyout, lead_order, deal_transformational at 90 included): the
+// event's date is unknown, so the card cannot be shown as new. The owner's
+// High still pins it (ownerRank). Returns the score to store; pushes the flag
+// onto flags.
+export const UNDATED_CAP = 89;
+export function capUndated(score, published, flags) {
+  if (score == null || Number.isFinite(Date.parse(published || ""))) return score;
+  if (score >= 90) {
+    flags.push(`undated_capped_from_${score}`);
+    return UNDATED_CAP;
+  }
+  return score;
+}
 
 export function bandFor(score) {
   for (const b of BANDS) if (score >= b.min) return b.band;
@@ -268,6 +290,8 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
     if (score > cap) { flags.push(`sec_unread_capped_from_${score}`); score = cap; }
     if (!flags.includes("no_figures")) flags.push("no_figures");
   }
+  // Phase 0 gates (e): an undated item is never a Lead (capUndated, above bandFor).
+  if (!isDuplicate) score = capUndated(score, item.published, flags);
 
   const band = isDuplicate ? "duplicate" : bandFor(score);
   if (rawBand && rawBand !== band) flags.push(`band_corrected_from_${rawBand}`);
@@ -556,6 +580,42 @@ export function archiveSeedGroups(rows, stored = new Map()) {
   const park = new Set();
   for (const [k, n] of counts) if (n + (stored.get(k) || 0) >= ARCHIVE_SEED_MIN) park.add(k);
   return park;
+}
+
+// --- Phase 0 gates: the arrival gate --------------------------------------
+// The rubric's freshness line: over 21 days at first sighting is stale
+// (core.md 4.5 and section 8, auxiliary.md section 5).
+export const LATE_WINDOW_DAYS = 21;
+// Coverage only: core.md section 8 lets a material official record first seen
+// late score (event - 15, cap 79). Archive bursts have no such exception
+// (core.md section 8, archive bursts).
+export const RECORD_LOOKBACK_DAYS = 120;
+// What the arrival gate does with one news-monitor row. ctx:
+//   pipeline  'coverage' | 'aux'
+//   record    the row is an official record (records.js isOfficialRecord)
+//   seed      the row is in its source's first poll (ingest.js isSeedRow)
+//   burst     its (source, first_seen) group has ARCHIVE_SEED_MIN or more
+//             archive candidates (archiveSeedGroups)
+//   ownLane   its source is a covered company's own source (covered.json sources)
+//   sec       it is an SEC item (isSecItem)
+// -> { reason: a skip reason or null, admit: null | 'record_late' |
+//      'seed_window' | 'seed_fresh' }. An admitted row is stored pending and
+// held until the daily grading budget releases it (budget.js).
+// seed_fresh (integration ruling A1): a fresh row of a new source's first poll
+// is budgeted too, unless its source is a covered own-lane source or it is an
+// SEC item; those keep the fast path.
+export function arrivalGate(row, ctx = {}) {
+  const pub = Date.parse(row.published || ""), seen = Date.parse(row.first_seen || "");
+  const age = Number.isFinite(pub) && Number.isFinite(seen) ? (seen - pub) / 86_400_000 : null;
+  const plain = ctx.seed && !ctx.ownLane && !ctx.sec ? { reason: null, admit: "seed_fresh" } : { reason: null, admit: null };
+  if (age == null) {                                              // undated: today's rule
+    if (!ctx.burst) return plain;
+    return { reason: ctx.seed ? "archive_seed" : "undated_burst", admit: null };
+  }
+  if (age <= STALE_DAYS) return plain;                            // the fast path (seeds of new sources aside)
+  if ((ctx.seed || ctx.record) && age <= LATE_WINDOW_DAYS) return { reason: null, admit: ctx.record ? "record_late" : "seed_window" };
+  if (ctx.pipeline === "coverage" && ctx.record && !ctx.burst && age <= RECORD_LOOKBACK_DAYS) return { reason: null, admit: "record_late" };
+  return { reason: ctx.seed && ctx.burst ? "archive_seed" : "stale_on_arrival", admit: null };
 }
 
 // The event date to show next to a feed item: its published day, when that is

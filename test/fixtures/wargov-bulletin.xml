@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic GovDelivery bulletin feed for test/wargov-excerpt.test.js: invented companies, places and figures. -->
+<rss version="2.0">
+<channel>
+<title>Synthetic Department bulletins</title>
+<item>
+<title>Contracts for Nov. 20, 2026</title>
+<link>https://content.govdelivery.example/bulletins/1</link>
+<description>&lt;p&gt;&lt;a href="https://www.war.gov/News/Contracts/Contract/Article/4400001/?source=GovDelivery"&gt;View Online&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;ARMY&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Testco Robotics Inc., Springfield, Ohio, was awarded a $48,000,000 firm-fixed-price contract for small unmanned aircraft systems and spares. Bids were solicited via the internet with one received.&lt;/p&gt;
+&lt;p&gt;Brightwater Logistics LLC, Dover, Delaware, was awarded a $9,500,000 modification to contract W000AA-26-C-0001 for depot maintenance of tactical vehicles.&lt;/p&gt;
+&lt;p&gt;Short line under eighty characters.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;NAVY&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;Glimmer Aerospace Corp., Harbor City, California, is awarded a $3,100,000 cost-plus-fixed-fee contract for autonomous surface vessel sensor integration and testing.&lt;/p&gt;
+&lt;p&gt;Northfield Shipworks Co., Bath, Maine, is awarded a $120,400,000 cost-plus-incentive-fee modification for ship repair and modernization services.&lt;/p&gt;
+&lt;p&gt;*Small business&lt;/p&gt;</description>
+<pubDate>Fri, 20 Nov 2026 22:00:00 GMT</pubDate>
+</item>
+<item>
+<title>Contracts for Nov. 21, 2026</title>
+<link>https://content.govdelivery.example/bulletins/2</link>
+<description><![CDATA[<p><strong>AIR FORCE</strong></p>
+<p>Quillon Systems Inc., Mesa, Arizona, has been awarded a $2,750,000 contract for range instrumentation upgrades, with work expected to be complete by June 2027.</p>]]></description>
+<pubDate>Sat, 21 Nov 2026 22:00:00 GMT</pubDate>
+</item>
+<item>
+<title>Contracts for Nov. 19, 2026</title>
+<description>&lt;p&gt;Alpha Widget Works LLC, Hilltown, Texas, was awarded a $1,000,000 contract for spare parts; the first of two bulletins with this title.&lt;/p&gt;</description>
+</item>
+<item>
+<title>Contracts for Nov. 19, 2026</title>
+<description>&lt;p&gt;Beta Widget Works LLC, Hilltown, Texas, was awarded a $2,000,000 contract for spare parts; the second of two bulletins with this title.&lt;/p&gt;</description>
+</item>
+</channel>
+</rss>

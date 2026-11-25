@@ -76,20 +76,19 @@ after(async () => {
   if (cwd) rmSync(cwd, { recursive: true, force: true });
 });
 
-test("aux ingest stores auxiliary names only: peer newsroom, runtime managed_* and ia_media_* keys, coverage subjects; archive seeds skipped", async () => {
+test("aux ingest stores auxiliary names only: peer newsroom, runtime managed_* and ia_media_* keys; rows Coverage owns never; archive seeds skipped", async () => {
   const r = await http("POST", "/v1/admin/aux-ingest", "admin", {});
   assert.equal(r.status, 200);
   assert.equal(r.body.scanned, newsRows().length);
   const stored = rows("SELECT source_key, entity_key, entity_name, status, state, skip_reason, excerpt_status, coverage_subject, affects FROM aux_items ORDER BY id");
   const live = stored.filter((x) => x.state === "pending");
   assert.deepEqual(live.map((x) => x.source_key),
-    ["fpds_pl", "anduril", "skydio", "managed_fort_robotics_news", "nga", "anduril", "ia_media_dronelife"]);
-  // A filter built for a covered company is auxiliary as a coverage subject, with the tickers it affects.
-  assert.deepEqual([live[0].entity_key, live[0].entity_name, live[0].status, live[0].coverage_subject, live[0].affects],
-    ["fpds", "FPDS contracts", "program", 1, "PL"]);
-  assert.ok(live.slice(1).every((x) => x.coverage_subject === 0 && x.affects === null));
-  // Covered, ops and covered-duplicate keys never become auxiliary rows.
-  for (const key of ["redcat", "site_kodiak", "managed_draganfly_news"]) {
+    ["anduril", "managed_fort_robotics_news", "nga", "anduril", "ia_media_dronelife"]);
+  assert.ok(live.every((x) => x.coverage_subject === 0 && x.affects === null));
+  // Covered, ops and covered-duplicate keys never become auxiliary rows, and
+  // (Phase 0 gates d, one pipeline per item) neither do counterparty rows
+  // Coverage owns: the FPDS filter and the counterparty company channel.
+  for (const key of ["redcat", "site_kodiak", "managed_draganfly_news", "fpds_pl", "skydio"]) {
     assert.ok(!stored.some((x) => x.source_key === key), `${key} is not auxiliary`);
   }
   assert.deepEqual(stored.filter((x) => x.source_key === "zoox").map((x) => [x.state, x.skip_reason]), Array(6).fill(["skipped", "archive_seed"]));
@@ -116,16 +115,14 @@ test("grader CLI: aux-rubric writes the served rubric, aux-claim prints the batc
   const c = await grader("aux-claim", "40");
   assert.equal(c.code, 0, c.stderr);
   claim = JSON.parse(readFileSync(zen("aux-claim.json"), "utf8"));
-  assert.equal(claim.items.length, 7);
+  assert.equal(claim.items.length, 5);
   assert.equal(claim.remaining, 0);
   assert.equal(claim.rubric_version, AUX_RUBRIC_VERSION);
   assert.deepEqual(claim.items.map((i) => i.source_key),
-    ["ia_media_dronelife", "anduril", "nga", "managed_fort_robotics_news", "skydio", "anduril", "fpds_pl"], "newest first");
-  assert.match(c.stdout, new RegExp(`^aux claim ${claim.claim_id} \\(run ${claim.run_id}\\): 7 item\\(s\\), 0 more waiting\\. Rubric ${AUX_RUBRIC_VERSION}\\.`));
-  // A coverage subject says which covered companies its feed was built for; other items say nothing.
-  assert.deepEqual([claim.items[6].coverage_subject, claim.items[6].affects], [true, ["PL"]]);
-  assert.match(c.stdout, /entity=FPDS contracts \[fpds, program\] source=fpds_pl [^\n]*\nCOVERAGE_SUBJECT affects=PL /);
-  assert.equal(c.stdout.match(/COVERAGE_SUBJECT/g).length, 1);
+    ["ia_media_dronelife", "anduril", "nga", "managed_fort_robotics_news", "anduril"], "newest first");
+  assert.match(c.stdout, new RegExp(`^aux claim ${claim.claim_id} \\(run ${claim.run_id}\\): 5 item\\(s\\), 0 more waiting\\. Rubric ${AUX_RUBRIC_VERSION}\\.`));
+  // No coverage subject here: the FPDS filter's rows are Coverage-only (one pipeline per item).
+  assert.equal((c.stdout.match(/COVERAGE_SUBJECT/g) || []).length, 0);
   assert.match(c.stdout, /entity=Anduril \(private\) \[anduril, private\] source=anduril /);
   assert.match(c.stdout, /entity=Fort Robotics \[fort_robotics, unknown\] source=managed_fort_robotics_news /);
   assert.match(c.stdout, /entity=Industry media \[media_dronelife, media\] source=ia_media_dronelife /);
@@ -139,7 +136,7 @@ test("grader CLI: aux-rubric writes the served rubric, aux-claim prints the batc
   assert.match(one.stdout, new RegExp(`- item_id=${ids.lead} \\d{4}-\\d\\d-\\d\\d ungraded \\[Anduril \\(private\\)\\] Anduril raises`));
   const all = await grader("aux-recent", "-");
   assert.equal(all.code, 0, all.stderr);
-  assert.match(all.stdout, /^7 auxiliary item\(s\) for every entity in the last 14 days:/);
+  assert.match(all.stdout, /^5 auxiliary item\(s\) for every entity in the last 14 days:/);
 });
 
 test("aux-submit: contract errors are rejected with the fix and left NOT YET GRADED; the corrected file is accepted; a resubmit is idempotent", async () => {
@@ -149,7 +146,7 @@ test("aux-submit: contract errors are rejected with the fix and left NOT YET GRA
   writeFileSync(join(cwd, "bad.json"), JSON.stringify(bad));
   const r1 = await grader("aux-submit", "bad.json");
   assert.equal(r1.code, 2, r1.stderr);
-  assert.match(r1.stdout, /^accepted 3, already accepted 0, rejected 5/);
+  assert.match(r1.stdout, /^accepted 1, already accepted 0, rejected 5/);
   assert.match(r1.stdout, new RegExp(`REJECTED item ${ids.lead}: band must be "lead" for score 92`));
   assert.match(r1.stdout, new RegExp(`REJECTED item ${ids.fort}: reads_through ticker TSLA is not a covered ticker`));
   assert.match(r1.stdout, new RegExp(`REJECTED item ${ids.media}: dup_of must be another item`));
@@ -162,22 +159,21 @@ test("aux-submit: contract errors are rejected with the fix and left NOT YET GRA
   writeFileSync(join(cwd, "good.json"), JSON.stringify({ grades: good }));
   const r2 = await grader("aux-submit", "good.json");
   assert.equal(r2.code, 0, r2.stdout + r2.stderr);
-  assert.match(r2.stdout, /^accepted 4, already accepted 3, rejected 0/);
+  assert.match(r2.stdout, /^accepted 4, already accepted 1, rejected 0/);
   assert.doesNotMatch(r2.stdout, /NOT YET GRADED/);
   const r3 = await grader("aux-submit", "good.json");
-  assert.match(r3.stdout, /^accepted 0, already accepted 7, rejected 0/);
+  assert.match(r3.stdout, /^accepted 0, already accepted 5, rejected 0/);
 
   const graded = rows(`SELECT i.id, i.state, i.claim_id, g.run_id, g.band, g.score, g.model, g.rubric_version, g.dup_of, g.covered_ticker
     FROM aux_items i JOIN aux_grades g ON g.id = i.grade_id ORDER BY i.id`);
-  assert.equal(graded.length, 7);
-  assert.equal(rows("SELECT COUNT(*) AS n FROM aux_grades")[0].n, 7, "one grade per item and run");
+  assert.equal(graded.length, 5);
+  assert.equal(rows("SELECT COUNT(*) AS n FROM aux_grades")[0].n, 5, "one grade per item and run");
   for (const g of graded) {
     assert.deepEqual([g.state, g.claim_id, g.run_id, g.model, g.rubric_version], ["graded", null, claim.run_id, "e2e-model", AUX_RUBRIC_VERSION]);
   }
   const of = Object.fromEntries(graded.map((g) => [g.id, g]));
   assert.deepEqual([of[ids.media].band, of[ids.media].dup_of], ["duplicate", ids.lead]);
   assert.deepEqual([of[ids.nga].band, of[ids.nga].covered_ticker], ["covered", "PL"]);
-  assert.deepEqual([of[ids.fpds].band, of[ids.fpds].covered_ticker], ["covered", "PL"]);
 
   const again = await grader("aux-claim");
   assert.equal(again.code, 0, again.stderr);
@@ -202,7 +198,7 @@ test("app: For You vs Latest, the entity filter, labels and Unlabeled only on /v
   assert.deepEqual(await feedIds("?min_score=90"), [ids.lead]);
   // Latest: newest first, pending included; duplicate, covered and skipped hidden.
   const latest = (await http("GET", "/v1/aux/feed?order=newest", "app")).body.items;
-  assert.deepEqual(latest.map((i) => i.item_id), [pending, ids.lead, ids.fort, ids.skydio, ids.noise]);
+  assert.deepEqual(latest.map((i) => i.item_id), [pending, ids.lead, ids.fort, ids.noise]);
   assert.deepEqual([latest[0].state, latest[0].band, latest[0].score, latest[0].entity], ["pending", null, null, "Anduril (private)"]);
   assert.ok(latest.every((i) => i.pinned === 0));
   // Entity: the shown name, the routed name or the key, case-insensitive.
@@ -226,15 +222,15 @@ test("app: For You vs Latest, the entity filter, labels and Unlabeled only on /v
   // The owner's Noise takes the Lead out of For You (Z13); the High stays in.
   assert.deepEqual(await feedIds("?min_score=70"), [ids.fort]);
   // Unlabeled only (the app sends state=graded with it).
-  assert.deepEqual(await feedIds("?order=newest&unlabeled=1&state=graded"), [ids.skydio, ids.noise]);
+  assert.deepEqual(await feedIds("?order=newest&unlabeled=1&state=graded"), [ids.noise]);
   assert.deepEqual(await feedIds("?min_score=70&unlabeled=1&state=graded"), []);
 
   const aux = (await http("GET", "/v1/stats", "app")).body.aux;
   const n = (list, k, v) => list.find((x) => x[k] === v)?.n ?? 0;
-  assert.deepEqual(["graded", "pending", "skipped"].map((s) => n(aux.by_state, "state", s)), [7, 1, 6]);
-  assert.deepEqual(["lead", "digest", "borderline", "reject", "duplicate", "covered"].map((b) => n(aux.by_band, "band", b)), [1, 1, 1, 1, 1, 2]);
+  assert.deepEqual(["graded", "pending", "skipped"].map((s) => n(aux.by_state, "state", s)), [5, 1, 6]);
+  assert.deepEqual(["lead", "digest", "borderline", "reject", "duplicate", "covered"].map((b) => n(aux.by_band, "band", b)), [1, 1, 0, 1, 1, 1]);
   assert.deepEqual(aux.entities[0], { name: "Anduril", n: 2 });
-  assert.deepEqual(aux.entities.map((e) => e.name).sort(), ["Anduril", "FORT Robotics", "Skydio"], "duplicate and covered grades are not names");
+  assert.deepEqual(aux.entities.map((e) => e.name).sort(), ["Anduril", "FORT Robotics"], "duplicate and covered grades are not names");
   assert.equal(aux.rubric_version, AUX_RUBRIC_VERSION);
   assert.ok(aux.last_ingest_at);
 
@@ -260,8 +256,8 @@ test("coverage is untouched: /v1/feed, stats, labels, recent, the coverage table
   assert.deepEqual(after, coverageBefore);
   const titles = JSON.stringify(after.feeds);
   for (const t of ["Anduril", "FORT Robotics", "Zoox journal"]) assert.ok(!titles.includes(t), `${t} is not on the coverage feed`);
-  // A counterparty's own company channel is on both pages (spec S3): the
-  // coverage copy came from the coverage ingest, before any auxiliary row.
+  // A counterparty's own company channel routed to a covered ticker is on
+  // Coverage only (Phase 0 gates d: one pipeline per item).
   assert.ok(after.feeds["?order=newest"].items.some((i) => i.source_key === "skydio"));
   assert.equal(after.feeds[""].items[0].ticker, "RCAT");
   assert.equal(after.stats.last_run, null, "auxiliary claims and grades never write runs");

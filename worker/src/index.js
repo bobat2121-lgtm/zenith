@@ -18,7 +18,11 @@ import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION 
 import { ingest } from "./ingest.js";
 import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
-import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS } from "./lib.js";
+import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS, HELD_SQL } from "./lib.js";
+// Phase 0 gates: the daily grading budget (held rows) and the admin rescue.
+import { releaseHeld, rescueSkipped } from "./budget.js";
+import { isOfficialRecord } from "./records.js";
+import { enrichAuxWargov } from "./wargov.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
@@ -95,18 +99,21 @@ async function claim(env, body) {
   // graded one: the outer WHERE re-checks state. Items whose excerpt attempt
   // has finished come first, then newest first. A bill item waits while its
   // autonomy lines are being read, at most HOLD_MINUTES after ingest (bill-lines.js).
+  // Phase 0 gates: a held row (admitted, not yet released by budget.js) is never claimed.
   await env.DB.prepare(
     `UPDATE items SET state='claimed', claim_id=?1, claimed_until=?2, attempts=attempts+1
-      WHERE id IN (SELECT id FROM items WHERE (state='pending' OR (state='claimed' AND claimed_until < ?3)) AND ${BILL_HOLD_SQL("?5")}
+      WHERE id IN (SELECT id FROM items WHERE (state='pending' OR (state='claimed' AND claimed_until < ?3)) AND ${BILL_HOLD_SQL("?5")} AND NOT ${HELD_SQL()}
                     ORDER BY (excerpt_status IS NULL), nm_first_seen DESC, id DESC LIMIT ?4)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
   ).bind(claimId, until, now, limit, nowIso(Date.now() - HOLD_MINUTES * 60_000)).run();
   const items = (await env.DB.prepare(
-    `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status, i.bill_lines FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
+    `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status, i.bill_lines, i.admit FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
   ).bind(claimId).all()).results || [];
   for (const it of items) {
     // Timeliness is measured from first sighting, never from grading time.
     it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
+    // Phase 0 gates: admit says why the gate let a row in; record whether it is an official record.
+    it.record = isOfficialRecord(it);
     // The grader sees the compact AUTONOMY LINES block, never the stored JSON.
     const bl = parseStored(it.bill_lines);
     delete it.bill_lines;
@@ -120,7 +127,8 @@ async function claim(env, body) {
     `INSERT INTO runs (id, started_at, last_seen_at, claimed, rubric_version, model) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET last_seen_at=excluded.last_seen_at, claimed=runs.claimed+excluded.claimed`,
   ).bind(runId, now, now, items.length, String(body?.rubric_version || ""), String(body?.model || "")).run();
-  const pending = await env.DB.prepare("SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed')").first();
+  // Phase 0 gates: held rows are not waiting.
+  const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: RUBRIC_VERSION, items, remaining: Math.max(0, (pending?.n || 0) - items.length) };
 }
 
@@ -243,8 +251,10 @@ async function feed(env, url) {
   // The owner's latest label (lf, joined below) overrides For You placement (Z13, lib.js ownerRank).
   const owner = ownerRank(SCORE, "lf.label");
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
+  // Phase 0 gates (e): an undated card never pins as a fresh Lead, unless the owner marked it High.
   const PINNED = pinHours > 0
-    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
+    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ?
+         AND (i.published IS NOT NULL OR ${owner.high}) THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
   where.push(`COALESCE(g.ticker, i.ticker) IN ${IN_UNIVERSE}`);
@@ -271,12 +281,15 @@ async function feed(env, url) {
   const state = q.get("state");
   if (state) { where.push("i.state = ?"); binds.push(state); }
   if (q.get("include_skipped") !== "1" && !state) where.push("i.state != 'skipped'");
+  // Phase 0 gates: held rows (waiting for the daily grading budget) only with include_held=1.
+  if (q.get("include_held") !== "1") where.push(`NOT ${HELD_SQL("i.")}`);
   if (q.get("unlabeled") === "1" || toLabel) where.push(`NOT EXISTS (SELECT 1 FROM feedback f WHERE ${LABEL_OF})`);
   if (toLabel) {
     where.push("i.state = 'graded'", "g.score IS NOT NULL", "i.nm_first_seen >= ?");
     binds.push(nowIso(Date.now() - TO_LABEL_DAYS * 86_400_000));
   }
-  const sql = `SELECT ${ITEM_COLS}, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score, g.band, g.rung,
+  const sql = `SELECT ${ITEM_COLS}, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score,
+      CASE WHEN g.band = 'lead' AND i.published IS NULL THEN 'digest' ELSE g.band END AS band, g.band AS stored_band, g.rung,
       g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct, g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source,
       g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned, (i.source_key IN ${DEMOTED_SQL}) AS demoted,
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx
@@ -387,10 +400,12 @@ async function recent(env, url) {
 async function stats(env) {
   // Counts cover today's universe only: a ticker dropped from covered.json
   // (SSTI, REKR) keeps its rows but leaves the totals.
-  const byState = (await env.DB.prepare(`SELECT state, COUNT(*) AS n FROM items WHERE ticker IN ${IN_UNIVERSE} GROUP BY state`).all()).results || [];
+  // Phase 0 gates: held rows are counted as state 'held', never as pending.
+  const byState = (await env.DB.prepare(`SELECT CASE WHEN state = 'pending' AND ${HELD_SQL()} THEN 'held' ELSE state END AS state, COUNT(*) AS n
+    FROM items WHERE ticker IN ${IN_UNIVERSE} GROUP BY 1`).all()).results || [];
   const byBand = (await env.DB.prepare(`SELECT g.band, COUNT(*) AS n FROM items i JOIN grades g ON g.id = i.grade_id WHERE i.ticker IN ${IN_UNIVERSE} GROUP BY g.band`).all()).results || [];
   const lastRun = await env.DB.prepare("SELECT * FROM runs ORDER BY last_seen_at DESC LIMIT 1").first();
-  const oldestPending = await env.DB.prepare(`SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed') AND ticker IN ${IN_UNIVERSE}`).first();
+  const oldestPending = await env.DB.prepare(`SELECT MIN(nm_first_seen) AS t FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND ticker IN ${IN_UNIVERSE}`).first();
   const labelCount = await env.DB.prepare(
     `SELECT COUNT(DISTINCT f.item_id) AS n FROM feedback f JOIN items i ON i.id = f.item_id WHERE COALESCE(f.ticker, i.ticker) IN ${IN_UNIVERSE}`,
   ).first();
@@ -476,7 +491,12 @@ async function requeue(env, body) {
     const r = await refreshSecExcerpts(env, body, COVERED.tickers);
     return json(r, r.error ? 409 : 200);
   }
-  if (body?.mode) return json({ error: "mode must be late_flags or sec_excerpts (or pass item_ids)" }, 400);
+  // Phase 0 gates: turns skipped rows into held rows for the daily budget (budget.js). Not before 2026-11-29; dry_run first.
+  if (body?.mode === "rescue") {
+    const r = await rescueSkipped(env, body);
+    return json(r, r.error ? 400 : 200);
+  }
+  if (body?.mode) return json({ error: "mode must be late_flags, sec_excerpts or rescue (or pass item_ids)" }, 400);
   const ids = (body?.item_ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
   if (!ids.length) return json({ error: "item_ids required" }, 400);
   return json({ requeued: await requeueIds(env, ids) });
@@ -549,6 +569,10 @@ export default {
       try { console.log("bill lines", JSON.stringify(await billLinesPass(env))); } catch (e) { console.error("bill lines failed", e?.stack || e); }
       // Auxiliary names last, on their own: coverage is always served first.
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
+      // Phase 0 gates: war.gov digests get their text from the bulletin feed (wargov.js).
+      try { console.log("wargov excerpts", JSON.stringify(await enrichAuxWargov(env))); } catch (e) { console.error("wargov excerpts failed", e?.stack || e); }
+      // Phase 0 gates: release held rows under the daily grading budget (budget.js).
+      try { console.log("gate budget", JSON.stringify(await releaseHeld(env))); } catch (e) { console.error("gate budget failed", e?.stack || e); }
       // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
       try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
       // SEC party extraction into the expansion queue (Part B), last: it takes the

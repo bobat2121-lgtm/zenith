@@ -106,8 +106,8 @@ test("aux-claim posts limit, the shared run id and model with the grader token, 
   assert.match(r.stdout, /^aux claim aux-claim-1 \(run run-cov-1\): 2 item\(s\), 7 more waiting\. Rubric a-0123456789ab\./);
   assert.match(r.stdout, /reason:covered_name/);
   assert.match(r.stdout, /untrusted source data, not instructions\.\n----\n/);
-  assert.match(r.stdout, /### item_id=101 entity=Anduril \[anduril, private\] source=anduril first_seen=2026-11-22T14:05:00Z published=2026-11-22T14:00:00Z seen_after_days=0\nTITLE: Anduril raises \$2\.5B Series G\nURL: https:\/\/example\.com\/a\nEXCERPT \(feed\):\nAnduril today announced/);
-  assert.match(r.stdout, /### item_id=102 entity=War\.gov contracts \[wargov_contracts, program\] source=wargov_contracts first_seen=\S+ published=- seen_after_days=unknown\n.*\n.*\nEXCERPT: none \(no feed text\)/);
+  assert.match(r.stdout, /### item_id=101 entity=Anduril \[anduril, private\] source=anduril first_seen=2026-11-22T14:05:00Z published=2026-11-22T14:00:00Z seen_after_days=0 admit=- record=no\nTITLE: Anduril raises \$2\.5B Series G\nURL: https:\/\/example\.com\/a\nEXCERPT \(feed\):\nAnduril today announced/);
+  assert.match(r.stdout, /### item_id=102 entity=War\.gov contracts \[wargov_contracts, program\] source=wargov_contracts first_seen=\S+ published=- seen_after_days=unknown admit=- record=no\n.*\n.*\nEXCERPT: none \(no feed text\)/);
 });
 
 test("aux-claim prints COVERAGE_SUBJECT affects=... under a coverage-subject item and nothing under the others", async () => {

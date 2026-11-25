@@ -30,7 +30,8 @@ test("a valid grade is normalized", () => {
 });
 
 test("band is derived from score, and a mismatch is flagged", () => {
-  const r = normalizeGrade({ ...base, score: 91, band: "digest" }, item);
+  // A dated item (Phase 0 gates: an undated one is capped at 89, never a Lead).
+  const r = normalizeGrade({ ...base, score: 91, band: "digest" }, { ...item, published: "2026-11-20T00:00:00Z" });
   assert.equal(r.grade.band, "lead");
   assert.ok(JSON.parse(r.grade.flags).includes("band_corrected_from_digest"));
 });

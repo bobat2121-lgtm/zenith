@@ -12,7 +12,9 @@ import AUX from "./aux-sources.json";
 import { auxRoute } from "./aux-route.js";
 import { heartbeatChecks } from "./delivery.js";
 import { headlinesWaiting } from "./headlines.js";
-import { json, nowIso, universeSql } from "./lib.js";
+import { json, nowIso, universeSql, HELD_SQL } from "./lib.js";
+import { budgetSettings, releasedToday, heldCounts } from "./budget.js";
+import { isRecordSource } from "./records.js";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -97,8 +99,10 @@ export async function postSourcePrefs(env, body) {
   ).bind(key, action, note, now)];
   if (action === "mute") {
     for (const table of ["items", "aux_items"]) {
+      // Phase 0 gates: a parked row is no longer an admission (admit NULL, as the archive park),
+      // so a Left out grade after unmuting is claimable at once instead of held again.
       stmts.push(db.prepare(
-        `UPDATE ${table} SET state = 'skipped', skip_reason = 'muted_source', claim_id = NULL, claimed_until = NULL
+        `UPDATE ${table} SET state = 'skipped', skip_reason = 'muted_source', claim_id = NULL, claimed_until = NULL, admit = NULL
           WHERE source_key = ? AND (state = 'pending' OR (state = 'claimed' AND claimed_until < ?))`,
       ).bind(key, now));
     }
@@ -113,8 +117,12 @@ export async function postSourcePrefs(env, body) {
 // suggest: mute when graded >= 10 with no score >= 70 and reject + duplicate
 // >= 90%; demote when graded >= 6 with reject >= 75%; never for a source
 // prefRefusal refuses, nor one already set that way, nor a muted one (a
-// demote suggestion there would unmute it).
+// demote suggestion there would unmute it), nor (Phase 0 gates g) an official
+// record source (records.js): registers surface late and rarely score high,
+// which is not a reason to stop reading them. A manual mute or demote of a
+// record stays allowed. Each row also carries record.
 export function suggestFor(row) {
+  if (isRecordSource(row.source_key)) return null;
   if (prefRefusal(row.source_key) || row.pref === "mute") return null;
   let s = null;
   if (row.graded >= 10 && row.high === 0 && (row.reject + row.duplicate) >= 0.9 * row.graded) s = "mute";
@@ -146,7 +154,7 @@ export async function sourceYield(env, url) {
     out[kind] = rows.map((r) => {
       const row = { ...r, pref: prefs.get(r.source_key) || null };
       const lock = prefLock(r.source_key);
-      return { ...row, suggest: suggestFor(row), mutable: lock === null, lock };
+      return { ...row, suggest: suggestFor(row), mutable: lock === null, lock, record: isRecordSource(r.source_key) };
     });
   }
   return json(out);
@@ -173,7 +181,8 @@ const TWIN_FROM = {
 const TWIN_SQL = { coverage: `SELECT t.id, t.state ${TWIN_FROM.coverage("?")}`, aux: `SELECT t.id, t.state ${TWIN_FROM.aux("?")}` };
 
 // Skipped items, newest first, with counts per skip reason over the window.
-// archive_seed rows (day-one archive pages) only when asked for by name. Each
+// archive_seed rows (day-one archive pages) and undated_burst rows (a later
+// burst of undated pages, Phase 0 gates) only when asked for by name. Each
 // item carries gradeable (false when leftOutGrade would refuse it: its source
 // is still muted, or its twin is shown on the other page) and blocked (why
 // not, else null).
@@ -192,7 +201,7 @@ export async function leftOut(env, url) {
     `SELECT i.id, '${kind}' AS kind, ${k.name}, i.source_key, i.title, i.url, i.nm_first_seen AS first_seen, i.skip_reason,
             (SELECT t.id ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_id,
             (SELECT t.state ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_state
-       ${base} AND ${reason ? "i.skip_reason = ?" : "i.skip_reason IS NOT 'archive_seed'"}
+       ${base} AND ${reason ? "i.skip_reason = ?" : "i.skip_reason IS NOT 'archive_seed' AND i.skip_reason IS NOT 'undated_burst'"}
       ORDER BY i.nm_first_seen DESC, i.id DESC LIMIT ?`,
   ).bind(since, ...(reason ? [reason] : []), limit).all()).results || [];
   const counts = Object.fromEntries(((await env.DB.prepare(
@@ -261,6 +270,22 @@ export function graderStatus(lastRunAt, now) {
   return age < OPS_OK_MIN * 60_000 ? "ok" : age <= OPS_LATE_MIN * 60_000 ? "late" : "down";
 }
 
+// News-monitor rows graded in both pipelines, with a grade in either one since
+// `since` (the one-pipeline saving, Phase 0 gates (d), should take this to 0).
+// The coverage copy is found through its (source_key, url) index.
+export async function doubleGraded(db, since) {
+  const r = await db.prepare(
+    `SELECT COUNT(*) AS n FROM (
+       SELECT c.nm_rowid FROM grades g JOIN items c ON c.id = g.item_id
+        WHERE g.graded_at >= ?1 AND EXISTS (SELECT 1 FROM aux_items a JOIN aux_grades ag ON ag.item_id = a.id WHERE a.nm_rowid = c.nm_rowid)
+       UNION
+       SELECT a.nm_rowid FROM aux_grades ag JOIN aux_items a ON a.id = ag.item_id
+        WHERE ag.graded_at >= ?1 AND EXISTS (SELECT 1 FROM items c JOIN grades g ON g.item_id = c.id
+                                              WHERE c.source_key = a.source_key AND c.url = a.url AND c.nm_rowid = a.nm_rowid))`,
+  ).bind(since).first();
+  return r?.n || 0;
+}
+
 export async function ops(env, { now = Date.now() } = {}) {
   const db = env.DB;
   const since = nowIso(now - GAP_DAYS * DAY);
@@ -271,7 +296,11 @@ export async function ops(env, { now = Date.now() } = {}) {
   const last = await db.prepare(`SELECT ${COLS} FROM runs ORDER BY last_seen_at DESC LIMIT 1`).first();
   const day = await db.prepare("SELECT COUNT(*) AS n FROM runs WHERE started_at >= ?").bind(nowIso(now - DAY)).first();
   const count = async (sql) => (await db.prepare(sql).first())?.n || 0;
-  const oldestAux = await db.prepare("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state IN ('pending','claimed')").first();
+  // Phase 0 gates: held rows (waiting for the daily grading budget, budget.js)
+  // are not pending; they are counted on their own.
+  const oldestAux = await db.prepare(`SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
+  const held = await heldCounts(db);
+  const releasedNow = [...(await releasedToday(db, now)).values()].reduce((a, b) => a + b, 0);
   const grader = {
     last_run_at: last?.last_seen_at || null,
     last_run: last ? { id: last.id, started_at: last.started_at, last_seen_at: last.last_seen_at, claimed: last.claimed, graded: last.graded, rejected: last.rejected } : null,
@@ -280,10 +309,15 @@ export async function ops(env, { now = Date.now() } = {}) {
     status: graderStatus(last?.last_seen_at, now),
     checks: await heartbeatChecks(db, now),
     backlog: {
-      coverage_pending: await count(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND ticker IN ${IN_UNIVERSE}`),
-      aux_pending: await count("SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed')"),
+      coverage_pending: await count(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND ticker IN ${IN_UNIVERSE}`),
+      aux_pending: await count(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`),
       headlines_waiting: await headlinesWaiting(env),
       oldest_aux_pending_at: oldestAux?.t || null,
+      coverage_held: held.coverage,
+      aux_held: held.aux,
+      released_today: releasedNow,
+      budget: budgetSettings(env),
+      double_graded_24h: await doubleGraded(db, nowIso(now - DAY)),
     },
   };
   return json({ grader, as_of: nowIso(now) });

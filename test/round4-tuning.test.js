@@ -15,6 +15,7 @@ const { ingest } = await import("../worker/src/ingest.js");
 const { SEC_FORMS, SEC_FORM_RE, LABEL_REASONS, normalizeHeadline, bandFor } = await import("../worker/src/lib.js");
 const { runGaps, graderStatus, prefRefusal, suggestFor, DEMOTE_POINTS } = await import("../worker/src/tuning.js");
 const { buildCalibration } = await import("../worker/src/brief.js");
+const { releaseHeld } = await import("../worker/src/budget.js");
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -175,7 +176,9 @@ test("Z3 GET /v1/ops: last run, 24 h count, gaps over 2 h in 7 days, status, hea
   assert.deepEqual(g.gaps_7d.map((x) => Math.round(x.hours)), [60, 135, 5, 12]);
   assert.ok(g.gaps_7d.every((x) => x.hours > 2 && x.from < x.to));
   assert.deepEqual(g.checks.map((c) => c.key), ["grader_stale", "queue_stale"]);
-  assert.deepEqual(g.backlog, { coverage_pending: 2, aux_pending: 2, headlines_waiting: 2, oldest_aux_pending_at: env.DB.rows("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state='pending'")[0].t });
+  // Phase 0 gates added the held counts, the day's releases, the budget and the double-graded count.
+  assert.deepEqual(g.backlog, { coverage_pending: 2, aux_pending: 2, headlines_waiting: 2, oldest_aux_pending_at: env.DB.rows("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state='pending'")[0].t,
+    coverage_held: 0, aux_held: 0, released_today: 0, budget: { total: 20, per_source: 5, guard: 60 }, double_graded_24h: 0 });
 
   addRun(env, "r7", 20 * MIN, 10 * MIN);
   assert.equal((await get(env, "/v1/ops", "admin")).body.grader.status, "ok");
@@ -344,7 +347,14 @@ test("Z7 mute: parks pending and expired-claimed items in both pipelines, skips 
   await ingestAux(env);
   assert.deepEqual(one(env, "SELECT state, skip_reason FROM items WHERE source_key='skydio' ORDER BY id DESC LIMIT 1"), { state: "skipped", skip_reason: "muted_source" });
   assert.deepEqual(one(env, "SELECT state, skip_reason FROM items WHERE source_key='redcat' ORDER BY id DESC LIMIT 1"), { state: "pending", skip_reason: null });
-  assert.deepEqual(one(env, "SELECT state, skip_reason FROM aux_items WHERE source_key='skydio' ORDER BY id DESC LIMIT 1"), { state: "skipped", skip_reason: "muted_source" });
+  // Phase 0 gates (d): skydio's rows route to a covered ticker, so Coverage owns
+  // them and the aux ingest stores none; a muted plain auxiliary source's new
+  // rows are stored skipped there.
+  assert.equal(one(env, "SELECT COUNT(*) AS n FROM aux_items WHERE source_key='skydio'").n, 2);
+  await post(env, "/v1/source-prefs", { source_key: "anduril", action: "mute" });
+  nmRowAdd(env.NEWS, { source_key: "anduril", title: "Anduril opens a plant" });
+  await ingestAux(env);
+  assert.deepEqual(one(env, "SELECT state, skip_reason FROM aux_items WHERE source_key='anduril' ORDER BY id DESC LIMIT 1"), { state: "skipped", skip_reason: "muted_source" });
   // The grader never sees them.
   const claim = (await post(env, "/v1/queue/claim", { limit: 50 }, "grader")).body;
   assert.ok(claim.items.every((i) => i.source_key !== "skydio" || i.item_id === live));
@@ -411,7 +421,8 @@ test("Z8 source yield: latest grade per item, sorted by graded, with suggestions
   assert.equal(r.status, 200);
   const cov = Object.fromEntries(r.body.coverage.map((x) => [x.source_key, x]));
   assert.deepEqual(r.body.coverage.map((x) => x.source_key), ["redcat", "tfvector", "skydio", "nga"]);
-  assert.deepEqual({ ...cov.tfvector, last_high_at: undefined }, { source_key: "tfvector", graded: 10, high: 0, reject: 9, duplicate: 1, last_high_at: undefined, pref: null, suggest: "mute", mutable: true, lock: null });
+  // Phase 0 gates (g) added record.
+  assert.deepEqual({ ...cov.tfvector, last_high_at: undefined }, { source_key: "tfvector", graded: 10, high: 0, reject: 9, duplicate: 1, last_high_at: undefined, pref: null, suggest: "mute", mutable: true, lock: null, record: false });
   assert.deepEqual([cov.skydio.graded, cov.skydio.high, cov.skydio.reject, cov.skydio.pref, cov.skydio.suggest], [8, 2, 6, "demote", null], "already demoted: no suggestion");
   assert.deepEqual([cov.redcat.reject, cov.redcat.suggest], [12, null], "a covered company's own channel is never suggested");
   assert.deepEqual([cov.nga.graded, cov.nga.high, cov.nga.reject], [1, 1, 0]);
@@ -424,6 +435,33 @@ test("Z8 source yield: latest grade per item, sorted by graded, with suggestions
   assert.equal(suggestFor({ source_key: "tfvector", graded: 8, high: 0, reject: 7, duplicate: 0, pref: "mute" }), null, "a muted source is never suggested for demote");
   assert.equal(suggestFor({ source_key: "tfvector", graded: 12, high: 0, reject: 12, duplicate: 0, pref: "demote" }), "mute", "a demoted one may still be suggested for mute");
   for (const key of ["einride_sec", "paccar"]) assert.equal(suggestFor({ source_key: key, graded: 12, high: 0, reject: 12, duplicate: 0, pref: null }), null, key);
+});
+
+// Phase 0 gates (g): Tuning never suggests Mute or Demote for official records.
+test("Z8 suggestFor never suggests mute or demote for wargov_contracts, fpds_pl, legistar_oakland_axon, nga, unusual even at 10 graded and 100% reject", () => {
+  for (const key of ["wargov_contracts", "fpds_pl", "legistar_oakland_axon", "nga", "unusual"]) {
+    assert.equal(suggestFor({ source_key: key, graded: 10, high: 0, reject: 10, duplicate: 0, pref: null }), null, `${key} mute`);
+    assert.equal(suggestFor({ source_key: key, graded: 8, high: 1, reject: 7, duplicate: 0, pref: null }), null, `${key} demote`);
+  }
+  // A manual mute of a record is still allowed (prefLock unchanged).
+  assert.equal(prefRefusal("wargov_contracts"), null);
+});
+
+test("REGRESSION Z8 suggestions for non-record sources are unchanged (motive at 8/8 reject is still demote, heo still mute)", () => {
+  assert.equal(suggestFor({ source_key: "motive", graded: 8, high: 0, reject: 8, duplicate: 0, pref: null }), "demote");
+  assert.equal(suggestFor({ source_key: "heo", graded: 10, high: 0, reject: 9, duplicate: 1, pref: null }), "mute");
+});
+
+test("source-yield rows carry record", async () => {
+  const env = newEnv();
+  addGrade(env, addItem(env, { source_key: "nga", ticker: "PL" }), { score: 20 });
+  addGrade(env, addItem(env, { source_key: "tfvector", ticker: "DPRO" }), { score: 20 });
+  const wg = addAux(env, { source_key: "wargov_contracts", entity_key: "wargov_contracts", entity_name: "War.gov Contracts" });
+  addAuxGrade(env, wg, { score: 25, entity: "War.gov Contracts" });
+  const r = (await get(env, "/v1/source-yield?days=30")).body;
+  const cov = Object.fromEntries(r.coverage.map((x) => [x.source_key, x.record]));
+  assert.deepEqual(cov, { nga: true, tfvector: false });
+  assert.deepEqual(r.aux.map((x) => [x.source_key, x.record]), [["wargov_contracts", true]]);
 });
 
 // --- Z9 ------------------------------------------------------------------------
@@ -565,11 +603,72 @@ test("Z11 rival items the key-account gate drops are auxiliary (coverage subject
   assert.deepEqual(aux[0], { title: "Vector raises $40M Series B for drone interceptors", entity_key: "tfvector", entity_name: "Vector (tfvector.com; Bluffdale, Utah)",
     state: "pending", coverage_subject: 1, affects: "DPRO,RCAT" });
   assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'anduril'")[0].n, 1);
+  // Phase 0 gates (ruling A1): these rows are their sources' first poll, so they
+  // are held for the daily grading budget until the cron releases them.
+  assert.equal(env.DB.rows("SELECT admit FROM aux_items WHERE source_key = 'tfvector'")[0].admit, "seed_fresh");
+  await releaseHeld(env);
   const claim = (await post(env, "/v1/aux/claim", { limit: 10 }, "grader")).body;
   const it = claim.items.find((i) => i.source_key === "tfvector");
   assert.deepEqual([it.coverage_subject, it.affects], [true, ["DPRO", "RCAT"]]);
   // Hidden from the Auxiliary page until graded, as every coverage-subject item.
   assert.ok(!(await get(env, "/v1/aux/feed?order=newest")).body.items.some((i) => i.source_key === "tfvector"));
+});
+
+// Phase 0 gates (c): every rival row graded once, on the Auxiliary side.
+const daysBefore = (seen, d) => new Date(Date.parse(seen) - d * DAY).toISOString();
+function rivalSeed(env) {
+  for (const key of ["nm_cursor", "aux_nm_cursor"]) atStart(env.DB, key);
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_cs_cursor', 'done'), ('aux_rv_cursor', 'done')").run();
+  const seen = iso(DAY);
+  // A rival source's first poll: dated 18, 30, 40 and 50 days back and two undated pages (a seed burst).
+  for (const [d, t] of [[18, "Vector ships interceptor kits"], [30, "Vector opens a plant"], [40, "Vector hires a COO"], [50, "Vector wins a grant"]]) {
+    nmRowAdd(env.NEWS, { source_key: "tfvector", title: t, published: daysBefore(seen, d), first_seen: seen });
+  }
+  for (const k of [1, 2]) nmRowAdd(env.NEWS, { source_key: "tfvector", title: `Vector page ${k}`, published: null, first_seen: seen });
+  return seen;
+}
+
+test("rival seed on aux: rows 15-21 days old are seed_window; 22+ days and undated rows archive_seed", async () => {
+  const env = newEnv();
+  rivalSeed(env);
+  await ingest(env);
+  await ingestAux(env);
+  const aux = Object.fromEntries(env.DB.rows("SELECT title, state, skip_reason, admit, coverage_subject FROM aux_items WHERE source_key = 'tfvector'")
+    .map((x) => [x.title, [x.state, x.skip_reason, x.admit, x.coverage_subject]]));
+  assert.deepEqual(aux["Vector ships interceptor kits"], ["pending", null, "seed_window", 1]);
+  for (const t of ["Vector opens a plant", "Vector hires a COO", "Vector wins a grant", "Vector page 1", "Vector page 2"]) {
+    assert.deepEqual(aux[t], ["skipped", "archive_seed", null, 1], t);
+  }
+});
+
+test("coverage: a rival row the gate drops is labelled rival_no_key_account even when 40 days old or in an archive burst; a kept rival row keeps today's time-gate labels", async () => {
+  const env = newEnv();
+  rivalSeed(env);
+  const later = iso(HOUR);
+  nmRowAdd(env.NEWS, { source_key: "tfvector", title: "Vector expands its distributor network", published: daysBefore(later, 40), first_seen: later });
+  nmRowAdd(env.NEWS, { source_key: "tfvector", title: "Vector teams with Red Cat Holdings on payloads", published: daysBefore(later, 40), first_seen: later });
+  await ingest(env);
+  const cov = Object.fromEntries(env.DB.rows("SELECT title, state, skip_reason, admit FROM items WHERE source_key = 'tfvector'")
+    .map((x) => [x.title, [x.state, x.skip_reason, x.admit]]));
+  for (const t of ["Vector ships interceptor kits", "Vector opens a plant", "Vector page 1", "Vector expands its distributor network"]) {
+    assert.deepEqual(cov[t], ["skipped", "rival_no_key_account", null], t);
+  }
+  assert.deepEqual(cov["Vector teams with Red Cat Holdings on payloads"], ["skipped", "stale_on_arrival", null], "kept by the key-account gate: the time gate applies");
+});
+
+test("a gate-dropped rival row is graded once: no coverage claim ever returns it; one aux claim does after release", async () => {
+  const env = newEnv();
+  rivalSeed(env);
+  await ingest(env);
+  await ingestAux(env);
+  await releaseHeld(env);
+  const cc = (await post(env, "/v1/queue/claim", { limit: 50 }, "grader")).body;
+  assert.ok(!cc.items.some((i) => i.source_key === "tfvector"), "never on Coverage");
+  const a1 = (await post(env, "/v1/aux/claim", { limit: 40 }, "grader")).body;
+  assert.deepEqual(a1.items.filter((i) => i.source_key === "tfvector").map((i) => [i.title, i.admit, i.coverage_subject]),
+    [["Vector ships interceptor kits", "seed_window", true]]);
+  const a2 = (await post(env, "/v1/aux/claim", { limit: 40 }, "grader")).body;
+  assert.ok(!a2.items.some((i) => i.source_key === "tfvector"), "claimed once");
 });
 
 test("Z11 one-time rival catch-up (aux_rv_cursor): stores dropped rows, marks stored ones, parks kept ones as on_coverage, then stops", async () => {
@@ -587,7 +686,8 @@ test("Z11 one-time rival catch-up (aux_rv_cursor): stores dropped rows, marks st
   store(1, "Pixxel launches three Fireflies");
   store(2, "Pixxel signs with Satellogic on hyperspectral data");
   store(4, "Pixxel hires a CFO", { state: "graded" });
-  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '5'), ('aux_cs_cursor', 'done')").run();
+  // aux_owner_cleanup done: this test is about the rival catch-up alone (the Phase 0 deploy cleanup would park row 2 first).
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '5'), ('aux_cs_cursor', 'done'), ('aux_owner_cleanup', 'done')").run();
   const r = await ingestAux(env);
   assert.deepEqual([r.rival_catch_up.done, r.rival_catch_up.matched, r.rival_catch_up.parked_on_coverage], [true, 3, 1]);
   assert.equal(meta(env.DB, "aux_rv_cursor"), AUX_CS_DONE);

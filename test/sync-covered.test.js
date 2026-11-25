@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hookJsonImports } from "./helpers/worker-env.js";
-import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS, FPDS } from "../scripts/sync-covered.mjs";
+import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
 const { makeAuxRoute } = await import("../worker/src/aux-route.js");
@@ -252,4 +252,33 @@ test("a shadow source (shadow: true) is never in covered.json and is excluded in
   assert.equal(aux.sources.drv_fedreg_drone_rules?.coverage_subject, true);
   const written = JSON.stringify({ covered, sources: aux.sources });
   assert.doesNotMatch(written.replace(/"warnings":\[[^\]]*\]/, ""), /drv_drone_industrial_policy|drv_shadow_plain/);
+});
+
+// Phase 0 gates: official records (scripts/sync-covered.mjs isRecordSource).
+test("buildAux marks record by adapter, or by a .gov/.mil/legistar host in the strategic lanes only; a bing.com endpoint never; a public_adjacent .gov host never; covered records lists SEC-adapter covered keys", () => {
+  const list = [
+    { key: "testco", lane: "covered", adapter: "rss", coveredTicker: "RCAT", name: "Testco", endpoint: "https://testco.example.com/feed" },
+    { key: "edgar_rcat", lane: "covered", adapter: "edgar", coveredTicker: "RCAT", name: "Testco SEC" },
+    { key: "testco_sec_extra", lane: "covered", adapter: "edgar_keyword", coveredTicker: "RCAT", name: "Testco SEC keyword" },
+    { key: "fpds_testco", lane: "strategic_noncompany", adapter: "fpds_atom", name: "FPDS", role: "customer", affects: ["RCAT"] },
+    { key: "legistar_testville", lane: "strategic_noncompany", adapter: "legistar_matters", name: "Testville council" },
+    { key: "fedreg_test", lane: "strategic_noncompany", adapter: "federal_register", name: "Federal Register test" },
+    { key: "agency_rss", lane: "strategic_noncompany", adapter: "rss", name: "Agency news", endpoint: "https://www.agency.gov/rss" },
+    { key: "army_rss", lane: "strategic_fast_noncompany", adapter: "rss", name: "Army news", url: "https://news.example.mil/rss" },
+    { key: "council_list", lane: "strategic_noncompany", adapter: "html_links", name: "Council", endpoint: "https://webapi.legistar.com/v1/x" },
+    { key: "uk_gov", lane: "strategic_noncompany", adapter: "rss", name: "UK", endpoint: "https://www.mod.gov.uk/feed" },
+    { key: "bing_program", lane: "strategic_noncompany", adapter: "rss_filtered", name: "Program search", endpoint: "https://www.bing.com/news/search?q=x&format=rss" },
+    { key: "vendor_gov_page", lane: "public_adjacent", adapter: "rss", name: "Vendor", endpoint: "https://vendor.example.gov/feed" },
+    { key: "drone_lists", lane: "strategic_noncompany", adapter: "js_list_diff", name: "Lists", endpoint: "https://drone-lists.example.io/" },
+    { key: "outside_sec", lane: "public_adjacent", adapter: "edgar", name: "Outside SEC" },
+    { key: "media_x", lane: "secondary_noncompany", adapter: "rss", name: "Media", endpoint: "https://media.example.com/rss" },
+  ];
+  const covered = buildCovered(list);
+  assert.deepEqual(covered.records, ["edgar_rcat", "testco_sec_extra"]);
+  const { sources } = buildAux(list, covered, []);
+  const rec = Object.keys(sources).filter((k) => sources[k].record === true).sort();
+  assert.deepEqual(rec, ["agency_rss", "army_rss", "council_list", "fedreg_test", "fpds_testco", "legistar_testville", "outside_sec", "uk_gov"]);
+  for (const k of ["bing_program", "vendor_gov_page", "drone_lists", "media_x"]) assert.equal(sources[k].record, undefined, k);
+  assert.equal(isRecordSource({ adapter: "rss", lane: "strategic_noncompany", endpoint: "not a url" }), false);
+  assert.ok(RECORD_ADAPTERS.includes("fpds_atom") && OFFICIAL_HOST_RE.test("www.war.gov"));
 });
