@@ -39,13 +39,20 @@ test("records (rule test): the generated record keys are a superset of the known
   for (const k of ["redcat", "aurora", "planet"].filter((x) => Object.hasOwn(COVERED.sources, x))) assert.equal(isRecordSource(k), false, k);
 });
 
-test("records (rule test): every record key satisfies isRecordSource on its news-monitor definition; no www.bing.com endpoint is a record", { skip: NM ? false : "news-monitor checkout not found" }, async () => {
+test("records (rule test): every record key satisfies isRecordSource on its news-monitor definition; no www.bing.com endpoint is a record", { skip: NM ? false : "news-monitor checkout not found" }, async (t) => {
   const { SOURCES } = await import(pathToFileURL(join(NM, "src", "sources.js")).href);
   await import(pathToFileURL(join(NM, "src", "priority.js")).href);
   const def = new Map(SOURCES.map((s) => [s.key, s]));
   const auxRecords = Object.keys(AUX.sources).filter((k) => AUX.sources[k].record === true);
-  for (const k of [...auxRecords, ...COVERED.records]) {
-    assert.ok(def.has(k), `${k} is a news-monitor source`);
+  // Phase 0 nm-sources: the generated files may be synced from a news-monitor
+  // branch that is not merged yet (PR-Z2 deploys before news-monitor PR #63),
+  // so a found main checkout can lack the newest keys. Those are listed, not
+  // failed; with NEWS_MONITOR_REPO set (the checkout synced from), every key
+  // must be defined.
+  const missing = [...auxRecords, ...COVERED.records].filter((k) => !def.has(k));
+  if (process.env.NEWS_MONITOR_REPO) assert.deepEqual(missing, [], "every record key is a news-monitor source");
+  else if (missing.length) t.diagnostic(`news-monitor checkout ${NM} predates the generated files; not checked: ${missing.join(", ")}`);
+  for (const k of [...auxRecords, ...COVERED.records].filter((x) => def.has(x))) {
     assert.ok(ruleIsRecord(def.get(k)), `${k} satisfies the rule`);
   }
   for (const s of SOURCES) {
