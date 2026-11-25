@@ -72,6 +72,23 @@ test("A4: a rival-marked title gives no entry, a product-only title gives no ent
   assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.kind, e.start]), [["AXON", "council_agenda", day]]);
 });
 
+// news-monitor must not clip the matter name out of a Legistar title: here the
+// company's name sits past character 160, and only the full name gives the entry.
+test("A4: a long Legistar title naming the company past character 160 gives an entry; clipped to \"agreement with AX\" it gives none", async () => {
+  const day = "2026-12-08";
+  const head = "[AXON] Testville City Council 26-9: Actions pertaining to the Testville Police Department's modernization of its public-safety"
+    + " technology ecosystem, including a cooperative purchase agreement with ";
+  const tail = ` — not to exceed $1.0M — Agenda Ready, agenda ${day}`;
+  const full = `${head}Axon Enterprise, Inc. (Police Department)${tail}`;
+  assert.ok(full.indexOf("Axon Enterprise") > 160, "the name is past character 160");
+  let env = newEnv();
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon", title: full, url: "https://testville.example.gov/26-9" });
+  assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.kind, e.start]), [["AXON", "council_agenda", day]]);
+  env = newEnv();
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon", title: `${head}AX${tail}`, url: "https://testville.example.gov/26-9" });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "clipped name: only the [AXON] routing tag is left");
+});
+
 test("A4: the leading [AXON] routing tag alone does not name the company (a title naming only another vendor gives no entry)", async () => {
   const env = newEnv();
   const day = "2026-12-08";
