@@ -989,14 +989,20 @@ async function secLeaseHeld(env, now) {
   return Boolean(row && row.value > now);
 }
 
+// The enrich pick (?1 = now, ?2 = 1 with a contact address, ?3 = limit). The
+// unary plus on excerpt_status matches the same rows but keeps SQLite off
+// idx_items_excerpt, whose excerpt_status IS NULL range holds every skipped
+// row; the planner takes idx_items_state on the pending/claimed rows instead.
+export const enrichPickSql = (secOnly) =>
+  `SELECT id, url, title, excerpt_tries, role, excerpt_source FROM items
+      WHERE +excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
+      ORDER BY (admit IS NOT NULL AND released_at IS NULL), nm_first_seen DESC LIMIT ?3`;
+
 export async function enrich(env) {
   const now = nowIso();
   const contact = env.CONTACT_EMAIL ? 1 : 0;
-  const pick = (secOnly, limit) => env.DB.prepare(
-    `SELECT id, url, title, excerpt_tries, role, excerpt_source FROM items
-      WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
-      ORDER BY (admit IS NOT NULL AND released_at IS NULL), nm_first_seen DESC LIMIT ?3`,
-  ).bind(now, contact, limit).all().then((r) => r.results || []);
+  const pick = (secOnly, limit) => env.DB.prepare(enrichPickSql(secOnly))
+    .bind(now, contact, limit).all().then((r) => r.results || []);
   // An admin SEC refresh in progress has sec.gov's budget to itself.
   const secBusy = await secLeaseHeld(env, now);
   const results = [
