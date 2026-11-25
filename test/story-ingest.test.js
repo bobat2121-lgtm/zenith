@@ -333,9 +333,9 @@ test("B-T24 query plans: findCanonicals, the ops story count and the orphan SELE
   assert.match(plan({ sql: opsCount[0].sql, args: [ago(14 * DAY), ago(0)] }), /idx_items_skipped/);
   assert.match(plan({ sql: opsCount[1].sql, args: [ago(14 * DAY), ago(0)] }), /aux_items_skipped/);
   const orphan = find(/LEFT JOIN items c ON c.id = d.story_of/)[0];
-  assert.match(plan({ sql: orphan.sql, args: [ago(14 * DAY)] }), /idx_items_skipped/);
+  assert.match(plan({ sql: orphan.sql, args: [ago(14 * DAY), '["volvo"]'] }), /idx_items_skipped/);
   const auxOrphan = find(/LEFT JOIN aux_items c ON c.id = d.story_of/)[0];
-  assert.match(plan({ sql: auxOrphan.sql, args: [ago(14 * DAY)] }), /aux_items_skipped/);
+  assert.match(plan({ sql: auxOrphan.sql, args: [ago(14 * DAY), '["volvo"]'] }), /aux_items_skipped/);
 });
 
 test("B-T25 ingest never prepares a non-SELECT on NEWS and never calls fetch", async () => {

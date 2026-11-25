@@ -499,6 +499,27 @@ test("B-T28 storyOrphans: a muted canonical's earliest unmuted copy becomes a he
   }
 });
 
+test("B-T28 storyOrphans: muted-only orphans never fill the 50-row read; a newer unmuted orphan moves, and a muted copy of its key points to it", async () => {
+  const env = storyEnv();
+  await mute(env, "volvo");
+  const ins = env.DB.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, nm_first_seen, ingested_at, state, skip_reason, story_key)
+    VALUES (?, ?, 'AUR', ?, 'x', ?, ?, 'skipped', 'story_dup', ?)`);
+  let n = 0;
+  const orphan = (source, firstSeen, key) => { n++; return Number(ins.run(880_000 + n, source, `https://news.example.com/orphan/${n}`, firstSeen, iso(0), key).lastInsertRowid); };
+  // 60 orphans (story_of NULL), each its own key, all from the muted source, older than the rest.
+  for (let k = 0; k < 60; k++) orphan("volvo", iso(10 * DAY - k * MIN), `t:${String(k).padStart(16, "0")}`);
+  const fresh = orphan("aur_rel", iso(DAY), "t:00000000000000ff");
+  const mutedCopy = orphan("volvo", iso(DAY - MIN), "t:00000000000000ff");
+  const r = await storyOrphans(env);
+  assert.deepEqual(r.promoted, { coverage: 1, aux: 0 });
+  assert.equal(r.orphans.coverage, 1, "the read skips the muted orphans");
+  const row = (id) => env.DB.rows("SELECT state, skip_reason, admit, story_of FROM items WHERE id = ?", id)[0];
+  assert.deepEqual({ ...row(fresh) }, { state: "pending", skip_reason: null, admit: "rescue", story_of: null });
+  assert.deepEqual({ ...row(mutedCopy) }, { state: "skipped", skip_reason: "story_dup", admit: null, story_of: fresh });
+  assert.equal(r.repointed.coverage, 1);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM items WHERE source_key = 'volvo' AND state = 'skipped' AND story_of IS NULL")[0].n, 60, "the muted-only orphans stay");
+});
+
 test("B-T28 the 5-minute cron runs storyOrphans on the 00:00 tick and not on others", async () => {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("", { status: 404 });

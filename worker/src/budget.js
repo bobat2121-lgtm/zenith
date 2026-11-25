@@ -394,12 +394,14 @@ export const isStoryOrphanTick = (scheduledTime) => {
 // Copies (first seen in the last STORY_WINDOW_DAYS days) whose canonical left
 // the queue (skipped for any reason but story_dup: muted, parked, failed
 // grading) or does not exist (story_of NULL after an ignored INSERT, or
-// dangling), at most 50 a table, on the skipped index. Per group (one
-// canonical, or one key when story_of is NULL): copies of muted sources are
-// passed over; the earliest other copy becomes a held admit 'rescue' row
-// (story_of NULL, its keys kept), released only by releaseHeld under the
-// budget, and the group's other copies point to it. A group whose copies are
-// all from muted sources does not move. One audit row when anything moved.
+// dangling), at most 50 a table, on the skipped index. Copies of muted
+// sources are left out of that read (so they never fill it). Per group (one
+// canonical, or one key when story_of is NULL): the earliest unmuted copy
+// becomes a held admit 'rescue' row (story_of NULL, its keys kept), released
+// only by releaseHeld under the budget, and the group's other copies, muted
+// ones included, point to it. A group whose copies are all from muted sources
+// does not move (live check L4 counts it until the source is unmuted). One
+// audit row when anything moved.
 export const ORPHAN_LIMIT = 50;
 export async function storyOrphans(env, { now = Date.now() } = {}) {
   const db = env.DB;
@@ -408,13 +410,18 @@ export async function storyOrphans(env, { now = Date.now() } = {}) {
   const promoted = { coverage: [], aux: [] };
   const repointed = { coverage: 0, aux: 0 };
   const seen = { coverage: 0, aux: 0 };
+  const mutedJson = JSON.stringify([...muted]);
   for (const [kind, t] of STORY_TABLES) {
+    // Muted copies are left out of the read itself, so groups that cannot move
+    // never fill the 50 and starve newer orphans; the re-point below still
+    // reaches them.
     const rows = (await db.prepare(
       `SELECT d.id, d.story_of, d.story_key, d.source_key, d.nm_first_seen FROM ${t} d LEFT JOIN ${t} c ON c.id = d.story_of
         WHERE d.state = 'skipped' AND d.skip_reason = 'story_dup' AND d.nm_first_seen >= ?1
+          AND d.source_key NOT IN (SELECT value FROM json_each(?2))
           AND (c.id IS NULL OR (c.state = 'skipped' AND c.skip_reason != 'story_dup'))
         ORDER BY d.nm_first_seen LIMIT ${ORPHAN_LIMIT}`,
-    ).bind(since).all()).results || [];
+    ).bind(since, mutedJson).all()).results || [];
     seen[kind] = rows.length;
     const groups = new Map();
     for (const r of rows) {
@@ -428,12 +435,14 @@ export async function storyOrphans(env, { now = Date.now() } = {}) {
       const res = await db.prepare(`UPDATE ${t} SET ${REPEND_COPY}, story_of = NULL WHERE id = ?1 AND ${COPY_GUARD}`).bind(pick.id).run();
       if (!(res.meta?.changes > 0)) continue;
       promoted[kind].push(pick.id);
-      // A group with a canonical: every copy of it, also past the 50 read here (story_of index).
+      // Every other copy of the group, muted ones and those past the 50 read
+      // here included: by canonical (story_of index), or by key in the window
+      // (story_key index) when story_of is NULL.
       const others = pick.story_of != null
         ? await db.prepare(`UPDATE ${t} SET story_of = ?1 WHERE story_of = ?2 AND id != ?1 AND ${COPY_GUARD}`).bind(pick.id, pick.story_of).run()
-        : group.length > 1
-          ? await db.prepare(`UPDATE ${t} SET story_of = ?1 WHERE id IN (SELECT value FROM json_each(?2)) AND ${COPY_GUARD}`)
-            .bind(pick.id, JSON.stringify(group.filter((r) => r.id !== pick.id).map((r) => r.id))).run()
+        : pick.story_key != null
+          ? await db.prepare(`UPDATE ${t} SET story_of = ?1 WHERE story_key = ?2 AND nm_first_seen >= ?3 AND story_of IS NULL AND id != ?1 AND ${COPY_GUARD}`)
+            .bind(pick.id, pick.story_key, since).run()
           : null;
       repointed[kind] += others?.meta?.changes || 0;
     }
