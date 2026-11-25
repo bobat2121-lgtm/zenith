@@ -42,6 +42,28 @@ test("tickers outside coverage are dropped from affects", () => {
   assert.equal(routeCounterparty("x", { role: "customer", affects: ["SSTI", "EVLV"] }, match).affects, "EVLV");
 });
 
+// Phase 0 nm-sources (plans/phase0-build-spec.md Appendix C section 1.3a):
+// news-monitor's matcher prefix, e.g. Legistar's "[SERV] " or "[AXON] (Flock/ALPR,
+// rival) ", leads the title. Synthetic titles in the news-monitor format.
+test("a leading [T] tag in affects decides when no company or key account matches; a company name still wins; a tag outside affects is ignored", () => {
+  const council = { role: "customer", affects: ["AXON", "SERV", "EVLV", "XTRAF"] };
+  const t = (title, cp = council) => routeCounterparty(title, cp, MATCH)?.ticker;
+  assert.equal(t("[SERV] Testville City Council 26-1: personal delivery device rules — In Committee"), "SERV");
+  assert.equal(t("[AXON] (Flock/ALPR, rival) Testville City Council 26-2: remove the Flock license plate readers — Introduced"), "AXON");
+  assert.equal(t("[SERV] Testville City Council 26-3: Axon Enterprise, Inc. body-worn camera contract — Introduced"), "AXON", "a company name wins");
+  assert.equal(t("[EVLV/XTRAF] Testville City Council 26-4: weapons screening at the arena — Introduced"), "EVLV", "first tag in affects");
+  assert.equal(t("[ZZZZ] Testville City Council 26-5: sidewalk rules — Introduced"), "AXON", "a tag outside affects: affects[0]");
+  assert.equal(t("Testville City Council 26-6: [SERV] sidewalk rules — Introduced"), "AXON", "only a leading tag counts");
+  assert.equal(t("[SERV] Testville City Council 26-7: rules", { role: "customer", affects: ["AXON", "EVLV"] }), "AXON", "SERV is not in affects");
+  // Federal Register space rules (affects PL, SATL): a named-company prefix or the first affected ticker.
+  const space = { role: "program", affects: ["PL", "SATL"] };
+  assert.equal(t("[SATL] Federal Register FCC Proposed Rule: Testsat earth-station licensing — Proposed rule.", space), "SATL");
+  assert.equal(t("Federal Register FCC Proposed Rule: Testsat earth-station licensing — Proposed rule.", space), "PL");
+  // The rival skip rule is unchanged: a tag is not a company or key-account match.
+  const rival = routeCounterparty("[SERV] Testbot launches a sidewalk robot", { role: "rival", affects: ["AXON", "SERV"] }, MATCH);
+  assert.deepEqual([rival.ticker, rival.skip], ["SERV", "rival_no_key_account"]);
+});
+
 test("covered.json counterparty map only names covered tickers and polled roles", () => {
   const roles = new Set(["relationship", "customer", "program", "rival", "index_event"]);
   for (const [key, cp] of Object.entries(covered.counterparty || {})) {
