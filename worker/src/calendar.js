@@ -395,6 +395,19 @@ const RIVAL_MARK_RE = /^\[[^\]]+\]\s*\([^)]*\brival\)/;
 // The leading routing tag ("[AXON] ") and any marker after it: news-monitor adds
 // them, so they never count as the title naming the company ("[AXON]" matches "Axon").
 const LEAD_TAG_RE = /^\[[^\]]+\]\s*(?:\([^)]*\)\s*)?/;
+// True when the text names one of the company's terms. phraseRegex matches in any
+// case; a one-word term the rubric writes with a capital ("Prepared") counts only
+// when the match carries a capital too, so "report prepared by staff" is not a name.
+function namesCompany(terms, text) {
+  const re = phraseRegex(terms);
+  if (!re) return false;
+  const lowerTerms = new Set(terms.filter((t) => typeof t === "string" && t === t.toLowerCase()).map((t) => t.trim()));
+  for (const m of text.matchAll(new RegExp(re.source, "giu"))) {
+    const s = m[0];
+    if (/\s/.test(s) || s !== s.toLowerCase() || lowerTerms.has(s)) return true;
+  }
+  return false;
+}
 export async function councilAgendas(db, { sinceIso }) {
   // substr, not LIKE 'legistar\_%' ESCAPE: the backslashes would not survive a JS string.
   const rows = (await db.prepare(
@@ -405,8 +418,7 @@ export async function councilAgendas(db, { sinceIso }) {
     const title = String(r.title || "");
     const m = AGENDA_RE.exec(title);
     if (!m || RIVAL_MARK_RE.test(title)) continue;
-    const own = phraseRegex(MATCH[r.ticker]?.terms || []);
-    if (!own || !own.test(title.replace(LEAD_TAG_RE, ""))) continue;
+    if (!namesCompany(MATCH[r.ticker]?.terms || [], title.replace(LEAD_TAG_RE, ""))) continue;
     const d = m[1];
     out.push({ ticker: r.ticker, kind: "council_agenda", start: d, end: d, precision: "day", confirmed: true,
       text: clipText(title, 200), item_id: r.item_id, url: r.url });

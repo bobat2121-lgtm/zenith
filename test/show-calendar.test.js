@@ -78,6 +78,18 @@ test("A4: the leading [AXON] routing tag alone does not name the company (a titl
   assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.start]), [["AXON", day]]);
 });
 
+test("A4: a capitalized one-word company term matched only as a lower-case word (\"prepared by staff\") gives no entry", async () => {
+  const env = newEnv();
+  const day = "2026-12-08";
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] Testville City Council 26-8: Staff report prepared on license plate reader use — In Committee, agenda ${day}` });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "lower-case common word");
+  // Upper-case or capitalized forms of a company word still count.
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] Testville City Council 26-10: TASER replacement purchase — In Committee, agenda ${day}` });
+  assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.start]), [["AXON", day]]);
+});
+
 async function seedCalendar(env) {
   const day = addDays(today(), 10);
   await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: agendaTitle("26-3", "Axon Enterprise contract", day),
