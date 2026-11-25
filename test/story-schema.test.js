@@ -152,7 +152,9 @@ test("keys are not unique: copies share a story_key and point at one canonical",
   assert.equal(get(d1, "SELECT story_of FROM items WHERE id = 4").story_of, 999);
 });
 
-test("the dedup lookups Part B plans are index-backed", () => {
+// These are the lookup shapes, not the exact later statements: the PR that adds a
+// statement asserts its own plan.
+test("the findCanonicals and copies lookup shapes use the new indexes", () => {
   const d1 = zenithDb();
   // findCanonicals, coverage form.
   assert.match(plan(d1, `SELECT id FROM items WHERE nm_first_seen >= ?3 AND state != 'skipped' AND story_of IS NULL
@@ -167,6 +169,10 @@ test("the dedup lookups Part B plans are index-backed", () => {
     assert.match(plan(d1, `SELECT id FROM ${t} WHERE story_of = ?1`), new RegExp(`INDEX ${ix} \\(story_of=\\?\\)`));
     assert.match(plan(d1, `SELECT story_of, COUNT(*) FROM ${t} WHERE story_of IN (SELECT value FROM json_each(?1)) GROUP BY story_of`),
       new RegExp(`INDEX ${ix} \\(story_of=\\?\\)`));
+    // With a state filter the planner can pick the state index instead (no planner
+    // statistics on D1), so a copies statement writes it as +state to keep story_of.
+    assert.match(plan(d1, `SELECT story_of, COUNT(*) FROM ${t} WHERE story_of IN (SELECT value FROM json_each(?1))
+      AND +state = 'skipped' GROUP BY story_of`), new RegExp(`INDEX ${ix} \\(story_of=\\?\\)`));
   }
 });
 
