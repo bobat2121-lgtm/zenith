@@ -14,6 +14,7 @@ import { heartbeatChecks } from "./delivery.js";
 import { headlinesWaiting } from "./headlines.js";
 import { json, nowIso, universeSql, HELD_SQL } from "./lib.js";
 import { budgetSettings, releasedToday, heldCounts } from "./budget.js";
+import { isRecordSource } from "./records.js";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -114,8 +115,12 @@ export async function postSourcePrefs(env, body) {
 // suggest: mute when graded >= 10 with no score >= 70 and reject + duplicate
 // >= 90%; demote when graded >= 6 with reject >= 75%; never for a source
 // prefRefusal refuses, nor one already set that way, nor a muted one (a
-// demote suggestion there would unmute it).
+// demote suggestion there would unmute it), nor (Phase 0 gates g) an official
+// record source (records.js): registers surface late and rarely score high,
+// which is not a reason to stop reading them. A manual mute or demote of a
+// record stays allowed. Each row also carries record.
 export function suggestFor(row) {
+  if (isRecordSource(row.source_key)) return null;
   if (prefRefusal(row.source_key) || row.pref === "mute") return null;
   let s = null;
   if (row.graded >= 10 && row.high === 0 && (row.reject + row.duplicate) >= 0.9 * row.graded) s = "mute";
@@ -147,7 +152,7 @@ export async function sourceYield(env, url) {
     out[kind] = rows.map((r) => {
       const row = { ...r, pref: prefs.get(r.source_key) || null };
       const lock = prefLock(r.source_key);
-      return { ...row, suggest: suggestFor(row), mutable: lock === null, lock };
+      return { ...row, suggest: suggestFor(row), mutable: lock === null, lock, record: isRecordSource(r.source_key) };
     });
   }
   return json(out);

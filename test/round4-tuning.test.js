@@ -421,7 +421,8 @@ test("Z8 source yield: latest grade per item, sorted by graded, with suggestions
   assert.equal(r.status, 200);
   const cov = Object.fromEntries(r.body.coverage.map((x) => [x.source_key, x]));
   assert.deepEqual(r.body.coverage.map((x) => x.source_key), ["redcat", "tfvector", "skydio", "nga"]);
-  assert.deepEqual({ ...cov.tfvector, last_high_at: undefined }, { source_key: "tfvector", graded: 10, high: 0, reject: 9, duplicate: 1, last_high_at: undefined, pref: null, suggest: "mute", mutable: true, lock: null });
+  // Phase 0 gates (g) added record.
+  assert.deepEqual({ ...cov.tfvector, last_high_at: undefined }, { source_key: "tfvector", graded: 10, high: 0, reject: 9, duplicate: 1, last_high_at: undefined, pref: null, suggest: "mute", mutable: true, lock: null, record: false });
   assert.deepEqual([cov.skydio.graded, cov.skydio.high, cov.skydio.reject, cov.skydio.pref, cov.skydio.suggest], [8, 2, 6, "demote", null], "already demoted: no suggestion");
   assert.deepEqual([cov.redcat.reject, cov.redcat.suggest], [12, null], "a covered company's own channel is never suggested");
   assert.deepEqual([cov.nga.graded, cov.nga.high, cov.nga.reject], [1, 1, 0]);
@@ -434,6 +435,33 @@ test("Z8 source yield: latest grade per item, sorted by graded, with suggestions
   assert.equal(suggestFor({ source_key: "tfvector", graded: 8, high: 0, reject: 7, duplicate: 0, pref: "mute" }), null, "a muted source is never suggested for demote");
   assert.equal(suggestFor({ source_key: "tfvector", graded: 12, high: 0, reject: 12, duplicate: 0, pref: "demote" }), "mute", "a demoted one may still be suggested for mute");
   for (const key of ["einride_sec", "paccar"]) assert.equal(suggestFor({ source_key: key, graded: 12, high: 0, reject: 12, duplicate: 0, pref: null }), null, key);
+});
+
+// Phase 0 gates (g): Tuning never suggests Mute or Demote for official records.
+test("Z8 suggestFor never suggests mute or demote for wargov_contracts, fpds_pl, legistar_oakland_axon, nga, unusual even at 10 graded and 100% reject", () => {
+  for (const key of ["wargov_contracts", "fpds_pl", "legistar_oakland_axon", "nga", "unusual"]) {
+    assert.equal(suggestFor({ source_key: key, graded: 10, high: 0, reject: 10, duplicate: 0, pref: null }), null, `${key} mute`);
+    assert.equal(suggestFor({ source_key: key, graded: 8, high: 1, reject: 7, duplicate: 0, pref: null }), null, `${key} demote`);
+  }
+  // A manual mute of a record is still allowed (prefLock unchanged).
+  assert.equal(prefRefusal("wargov_contracts"), null);
+});
+
+test("REGRESSION Z8 suggestions for non-record sources are unchanged (motive at 8/8 reject is still demote, heo still mute)", () => {
+  assert.equal(suggestFor({ source_key: "motive", graded: 8, high: 0, reject: 8, duplicate: 0, pref: null }), "demote");
+  assert.equal(suggestFor({ source_key: "heo", graded: 10, high: 0, reject: 9, duplicate: 1, pref: null }), "mute");
+});
+
+test("source-yield rows carry record", async () => {
+  const env = newEnv();
+  addGrade(env, addItem(env, { source_key: "nga", ticker: "PL" }), { score: 20 });
+  addGrade(env, addItem(env, { source_key: "tfvector", ticker: "DPRO" }), { score: 20 });
+  const wg = addAux(env, { source_key: "wargov_contracts", entity_key: "wargov_contracts", entity_name: "War.gov Contracts" });
+  addAuxGrade(env, wg, { score: 25, entity: "War.gov Contracts" });
+  const r = (await get(env, "/v1/source-yield?days=30")).body;
+  const cov = Object.fromEntries(r.coverage.map((x) => [x.source_key, x.record]));
+  assert.deepEqual(cov, { nga: true, tfvector: false });
+  assert.deepEqual(r.aux.map((x) => [x.source_key, x.record]), [["wargov_contracts", true]]);
 });
 
 // --- Z9 ------------------------------------------------------------------------
