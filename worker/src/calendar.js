@@ -6,7 +6,8 @@
 //   (calendar_card grades, dated from the title) and council agendas (legistar_*
 //   items, councilAgendas) for GET /v1/calendar and the brief.
 // Entry: { ticker, kind, start, end, precision, text, approx?, deadline?,
-//          context?, recur?: { weekday }, id?, item_id?, url?, time?, confirmed? }
+//          context?, recur?: { weekday }, id?, item_id?, url?, time?, confirmed?,
+//          council agendas only: outcome?, outcome_day?, outcome_url?, item_id_outcome?, closed? | deferred? }
 //   precision: day | part (early/mid/late month) | month | quarter | half | season | year | range
 import { addDays, weekdayOf } from "./et.js";
 import { MATCH } from "./rubric.generated.js";
@@ -390,7 +391,17 @@ export async function gradedNotices(db, { sinceIso }) {
 // and carries no rival marker ("[AXON] (Flock/ALPR, rival) …"), so rival and
 // product-only matters stay graded but off the calendar. The date is the agenda
 // date as first seen: news-monitor does not re-store a matter when it moves.
+// Phase 1: a decision row of the same matter closes or defers its entry. Those are
+// the legistar_* items whose url is the matter's url plus a fragment: "#vote-<event>"
+// (title tail " — vote <day> <body>: <actions>") or the older "#<status>" (title tail
+// " — <Status> <day>"). The newest decision dated on or after the agenda day counts
+// (an earlier committee vote never closes a later council agenda) and adds outcome,
+// outcome_day, outcome_url, item_id_outcome and deferred or closed. Decision rows
+// never make entries of their own: their titles carry no ", agenda" tail.
 const AGENDA_RE = /, agenda (20\d\d-\d\d-\d\d)\b/;
+const DEFERRED_RE = /tabled|held|referr|continu|postpon|defer|laid over|withdrawn/i;
+const VOTE_SEP = " — vote ";
+const TAIL_SEP = " — ";
 const RIVAL_MARK_RE = /^\[[^\]]+\]\s*\([^)]*\brival\)/;
 // The leading routing tag ("[AXON] ") and any marker after it: news-monitor adds
 // them, so they never count as the title naming the company ("[AXON]" matches "Axon").
@@ -423,7 +434,52 @@ export async function councilAgendas(db, { sinceIso }) {
     out.push({ ticker: r.ticker, kind: "council_agenda", start: d, end: d, precision: "day", confirmed: true,
       text: clipText(title, 200), item_id: r.item_id, url: r.url });
   }
+  if (!out.length) return out;
+  const decisions = await councilDecisions(db, { sinceIso });
+  for (const e of out) {
+    const hit = (decisions.get(e.url) || []).find((x) => x.day >= e.start);
+    if (!hit) continue;
+    Object.assign(e, { outcome: clipText(hit.outcome, 160), outcome_day: hit.day, outcome_url: hit.url, item_id_outcome: hit.item_id },
+      DEFERRED_RE.test(hit.outcome) ? { deferred: true } : { closed: true });
+  }
   return out;
+}
+
+// Decision rows (zenith-db items only) by matter url, newest decision day first.
+async function councilDecisions(db, { sinceIso }) {
+  const rows = (await db.prepare(
+    `SELECT id, url, title, published, nm_first_seen FROM items
+      WHERE substr(source_key, 1, 9) = 'legistar_' AND instr(url, '#') > 0 AND nm_first_seen >= ?
+        AND COALESCE(skip_reason,'') != 'muted_source'
+      ORDER BY id DESC LIMIT 400`,
+  ).bind(sinceIso).all()).results || [];
+  const byBase = new Map();
+  for (const r of rows) {
+    const url = String(r.url || "");
+    const base = url.split("#")[0];
+    const title = String(r.title || "");
+    const isVote = /#vote-/i.test(url);
+    const sep = isVote ? VOTE_SEP : TAIL_SEP;
+    const at = title.lastIndexOf(sep);
+    const outcome = at >= 0 ? title.slice(at + sep.length).trim() : "";
+    const day = String(r.published || r.nm_first_seen || "").slice(0, 10);
+    if (!outcome || !ISO_DAY.test(day)) continue;
+    if (!byBase.has(base)) byBase.set(base, []);
+    byBase.get(base).push({ outcome, day, url, item_id: r.id });
+  }
+  // Rows arrive newest id first; a stable sort keeps that order within a day.
+  for (const list of byBase.values()) list.sort((a, b) => b.day.localeCompare(a.day));
+  return byBase;
+}
+
+// Council agenda entries closed or deferred in the last `days` days (by
+// outcome_day, not start: the agenda day is always past by the time its outcome
+// exists, and a tabled matter keeps its first agenda day), newest first.
+export function councilOutcomes(entries, today, days = 7) {
+  const from = addDays(today, -days);
+  return (entries || [])
+    .filter((e) => e?.kind === "council_agenda" && (e.closed || e.deferred) && e.outcome_day >= from && e.outcome_day <= today)
+    .sort((a, b) => b.outcome_day.localeCompare(a.outcome_day) || String(a.ticker).localeCompare(String(b.ticker)));
 }
 
 // Entries read from zenith-db at run time: graded notices and council agendas.
