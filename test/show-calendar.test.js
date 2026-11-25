@@ -10,7 +10,7 @@ import { addItem, addGrade } from "./helpers/d1.js";
 
 hookJsonImports();
 const { default: worker } = await import("../worker/src/index.js");
-const { councilAgendas } = await import("../worker/src/calendar.js");
+const { councilAgendas, councilOutcomes } = await import("../worker/src/calendar.js");
 const { CALENDAR } = await import("../worker/src/calendar.generated.js");
 const { etParts, addDays } = await import("../worker/src/et.js");
 
@@ -110,6 +110,154 @@ test("A4: a capitalized one-word company term matched only as a lower-case word 
   await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
     title: `[AXON] Testville City Council 26-10: TASER replacement purchase — In Committee, agenda ${day}` });
   assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.start]), [["AXON", day]]);
+});
+
+// Phase 1 (Legistar vote results): decision rows of the same matter close or defer
+// its agenda entry. Synthetic town, files and votes.
+const BASE = "https://testville.example.gov/LegislationDetail.aspx?ID=9001&GUID=TEST";
+const HEAD = "[AXON] Testville City Council 26-50: Axon Enterprise body camera contract — not to exceed $1.0M";
+const addAgenda = (env, day, over = {}) => addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville", url: BASE,
+  title: `${HEAD} — Agenda Ready, agenda ${day}`, ...over });
+const addVote = (env, event, day, tail, over = {}) => addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville",
+  url: `${BASE}#vote-${event}`, title: `${HEAD} — vote ${day} City Council: ${tail}`, published: `${day}T00:00:00Z`, ...over });
+
+test("a council agenda plus a later '#vote-' row gives closed:true with the outcome text, outcome_day and outcome_url", async () => {
+  const env = newEnv();
+  const agendaId = await addAgenda(env, "2026-12-03");
+  const voteId = await addVote(env, 501, "2026-12-03", "APPROVED (carried 6-1)");
+  const out = await councilAgendas(env.DB, { sinceIso: SINCE });
+  assert.equal(out.length, 1, "the vote row makes no entry of its own");
+  const e = out[0];
+  assert.deepEqual([e.kind, e.item_id, e.start, e.url], ["council_agenda", agendaId, "2026-12-03", BASE]);
+  assert.equal(e.closed, true);
+  assert.equal(e.deferred, undefined);
+  assert.equal(e.outcome, "2026-12-03 City Council: APPROVED (carried 6-1)");
+  assert.equal(e.outcome_day, "2026-12-03");
+  assert.equal(e.outcome_url, `${BASE}#vote-501`);
+  assert.equal(e.item_id_outcome, voteId);
+  assert.match(e.text, /, agenda 2026-12-03$/, "the entry text stays the agenda title");
+});
+
+test("a TABLED vote gives deferred:true, not closed", async () => {
+  const env = newEnv();
+  await addAgenda(env, "2026-11-12");
+  await addVote(env, 502, "2026-11-12", "TABLED (carried 7-0)");
+  const [e] = await councilAgendas(env.DB, { sinceIso: SINCE });
+  assert.equal(e.deferred, true);
+  assert.equal(e.closed, undefined);
+  assert.equal(e.outcome, "2026-11-12 City Council: TABLED (carried 7-0)");
+  // A later meeting's vote on the same matter (the entry keeps its first agenda day) closes it.
+  await addVote(env, 503, "2026-12-03", "APPROVED (carried 5-2)");
+  const [later] = await councilAgendas(env.DB, { sinceIso: SINCE });
+  assert.deepEqual([later.start, later.closed, later.deferred, later.outcome_day], ["2026-11-12", true, undefined, "2026-12-03"]);
+  // A referral listed after a carried action still reads as deferred.
+  const env2 = newEnv();
+  await addAgenda(env2, "2026-11-04");
+  await addVote(env2, 504, "2026-11-04", "Referred To (carried 10-0); Passage (failed)");
+  assert.equal((await councilAgendas(env2.DB, { sinceIso: SINCE }))[0].deferred, true);
+});
+
+test("news-monitor's deferral wordings (Refer to Committee, Table, Hold, Withdraw) give deferred:true; look-alike words do not", async () => {
+  const cases = [
+    ["Refer to Committee (carried 9-0)", true],
+    ["Table (carried 7-0)", true],
+    ["Hold (carried)", true],
+    ["Withdraw (carried)", true],
+    ["Accept as accountable (carried 7-0)", false],
+    ["Approve stakeholder agreement (carried 5-2)", false],
+  ];
+  let event = 520;
+  for (const [tail, deferred] of cases) {
+    const env = newEnv();
+    await addAgenda(env, "2026-11-12");
+    await addVote(env, event++, "2026-11-12", tail);
+    const [e] = await councilAgendas(env.DB, { sinceIso: SINCE });
+    assert.deepEqual([e.deferred, e.closed], deferred ? [true, undefined] : [undefined, true], tail);
+  }
+});
+
+test("a failed decision query leaves the agendas undecided instead of dropping them", async () => {
+  const env = newEnv();
+  await addAgenda(env, "2026-12-03");
+  await addVote(env, 530, "2026-12-03", "APPROVED (carried 6-1)");
+  // Only the decision-row SELECT (the one with instr(url, '#')) throws.
+  const db = { prepare: (sql) => {
+    if (sql.includes("instr(url, '#')")) throw new Error("synthetic D1 failure");
+    return env.DB.prepare(sql);
+  } };
+  const errors = [];
+  const orig = console.error;
+  console.error = (...a) => errors.push(a.join(" "));
+  let out;
+  try { out = await councilAgendas(db, { sinceIso: SINCE }); } finally { console.error = orig; }
+  assert.equal(out.length, 1);
+  for (const k of ["closed", "deferred", "outcome"]) assert.equal(out[0][k], undefined, k);
+  assert.ok(errors.some((m) => /council decisions failed/.test(m)), "the error is logged");
+});
+
+test("a vote dated before the agenda day (committee) does not close the entry", async () => {
+  const env = newEnv();
+  await addAgenda(env, "2026-11-19");
+  await addVote(env, 505, "2026-11-18", "recommend approval (carried 3-0)");
+  const [e] = await councilAgendas(env.DB, { sinceIso: SINCE });
+  for (const k of ["closed", "deferred", "outcome", "outcome_day", "outcome_url", "item_id_outcome"]) assert.equal(e[k], undefined, k);
+});
+
+test("a '#approved' status row on or after the agenda day closes the entry", async () => {
+  const env = newEnv();
+  await addAgenda(env, "2026-11-19");
+  const statusId = await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville", url: `${BASE}#approved`,
+    title: `${HEAD} — Approved 2026-11-19`, published: "2026-11-19T00:00:00" });
+  const [e] = await councilAgendas(env.DB, { sinceIso: SINCE });
+  assert.deepEqual([e.closed, e.outcome, e.outcome_day, e.outcome_url, e.item_id_outcome],
+    [true, "Approved 2026-11-19", "2026-11-19", `${BASE}#approved`, statusId]);
+  // A status row dated before the agenda day does not.
+  const env2 = newEnv();
+  await addAgenda(env2, "2026-11-19");
+  await addItem(env2.DB, { ticker: "AXON", source_key: "legistar_testville", url: `${BASE}#approved`,
+    title: `${HEAD} — Approved 2026-11-10`, published: "2026-11-10T00:00:00" });
+  assert.equal((await councilAgendas(env2.DB, { sinceIso: SINCE }))[0].closed, undefined);
+});
+
+test("a vote row alone gives no calendar entry; a muted or other-source decision row closes nothing", async () => {
+  const env = newEnv();
+  await addVote(env, 506, "2026-12-03", "APPROVED (carried 6-1)");
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), []);
+  await addAgenda(env, "2026-12-03", { url: "https://testville.example.gov/LegislationDetail.aspx?ID=9002&GUID=TEST",
+    title: `${HEAD.replace("26-50", "26-51")} — Agenda Ready, agenda 2026-12-03` });
+  await addVote(env, 507, "2026-12-03", "APPROVED (carried 6-1)", { url: "https://testville.example.gov/LegislationDetail.aspx?ID=9002&GUID=TEST#vote-507",
+    state: "skipped", skip_reason: "muted_source" });
+  await addVote(env, 508, "2026-12-03", "APPROVED (carried 6-1)", { url: "https://testville.example.gov/LegislationDetail.aspx?ID=9002&GUID=TEST#vote-508",
+    source_key: "testville_minutes" });
+  const out = await councilAgendas(env.DB, { sinceIso: SINCE });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].closed, undefined);
+});
+
+test("councilOutcomes keeps entries whose outcome_day is within the last 7 days, whatever their start; undecided past agendas are left out", () => {
+  const today = "2026-12-05";
+  const entries = [
+    { ticker: "AXON", kind: "council_agenda", start: "2026-11-12", outcome_day: "2026-12-03", deferred: true, outcome: "tabled again" },
+    { ticker: "AXON", kind: "council_agenda", start: "2026-12-04", outcome_day: "2026-12-04", closed: true, outcome: "approved" },
+    { ticker: "AXON", kind: "council_agenda", start: "2026-12-01" },
+    { ticker: "AXON", kind: "council_agenda", start: "2026-11-20", outcome_day: "2026-11-27", closed: true, outcome: "too old" },
+    { ticker: "AXON", kind: "council_agenda", start: "2026-11-28", outcome_day: "2026-11-28", closed: true, outcome: "day 7" },
+    { ticker: "AXON", kind: "council_agenda", start: "2026-12-06", outcome_day: "2026-12-06", closed: true, outcome: "future" },
+    { ticker: "SYM", kind: "graded_notice", start: "2026-12-04", outcome_day: "2026-12-04", closed: true },
+  ];
+  assert.deepEqual(councilOutcomes(entries, today, 7).map((e) => e.outcome), ["approved", "tabled again", "day 7"]);
+  assert.deepEqual(councilOutcomes(entries, today, 1).map((e) => e.outcome), ["approved"]);
+  assert.deepEqual(councilOutcomes([], today), []);
+});
+
+test("GET /v1/calendar with a past from returns the closed council agenda with its outcome", async () => {
+  const env = newEnv();
+  await addAgenda(env, "2026-12-03");
+  await addVote(env, 509, "2026-12-03", "APPROVED (carried 6-1)");
+  const r = await request(worker, env, "GET", "/v1/calendar?ticker=AXON&from=2026-12-01&days=7", { role: "app" });
+  assert.equal(r.status, 200);
+  const e = r.body.entries.find((x) => x.kind === "council_agenda");
+  assert.deepEqual([e.start, e.closed, e.outcome_day, e.outcome], ["2026-12-03", true, "2026-12-03", "2026-12-03 City Council: APPROVED (carried 6-1)"]);
 });
 
 async function seedCalendar(env) {

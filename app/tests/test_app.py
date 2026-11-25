@@ -2117,6 +2117,31 @@ class ShowFunctions(unittest.TestCase):
         self.assertIn("weekly on Monday", zf.calendar_entry_html(weekly))
         self.assertIn("Fri Nov 27", zf.calendar_entry_html(BRIEF["catalysts"][0], show_day=True))
 
+    def test_calendar_entry_html_decided_and_deferred(self):
+        # Phase 1 (Legistar vote results): a council agenda closed or deferred by a decision row.
+        decided = {**BRIEF["catalysts"][0], "closed": True, "outcome": "2026-11-27 City Council: <b>APPROVED</b> (carried 6-1)",
+                   "outcome_day": "2026-11-30", "outcome_url": "https://testville.example.gov/26-3#vote-77", "item_id_outcome": 41}
+        out = zf.calendar_entry_html(decided, show_day=True, day_key="outcome_day")
+        self.assertIn("decided: 2026-11-27 City Council: &lt;b&gt;APPROVED&lt;/b&gt; (carried 6-1)", out)
+        self.assertNotIn("<b>APPROVED", out)
+        self.assertNotIn("council agenda (as first seen)", out)
+        self.assertNotIn("deferred:", out)
+        self.assertIn('href="https://testville.example.gov/26-3#vote-77"', out)
+        self.assertIn("Mon Nov 30", out)  # the outcome day, not the agenda day
+        self.assertNotIn("Fri Nov 27</span>", out)
+        self.assertIn("Fri Nov 27", zf.calendar_entry_html(decided, show_day=True))  # day_key defaults to start
+        deferred = {**decided, "closed": None, "deferred": True, "outcome": "2026-11-27 City Council: TABLED (carried 7-0)"}
+        out = zf.calendar_entry_html(deferred)
+        self.assertIn("deferred: 2026-11-27 City Council: TABLED (carried 7-0)", out)
+        self.assertNotIn("decided:", out)
+        # Without an outcome_url (or with an unsafe one) the link falls back to the agenda row, or none.
+        self.assertIn('href="https://testville.example.gov/26-3"', zf.calendar_entry_html({**decided, "outcome_url": None}))
+        self.assertNotIn("href", zf.calendar_entry_html({**decided, "outcome_url": "javascript:alert(1)"}))
+        # An undecided agenda keeps its tag and link.
+        plain = zf.calendar_entry_html(BRIEF["catalysts"][0])
+        self.assertIn("council agenda (as first seen)", plain)
+        self.assertIn('href="https://testville.example.gov/26-3"', plain)
+
     def test_ops_strip_counts_names_and_more(self):
         out = zf.ops_strip_html(NEWS_OPS)
         self.assertIn('News-monitor: <span class="z-bad">2 open alerts</span> (strategic noncompany lane late, '
@@ -2213,6 +2238,27 @@ class ShowPages(AppBase):
         self.assertIn("rcat_press (RCAT): 4 fails, last ok Nov 20 10:00 UTC", [t.strip() for t in self.texts()])
         self.assertTrue(any(c.startswith("Since Nov 23 13:00 UTC · built Nov 24 13:05 UTC") for c in self.captions()))
         self.assertNotIn("pandas", sys.modules)
+
+    def test_brief_page_no_council_outcomes_section_without_the_field(self):
+        self.open_page("brief")  # the fixture has no council_outcomes (an older zenith-core)
+        self.assertNotIn("Council outcomes", self.page_text())
+        self.assertFalse(self.at.exception, [e.value for e in self.at.exception])
+
+    def test_brief_page_council_outcomes_section(self):
+        self.api.routes["/v1/brief"]["council_outcomes"] = [
+            {"ticker": "AXON", "kind": "council_agenda", "start": "2026-11-20", "end": "2026-11-20", "precision": "day",
+             "confirmed": True, "text": "[AXON] Testville City Council 26-5: Axon contract — Agenda Ready, agenda 2026-11-20",
+             "url": "https://testville.example.gov/26-5", "item_id": 42, "deferred": True,
+             "outcome": "2026-11-23 City Council: TABLED (carried 7-0)", "outcome_day": "2026-11-23",
+             "outcome_url": "https://testville.example.gov/26-5#vote-78", "item_id_outcome": 43}]
+        self.open_page("brief")
+        md = self.page_text()
+        self.assertIn("##### Council outcomes, last 7 days (1)", md)
+        self.assertLess(md.index("##### Next 7 days"), md.index("##### Council outcomes"))
+        self.assertLess(md.index("##### Council outcomes"), md.index("##### Health"))
+        self.assertIn("deferred: 2026-11-23 City Council: TABLED (carried 7-0)", md)
+        self.assertIn("Mon Nov 23", md)
+        self.assertIn('href="https://testville.example.gov/26-5#vote-78"', md)
 
     def test_brief_window_switch_changes_since(self):
         self.open_page("brief")

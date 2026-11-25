@@ -2,7 +2,8 @@
 //   * Briefs at 07:00 and 17:30 America/New_York to DISCORD_BRIEF_WEBHOOK, and
 //     the same content at GET /v1/brief: Leads and Digests by ticker since the
 //     last brief, counterparty items that passed, covered items still waiting
-//     for a grade, the next 7 days of catalysts, a health line, 3 items to label.
+//     for a grade, the next 7 days of catalysts, council outcomes of the last 7
+//     days (only when there are any), a health line, 3 items to label.
 //   * Weekly calibration (Mondays 08:00 ET) to DISCORD_OPS_WEBHOOK, and at
 //     GET /v1/calibration: analyst labels against the grades they were given on.
 // Crons fire at both candidate UTC times (EST and EDT); slotsAt() keeps only the
@@ -11,7 +12,7 @@ import { json, nowIso, HELD_SQL } from "./lib.js";
 import { etParts, etToUtc, addDays, fmtEt, fmtAge, fmtDay, DAY_MS } from "./et.js";
 import { discordSendAll, escapeMd, clip, link, figures, bandName, splitMessages } from "./discord.js";
 import { CALENDAR, CALENDAR_VERSION } from "./calendar.generated.js";
-import { briefCatalysts, runtimeEntries, upcoming } from "./calendar.js";
+import { briefCatalysts, councilOutcomes, runtimeEntries, upcoming } from "./calendar.js";
 
 // Cloudflare numbers weekdays 1 = Sunday to 7 = Saturday, so the Monday cron uses
 // the day name, which means Monday in every cron dialect.
@@ -143,6 +144,8 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
   const today = etParts(now).date;
   const runtime = await runtimeEntries(db, { sinceIso: nowIso(now - 120 * DAY_MS) });
   const catalysts = briefCatalysts([...CALENDAR, ...runtime], today, 7).filter((e) => !tickers || tickers.includes(e.ticker));
+  // Council agendas closed or deferred in the last 7 days (their agenda day is past).
+  const councilOut = councilOutcomes(runtime, today, 7).filter((e) => !tickers || tickers.includes(e.ticker));
 
   const lastRun = await db.prepare("SELECT id, last_seen_at, graded, rejected FROM runs ORDER BY last_seen_at DESC LIMIT 1").first();
   const gradedInWindow = await db.prepare("SELECT COUNT(*) AS n FROM grades WHERE graded_at >= ? AND graded_at < ?").bind(from, to).first();
@@ -152,6 +155,7 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
     counterparty: graded.filter((r) => r.role),
     waiting: { count: counts?.own || 0, counterparty_count: counts?.cp || 0, oldest: counts?.oldest || null, held: heldCount?.n || 0, items: waitingRows },
     catalysts,
+    council_outcomes: councilOut,
     health: {
       grader_last_run: lastRun?.last_seen_at || null,
       graded_in_window: gradedInWindow?.n || 0,
@@ -166,6 +170,13 @@ function gradedLine(r) {
   const cross = r.item_ticker && r.item_ticker !== r.ticker ? ` (from a ${r.item_ticker} item)` : "";
   const lead = r.band === "lead";
   return `• **${r.score}** ${bandName(r.band)} · ${escapeMd(clip(r.title, lead ? 150 : 120))}${cross} — ${escapeMd(clip(r.why, lead ? 240 : 150))}${fig ? ` (${fig})` : ""} ${link(r.url)}`.trimEnd();
+}
+
+// A council agenda's tag: its outcome once a decision row closed or deferred it.
+function councilTag(e) {
+  if (e.closed) return ` · decided: ${escapeMd(clip(e.outcome, 90))}`;
+  if (e.deferred) return ` · deferred: ${escapeMd(clip(e.outcome, 90))}`;
+  return " · council agenda";
 }
 
 // A header stays in the same Discord message as the first line under it.
@@ -211,11 +222,20 @@ export function renderBrief(b, { publicUrl = "", now = Date.parse(b.generated_at
 
   const cats = b.catalysts.slice(0, SECTION_CAP.catalysts).map((e) => {
     const when = e.precision === "day" ? fmtDay(e.start) : `from ${fmtDay(e.start)} (${e.precision === "part" || e.precision === "month" ? "window" : e.precision})`;
-    const tag = e.kind === "council_agenda" ? " · council agenda" : e.confirmed ? " · confirmed notice" : e.recurring ? " · weekly" : e.approx ? " · estimate" : e.deadline ? " · deadline" : "";
+    const tag = e.kind === "council_agenda" ? councilTag(e) : e.confirmed ? " · confirmed notice" : e.recurring ? " · weekly" : e.approx ? " · estimate" : e.deadline ? " · deadline" : "";
     return `• ${when} · **${e.ticker}** · ${escapeMd(clip(e.text, 170))}${e.time ? ` (${escapeMd(e.time)})` : ""}${tag}`;
   });
   if (b.catalysts.length > SECTION_CAP.catalysts) cats.push(`… and ${b.catalysts.length - SECTION_CAP.catalysts} more at /v1/calendar.`);
   section(L, "**Next 7 days**", cats, "Nothing dated.");
+
+  // Omitted while empty, so the brief text is unchanged until the first outcome.
+  const outcomes = b.council_outcomes || [];
+  if (outcomes.length) {
+    const lines = outcomes.slice(0, SECTION_CAP.catalysts).map((e) =>
+      `• ${fmtDay(e.outcome_day)} · **${e.ticker}** · ${escapeMd(clip(e.text, 170))}${councilTag(e)}`);
+    if (outcomes.length > SECTION_CAP.catalysts) lines.push(`… and ${outcomes.length - SECTION_CAP.catalysts} more.`);
+    section(L, "**Council outcomes, last 7 days**", lines, "");
+  }
 
   const h = b.health;
   const grader = h.grader_last_run ? `grader last ran ${fmtEt(Date.parse(h.grader_last_run))} (${fmtAge(now - Date.parse(h.grader_last_run))} ago)` : "grader has never run";

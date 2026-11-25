@@ -96,3 +96,72 @@ test("the brief's next 7 days include a council agenda, tagged \"council agenda\
   assert.match(line, / · council agenda$/);
   assert.doesNotMatch(line, /confirmed notice/);
 });
+
+// Phase 1 (Legistar vote results). Synthetic town, files and votes.
+const BASE = "https://testville.example.gov/LegislationDetail.aspx?ID=9100&GUID=TEST";
+const HEAD = "[AXON] Testville City Council 26-60: Axon Enterprise body camera contract";
+async function seedOutcome(env, agendaDay, voteDay, tail) {
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville", url: BASE, title: `${HEAD} — Agenda Ready, agenda ${agendaDay}`,
+    nm_first_seen: iso(3 * DAY) });
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville", url: `${BASE}#vote-700`,
+    title: `${HEAD} — vote ${voteDay} City Council: ${tail}`, published: `${voteDay}T00:00:00Z`, state: "pending" });
+}
+const textLines = (r) => r.body.text.join("\n").split("\n");
+
+test("an agenda dated yesterday with a vote row first seen today appears under 'Council outcomes, last 7 days' tagged ' · decided: …'", async () => {
+  const env = newEnv();
+  const today = etParts(Date.now()).date;
+  const yesterday = addDays(today, -1);
+  await seedOutcome(env, yesterday, yesterday, "APPROVED (carried 6-1)");
+  const r = await brief(env);
+  assert.equal(r.status, 200);
+  assert.ok(!r.body.catalysts.some((e) => e.kind === "council_agenda"), "a past agenda is not in the next 7 days");
+  assert.equal(r.body.council_outcomes.length, 1);
+  const e = r.body.council_outcomes[0];
+  assert.deepEqual([e.ticker, e.start, e.closed, e.outcome_day, e.outcome_url], ["AXON", yesterday, true, yesterday, `${BASE}#vote-700`]);
+  const lines = textLines(r);
+  const head = lines.indexOf("**Council outcomes, last 7 days**");
+  assert.ok(head > lines.findIndex((l) => l === "**Next 7 days**"), "the section follows Next 7 days");
+  const line = lines[head + 1];
+  assert.ok(line.startsWith("• ") && line.includes(" · **AXON** · ") && line.includes("Testville City Council 26-60"), line);
+  assert.match(line, / · decided: 20\d\d-\d\d-\d\d City Council: APPROVED \\\(carried 6-1\\\)$/, "escaped for Discord");
+});
+
+test("a deferred outcome is tagged ' · deferred: …'; the section is omitted when there are no outcomes", async () => {
+  const env = newEnv();
+  const yesterday = addDays(etParts(Date.now()).date, -1);
+  await seedOutcome(env, yesterday, yesterday, "TABLED (carried 7-0)");
+  const r = await brief(env);
+  assert.equal(r.body.council_outcomes[0].deferred, true);
+  const lines = textLines(r);
+  const line = lines[lines.indexOf("**Council outcomes, last 7 days**") + 1];
+  assert.match(line, / · deferred: 20\d\d-\d\d-\d\d City Council: TABLED \\\(carried 7-0\\\)$/);
+  assert.doesNotMatch(line, /decided:/);
+
+  const quiet = newEnv();
+  await addItem(quiet.DB, { ticker: "AXON", source_key: "legistar_testville", url: BASE, title: `${HEAD} — Agenda Ready, agenda ${yesterday}` });
+  const q = await brief(quiet);
+  assert.deepEqual(q.body.council_outcomes, []);
+  assert.ok(!q.body.text.join("\n").includes("Council outcomes"), "no section while there are no outcomes");
+});
+
+test("council outcomes leave out outcomes older than 7 days", async () => {
+  const env = newEnv();
+  const today = etParts(Date.now()).date;
+  const old = addDays(today, -9);
+  await seedOutcome(env, old, old, "APPROVED (carried 6-1)");
+  assert.deepEqual((await brief(env)).body.council_outcomes, []);
+});
+
+test("an agenda dated today and decided today keeps its Next 7 days line, tagged ' · decided: …' instead of ' · council agenda'", async () => {
+  const env = newEnv();
+  const today = etParts(Date.now()).date;
+  await seedOutcome(env, today, today, "APPROVED (carried 6-1)");
+  const r = await brief(env);
+  const agenda = r.body.catalysts.find((e) => e.kind === "council_agenda");
+  assert.ok(agenda?.closed, JSON.stringify(r.body.catalysts));
+  const lines = textLines(r);
+  const next = lines[lines.indexOf("**Next 7 days**") + 1];
+  assert.match(next, / · decided: 20\d\d-\d\d-\d\d City Council: APPROVED \\\(carried 6-1\\\)$/);
+  assert.doesNotMatch(next, /council agenda$/);
+});

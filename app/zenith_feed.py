@@ -1148,13 +1148,19 @@ def calendar_day_label(day) -> str:
     return f"{d:%a} {d:%b} {d.day}" if d else str(day or "")
 
 
-def calendar_entry_html(e: dict, show_day: bool = False) -> str:
-    """TICKER · text, then its tags (confirmed notice, council agenda (as first seen), estimate,
-    deadline, weekly, the time) and a source link. A window says from when to when. Escaped."""
+def calendar_entry_html(e: dict, show_day: bool = False, day_key: str = "start") -> str:
+    """TICKER · text, then its tags (confirmed notice, council agenda (as first seen) or its outcome
+    "decided: …" / "deferred: …", estimate, deadline, weekly, the time) and a source link (a decided
+    or deferred agenda links its outcome row). A window says from when to when. show_day shows the
+    entry's day_key day ("start", or "outcome_day" for council outcomes). Escaped."""
     tags = []
     kind = e.get("kind")
+    url = e.get("url")
     if kind == "graded_notice":
         tags.append("confirmed notice")
+    elif kind == "council_agenda" and (e.get("closed") or e.get("deferred")):
+        tags.append(f"{'decided' if e.get('closed') else 'deferred'}: {one_line(e.get('outcome'))}")
+        url = e.get("outcome_url") or url
     elif kind == "council_agenda":
         tags.append("council agenda (as first seen)")
     if e.get("approx"):
@@ -1170,10 +1176,10 @@ def calendar_entry_html(e: dict, show_day: bool = False) -> str:
         when = (f'<span class="z-age">from {html.escape(day_text(e.get("start")))} to {html.escape(day_text(e.get("end") or e.get("start")))}'
                 f' ({html.escape(str(e.get("precision") or ""))})</span> ')
     elif show_day:
-        when = f'<span class="z-age">{html.escape(calendar_day_label(e.get("start")))}</span> '
+        when = f'<span class="z-age">{html.escape(calendar_day_label(e.get(day_key)))}</span> '
     tag = "".join(f' <span class="z-age">· {html.escape(t)}</span>' for t in tags)
-    src = (f' · <a href="{html.escape(str(e["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">source</a>'
-           if safe_url(e.get("url")) else "")
+    src = (f' · <a href="{html.escape(str(url), quote=True)}" target="_blank" rel="noopener noreferrer">source</a>'
+           if safe_url(url) else "")
     return (f'<div class="z-cal">{when}<b>{html.escape(str(e.get("ticker") or ""))}</b> · '
             f'{html.escape(one_line(e.get("text")))}{tag}{src}</div>')
 
@@ -1228,6 +1234,12 @@ def brief_sections(data: dict) -> None:
     if not cats:
         st.caption("Nothing dated.")
     _html_rows(calendar_entry_html(e, show_day=True) for e in cats)
+
+    # Council agendas decided or deferred in the last 7 days (an older zenith-core sends none).
+    outcomes = [e for e in data.get("council_outcomes") or [] if isinstance(e, dict)]
+    if outcomes:
+        st.markdown(f"##### Council outcomes, last 7 days ({len(outcomes)})")
+        _html_rows(calendar_entry_html(e, show_day=True, day_key="outcome_day") for e in outcomes)
 
     st.markdown("##### Health")
     for line in brief_health_lines(data.get("health")):
