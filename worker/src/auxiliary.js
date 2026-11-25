@@ -300,8 +300,32 @@ export async function auxClaim(env, body) {
                     ORDER BY ${CLAIM_ORDER} LIMIT ?5)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?4))`,
   ).bind(old, claimId, until, now, limit, nowIso(Date.now() - WARGOV_HOLD_MINUTES * 60_000)).run();
-  const items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ?2 ORDER BY ${CLAIM_ORDER}`)
+  let items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ?2 ORDER BY ${CLAIM_ORDER}`)
     .bind(old, claimId).all()).results || [];
+  // Phase 2 (claim text budget): with max_chars, keep items in CLAIM_ORDER (the
+  // SELECT's order) while their excerpts (+200 a frame) fit, always at least one;
+  // the rest go back to the queue with the attempt refunded. No added read.
+  const rawMax = Math.trunc(Number(body?.max_chars));
+  const maxChars = Number.isFinite(rawMax) && rawMax > 0 ? Math.max(5_000, Math.min(200_000, rawMax)) : 0;
+  let trimmed = 0;
+  if (maxChars && items.length > 1) {
+    let used = 0, kept = 0;
+    for (const it of items) {
+      const cost = String(it.excerpt ?? "").length + 200;
+      if (kept && used + cost > maxChars) break;
+      kept += 1;
+      used += cost;
+    }
+    const left = items.slice(kept).map((it) => it.item_id);
+    for (const part of chunk(left)) {
+      await env.DB.prepare(
+        `UPDATE aux_items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=MAX(attempts-1,0)
+          WHERE claim_id = ?1 AND id IN (${part.map((_, k) => `?${k + 2}`).join(",")})`,
+      ).bind(claimId, ...part).run();
+    }
+    trimmed = left.length;
+    items = items.slice(0, kept);
+  }
   // Timeliness is measured from first sighting, never from grading time.
   for (const it of items) {
     it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
@@ -313,7 +337,7 @@ export async function auxClaim(env, body) {
   }
   const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: AUX_RUBRIC_VERSION, items,
-    remaining: Math.max(0, (pending?.n || 0) - items.length) };
+    remaining: Math.max(0, (pending?.n || 0) - items.length), trimmed };
 }
 
 // --- Grades -----------------------------------------------------------------

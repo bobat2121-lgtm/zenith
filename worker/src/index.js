@@ -133,9 +133,38 @@ async function claim(env, body) {
                     ORDER BY (excerpt_status IS NULL), nm_first_seen DESC, id DESC LIMIT ?4)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
   ).bind(claimId, until, now, limit, nowIso(Date.now() - HOLD_MINUTES * 60_000)).run();
-  const items = (await env.DB.prepare(
+  let items = (await env.DB.prepare(
     `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status, i.bill_lines, i.admit FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
   ).bind(claimId).all()).results || [];
+  // Phase 2 (claim text budget): with max_chars, keep items in the claim's own
+  // order while their excerpts (+200 a frame) fit, always at least one; the rest
+  // go back to the queue with the attempt refunded. Works on the rows already
+  // loaded, so it adds no read. No max_chars: no trim (an older CLI).
+  const rawMax = Math.trunc(Number(body?.max_chars));
+  const maxChars = Number.isFinite(rawMax) && rawMax > 0 ? Math.max(5_000, Math.min(200_000, rawMax)) : 0;
+  let trimmed = 0;
+  if (maxChars && items.length > 1) {
+    const desc = (a, b) => (a < b ? 1 : a > b ? -1 : 0);
+    const order = [...items].sort((a, b) => (a.excerpt_status == null) - (b.excerpt_status == null)
+      || desc(a.first_seen ?? "", b.first_seen ?? "") || Number(b.item_id) - Number(a.item_id));
+    const keep = new Set();
+    let used = 0;
+    for (const it of order) {
+      const cost = String(it.excerpt ?? "").length + 200;
+      if (keep.size && used + cost > maxChars) break;
+      keep.add(it.item_id);
+      used += cost;
+    }
+    const left = items.filter((it) => !keep.has(it.item_id)).map((it) => it.item_id);
+    for (const part of chunk(left)) {
+      await env.DB.prepare(
+        `UPDATE items SET state='pending', claim_id=NULL, claimed_until=NULL, attempts=MAX(attempts-1,0)
+          WHERE claim_id = ?1 AND id IN (${part.map((_, k) => `?${k + 2}`).join(",")})`,
+      ).bind(claimId, ...part).run();
+    }
+    trimmed = left.length;
+    items = items.filter((it) => keep.has(it.item_id));
+  }
   for (const it of items) {
     // Timeliness is measured from first sighting, never from grading time.
     it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
@@ -156,7 +185,7 @@ async function claim(env, body) {
   ).bind(runId, now, now, items.length, String(body?.rubric_version || ""), String(body?.model || "")).run();
   // Phase 0 gates: held rows are not waiting.
   const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
-  return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: RUBRIC_VERSION, items, remaining: Math.max(0, (pending?.n || 0) - items.length) };
+  return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: RUBRIC_VERSION, items, remaining: Math.max(0, (pending?.n || 0) - items.length), trimmed };
 }
 
 async function submitGrades(env, body, role) {
