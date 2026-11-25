@@ -84,6 +84,21 @@ class BannerFunctions(unittest.TestCase):
         ops["grader"].update(status="down", last_run_at=None)
         self.assertEqual(zf.grader_alert(ops), "Grader down: no run recorded")
 
+    def test_banner_without_a_last_activity_time(self):
+        for gap in ({}, {"from": None, "missed_runs": None}):
+            with self.subTest(gap=gap):
+                ops = ops_p1(status="down", last_run_at=None, open_gap=gap)
+                self.assertEqual(zf.grader_alert(ops), "Grader down: missed 1 run, no run recorded, expected every 30 min")
+        ops = ops_p1(status="late", last_run_at=None, open_gap={"missed_runs": 2, "expected_every_min": 30})
+        self.assertEqual(zf.grader_alert(ops), "Grader missed 2 runs: no run recorded, expected every 30 min")
+
+    def test_banner_survives_non_string_times(self):
+        ops = ops_p1(status="down", open_gap={"from": 1764000000, "missed_runs": 2})
+        self.assertTrue(zf.grader_alert(ops).startswith("Grader down: missed 2 runs, last activity "))
+        old = copy.deepcopy(ta.OPS)
+        old["grader"].update(status="late", last_run_at=1764000000)
+        self.assertTrue(zf.grader_alert(old).startswith("Grader late: last run "))
+
     def test_banner_escapes_server_text(self):
         ops = ops_p1(status="down", last_run_at="<script>x</script>",
                      open_gap={"from": "<script>x</script>", "missed_runs": "<b>", "expected_every_min": "<i>"})
@@ -195,6 +210,12 @@ class BannerPages(ta.AppBase):
         self.api.missing.add("/v1/ops")
         self.open_page("brief")
         self.assertEqual(self.banners(), [])
+
+    def test_malformed_ops_does_not_break_brief(self):
+        self.api.routes["/v1/ops"] = ops_p1(status="down", open_gap={"from": 1764000000, "missed_runs": 2})
+        at = self.open_page("brief")
+        self.assertFalse(at.exception)
+        self.assertIn("#### Brief", self.page_text())
 
     def test_banner_from_an_older_worker(self):
         self.api.routes["/v1/ops"]["grader"].update(status="late", last_run_at=ta.iso(2))

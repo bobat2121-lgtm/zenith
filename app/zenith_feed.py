@@ -836,15 +836,16 @@ def grader_alert(ops) -> str | None:
     parts = []
     if gap is not None:
         since = gap.get("from") or g.get("last_run_at")
+        since = str(since) if since else None
         every = _every(g, gap)
         lead = (f"Grader down: missed {_plural(_missed(gap), 'run')}," if status == "down"
                 else f"Grader missed {_plural(_missed(gap), 'run')}:")
-        parts.append(f"{lead} last activity {utc_text(since)} ({run_ago(since)})"
-                     + (f", expected every {every} min" if every else ""))
+        when = f"last activity {utc_text(since)} ({run_ago(since)})" if since else "no run recorded"
+        parts.append(f"{lead} {when}" + (f", expected every {every} min" if every else ""))
     elif status in BAD_STATUS:
         # An older zenith-core (no open_gap): its status alone.
         last = g.get("last_run_at")
-        parts.append(f"Grader {status}: " + (f"last run {run_ago(last)}" if last else "no run recorded"))
+        parts.append(f"Grader {status}: " + (f"last run {run_ago(str(last))}" if last else "no run recorded"))
     if unfinished:
         backlog = g.get("backlog") if isinstance(g.get("backlog"), dict) else {}
         stuck = backlog.get("stuck_claims") if isinstance(backlog.get("stuck_claims"), dict) else {}
@@ -863,7 +864,11 @@ def grader_banner_html(ops) -> str:
 def grader_banner() -> None:
     """Every Streamlit page: the red grader banner, from the cached /v1/ops the strip shares."""
     ops, _ = optional_json("/v1/ops")
-    banner = grader_banner_html(ops) if ops is not None else ""
+    try:
+        banner = grader_banner_html(ops) if ops is not None else ""
+    except Exception:
+        # A malformed /v1/ops must not break a page that only shows the banner.
+        banner = ""
     if banner:
         st.markdown(banner, unsafe_allow_html=True)
 
