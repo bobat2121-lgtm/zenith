@@ -28,28 +28,6 @@ const KNOWN = ["einride_sec", "faraday", "iren", "maymobility_sec", "paccar", "p
   "canada_dnd_drones", "fmv_planet", "nhtsa_sgo_ads", "safetyact_awards", "regulations_eas_srfm", "drv_whitehouse_actions",
   "drv_senate_approps_def", "drv_house_approps", "drv_govinfo_defense_bills"];
 
-// The record keys news-monitor PR #63 (branch p0-nm-sources) adds. PR-Z2
-// deploys before that PR merges, so a news-monitor main checkout may lack
-// these, and only these. TODO: drop PENDING_NM once PR #63 is on news-monitor main.
-const PENDING_NM = ["fedreg_fcc_space", "legistar_cookcounty", "legistar_corpuschristi", "legistar_dallas", "legistar_dane",
-  "legistar_elpaso", "legistar_fresno", "legistar_hayward", "legistar_milwaukee", "legistar_nashville", "legistar_sanjose",
-  "legistar_stpaul", "legistar_toledo"];
-// The record keys missing from news-monitor's definitions that fail the test:
-// all of them when strict (NEWS_MONITOR_REPO names the checkout synced from),
-// otherwise those that are not pending.
-function missingKeyFailures(missing, strict) {
-  return strict ? missing : missing.filter((k) => !PENDING_NM.includes(k));
-}
-
-test("records: without NEWS_MONITOR_REPO only the pending PR #63 keys may be missing from news-monitor", () => {
-  assert.equal(PENDING_NM.length, 13);
-  const auxRecords = Object.keys(AUX.sources).filter((k) => AUX.sources[k].record === true);
-  for (const k of PENDING_NM) assert.ok(auxRecords.includes(k), `${k} is a generated record key`);
-  assert.deepEqual(missingKeyFailures(["legistar_toledo", "fedreg_fcc_space"], false), []);
-  assert.deepEqual(missingKeyFailures(["legistar_toledo", "testco_removed"], false), ["testco_removed"], "a key removed from news-monitor fails");
-  assert.deepEqual(missingKeyFailures(["legistar_toledo"], true), ["legistar_toledo"], "strict mode tolerates nothing");
-});
-
 test("records (rule test): the generated record keys are a superset of the known 33; dronedominance, own channels and media are not; unusual and strive_sec_northland are in covered.json records", () => {
   const auxRecords = Object.keys(AUX.sources).filter((k) => AUX.sources[k].record === true);
   for (const k of KNOWN) assert.ok(auxRecords.includes(k), `${k} is a record`);
@@ -66,11 +44,8 @@ test("records (rule test): every record key satisfies isRecordSource on its news
   await import(pathToFileURL(join(NM, "src", "priority.js")).href);
   const def = new Map(SOURCES.map((s) => [s.key, s]));
   const auxRecords = Object.keys(AUX.sources).filter((k) => AUX.sources[k].record === true);
-  // Phase 0 nm-sources: a found main checkout may lack the PENDING_NM keys
-  // (listed, not failed); every other record key must be defined.
   const missing = [...auxRecords, ...COVERED.records].filter((k) => !def.has(k));
-  assert.deepEqual(missingKeyFailures(missing, !!process.env.NEWS_MONITOR_REPO), [], "every record key is a news-monitor source");
-  if (missing.length) t.diagnostic(`news-monitor checkout ${NM} predates the generated files; not checked: ${missing.join(", ")}`);
+  assert.deepEqual(missing, [], "every record key is a news-monitor source");
   for (const k of [...auxRecords, ...COVERED.records].filter((x) => def.has(x))) {
     assert.ok(ruleIsRecord(def.get(k)), `${k} satisfies the rule`);
   }
