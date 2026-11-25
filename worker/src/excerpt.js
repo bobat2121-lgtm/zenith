@@ -501,9 +501,9 @@ export function secExcerpt(bodyText, exhibitText) {
 // federalregister.gov's "Request Access" page, Cloudflare's challenge and
 // block pages, Incapsula, Akamai and Distil denials. fetchPage reports one as
 // 'blocked', which is retried like a 403. A marker is searched for in the raw
-// page first (cheap), then must be in its title or visible text (not a script,
-// an attribute or a hidden form's label), and only a short page counts, so an
-// article that mentions CAPTCHAs is still read.
+// page first (cheap), then must be in its text (not a script, a template or
+// an attribute), and only a short page counts, so an article that mentions
+// CAPTCHAs is still read.
 const BLOCK_RE = [
   /has been flagged as potentially automated/i,
   /programmatic access to these sites is limited/i,
@@ -520,13 +520,14 @@ const BLOCK_PAGE_CHARS = 4000;
 export function isBlockPage(html) {
   const h = String(html || "").slice(0, MAX_TEXT_INPUT);
   if (!BLOCK_RE.some((re) => re.test(h))) return false;
-  const text = htmlToText(h);
-  if (text.length > BLOCK_PAGE_CHARS) return false;
-  const t = h.toLowerCase().indexOf("<title");
-  const te = t === -1 ? -1 : h.indexOf(">", t);
-  const tc = te === -1 ? -1 : h.toLowerCase().indexOf("</title", te);
-  const title = tc === -1 ? "" : htmlToText(h.slice(te + 1, Math.min(tc, te + 1 + 300)));
-  return BLOCK_RE.some((re) => re.test(title) || re.test(text));
+  if (htmlToText(h).length > BLOCK_PAGE_CHARS) return false;
+  // The page's text without scripts, styles and templates but with its title,
+  // noscript and iframe text: Cloudflare's JS challenge says "Enable JavaScript
+  // and cookies to continue" only in <noscript>, Incapsula's denial sits in an
+  // <iframe>.
+  const shown = stripTags(dropBlocks(dropComments(h), ["script", "style", "svg", "template"]), " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity).replace(/\s+/g, " ");
+  return BLOCK_RE.some((re) => re.test(shown));
 }
 
 // --- Federal Register ------------------------------------------------------------
@@ -559,7 +560,8 @@ export function govinfoUrl(rec) {
 function gpoParagraphs(html) {
   const s = String(html || "").slice(0, MAX_TEXT_INPUT);
   const lower = s.toLowerCase();
-  const open = lower.indexOf("<pre");
+  let open = lower.indexOf("<pre");
+  while (open !== -1 && /[a-z0-9-]/.test(lower[open + 4] || "")) open = lower.indexOf("<pre", open + 1);
   const gt = open === -1 ? -1 : s.indexOf(">", open);
   const close = gt === -1 ? -1 : lower.indexOf("</pre>", gt);
   const body = gt === -1 ? s : s.slice(gt + 1, close === -1 ? s.length : close);
@@ -567,10 +569,12 @@ function gpoParagraphs(html) {
     .replace(/\r/g, "").replace(/\n?\[\[Page \d+\]\]\n?/g, "\n").split(/\n[ \t]*\n/).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 const FR_SUPP_START = /^SUPPLEMENTARY INFORMATION:\s*/;
-const FR_SUPP_END = /^(?:List of Subjects\b|Public Participation\b|Privacy Act\b|Regulatory Flexibility\b|Final Regulatory Flexibility\b|Initial Regulatory Flexibility\b|Paperwork Reduction Act\b|Congressional Review Act\b|Rulemaking Requirements\b|Regulatory (?:Analyses|Analysis|Requirements|Notices)\b|Procedural Matters\b|Ordering Clauses\b|Executive Orders? \d|Statutory Authority\b|Authority:|\[FR Doc\.)/;
+const FR_SUPP_END = /^(?:List of Subjects\b|Regulatory Flexibility\b|Final Regulatory Flexibility\b|Initial Regulatory Flexibility\b|Paperwork Reduction Act\b|Congressional Review Act\b|Rulemaking Requirements\b|Regulatory (?:Analyses|Analysis|Requirements|Notices)\b|Procedural Matters\b|Ordering Clauses\b|Executive Orders? \d|Statutory Authority\b|Authority:|\[FR Doc\.)/;
 // Subsections every rule of a kind repeats (BIS's description of the Entity
-// List, its savings clause, its statutory authority): skipped to the next heading.
-const FR_BOILERPLATE = /^(?:The Entity List|Savings Clause|Export Control Reform Act(?: of 2018)?|Legal Authority|Statutory Authority|Instructions)$/i;
+// List, its savings clause, its statutory authority; DOT's comment
+// instructions, public participation and Privacy Act notes, which open its
+// notices before the Background): skipped to the next heading.
+const FR_BOILERPLATE = /^(?:(?:The Entity List|Savings Clause|Export Control Reform Act(?: of 2018)?|Legal Authority|Statutory Authority|Instructions)$|Public Participation\b|Privacy Act\b)/i;
 const isHeading = (p) => p.length <= 80 && !/[.:;,]$/.test(p);
 export function fedregSupplementary(html) {
   const paras = gpoParagraphs(html);
