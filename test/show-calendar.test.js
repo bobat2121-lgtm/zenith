@@ -67,6 +67,17 @@ test("A4: a rival-marked title gives no entry, a product-only title gives no ent
   assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.kind, e.start]), [["AXON", "council_agenda", day]]);
 });
 
+test("A4: the leading [AXON] routing tag alone does not name the company (a title naming only another vendor gives no entry)", async () => {
+  const env = newEnv();
+  const day = "2026-12-08";
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] Testville City Council 26-7: Motorola Solutions body camera contract — In Committee, agenda ${day}` });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "tag only");
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] Testville City Council 26-3: Axon Enterprise contract — In Committee, agenda ${day}` });
+  assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.start]), [["AXON", day]]);
+});
+
 async function seedCalendar(env) {
   const day = addDays(today(), 10);
   await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: agendaTitle("26-3", "Axon Enterprise contract", day),

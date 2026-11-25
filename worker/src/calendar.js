@@ -392,6 +392,9 @@ export async function gradedNotices(db, { sinceIso }) {
 // date as first seen: news-monitor does not re-store a matter when it moves.
 const AGENDA_RE = /, agenda (20\d\d-\d\d-\d\d)\b/;
 const RIVAL_MARK_RE = /^\[[^\]]+\]\s*\([^)]*\brival\)/;
+// The leading routing tag ("[AXON] ") and any marker after it: news-monitor adds
+// them, so they never count as the title naming the company ("[AXON]" matches "Axon").
+const LEAD_TAG_RE = /^\[[^\]]+\]\s*(?:\([^)]*\)\s*)?/;
 export async function councilAgendas(db, { sinceIso }) {
   // substr, not LIKE 'legistar\_%' ESCAPE: the backslashes would not survive a JS string.
   const rows = (await db.prepare(
@@ -403,7 +406,7 @@ export async function councilAgendas(db, { sinceIso }) {
     const m = AGENDA_RE.exec(title);
     if (!m || RIVAL_MARK_RE.test(title)) continue;
     const own = phraseRegex(MATCH[r.ticker]?.terms || []);
-    if (!own || !own.test(title)) continue;
+    if (!own || !own.test(title.replace(LEAD_TAG_RE, ""))) continue;
     const d = m[1];
     out.push({ ticker: r.ticker, kind: "council_agenda", start: d, end: d, precision: "day", confirmed: true,
       text: clipText(title, 200), item_id: r.item_id, url: r.url });
