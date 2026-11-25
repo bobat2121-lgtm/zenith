@@ -20,7 +20,7 @@ import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, au
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
 import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS, HELD_SQL } from "./lib.js";
 // Phase 0 gates: the daily grading budget (held rows) and the admin rescue.
-import { releaseHeld } from "./budget.js";
+import { releaseHeld, rescueSkipped } from "./budget.js";
 import { isOfficialRecord } from "./records.js";
 import { enrichAuxWargov } from "./wargov.js";
 import { deliveryTick } from "./delivery.js";
@@ -491,7 +491,12 @@ async function requeue(env, body) {
     const r = await refreshSecExcerpts(env, body, COVERED.tickers);
     return json(r, r.error ? 409 : 200);
   }
-  if (body?.mode) return json({ error: "mode must be late_flags or sec_excerpts (or pass item_ids)" }, 400);
+  // Phase 0 gates: turns skipped rows into held rows for the daily budget (budget.js). Not before 2026-11-29; dry_run first.
+  if (body?.mode === "rescue") {
+    const r = await rescueSkipped(env, body);
+    return json(r, r.error ? 400 : 200);
+  }
+  if (body?.mode) return json({ error: "mode must be late_flags, sec_excerpts or rescue (or pass item_ids)" }, 400);
   const ids = (body?.item_ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
   if (!ids.length) return json({ error: "item_ids required" }, 400);
   return json({ requeued: await requeueIds(env, ids) });
