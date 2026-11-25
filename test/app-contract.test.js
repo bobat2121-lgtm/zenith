@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { hookJsonImports, zenithDb, newsDb, TOKENS, request } from "./helpers/worker-env.js";
 import { newsRows, insertNews, gradesFor } from "./helpers/aux-e2e.js";
+import { addOpsTables, addAlert, addManagedConfig, addHealth } from "./helpers/news-ops.js";
 
 hookJsonImports();
 const { default: worker } = await import("../worker/src/index.js");
@@ -183,6 +184,57 @@ const CONTRACT = {
     const rival = (await ok("GET", "/v1/left-out?kind=coverage&days=14&limit=20")).items.find((i) => i.skip_reason === "rival_no_key_account");
     assert.equal((await app("POST", "/v1/left-out/grade", { kind: "coverage", id: rival.id })).status, 400);
     assert.deepEqual([rival.gradeable, typeof rival.blocked], [false, "string"], "the app hides Grade it for it");
+  },
+  // Zenith show (phase 0): the Brief page, the Coverage ops strip and the Tuning recall section.
+  "/v1/brief": async () => {
+    // The seeded grades are 68, under the brief's 70 floor: lift one so the row fields are checked.
+    env.DB.db.prepare("UPDATE grades SET score = 75, band = 'digest' WHERE id = (SELECT MIN(id) FROM grades WHERE run_id = 'run-contract')").run();
+    const b = await ok("GET", `/v1/brief?since=${encodeURIComponent(new Date(Date.now() - 24 * HOUR).toISOString())}`);
+    has(b, ["kind", "generated_at", "from", "to", "window", "leads_digests", "counterparty", "waiting", "catalysts", "health", "to_label"], "brief");
+    has(b.waiting, ["count", "counterparty_count", "oldest", "items"], "brief.waiting");
+    has(b.health, ["grader_last_run", "graded_in_window", "news_monitor"], "brief.health");
+    const rows = [...b.leads_digests.flatMap((g) => g.items), ...b.counterparty];
+    assert.ok(rows.length, "the brief has a graded row");
+    for (const r of rows) has(r, ["headline", "headline_tag", "title", "url", "score", "band", "why", "graded_at", "item_ticker", "ticker"], "brief row");
+    for (const e of b.catalysts) has(e, ["ticker", "start", "precision", "text"], "brief catalyst");
+    for (const r of b.to_label) has(r, ["item_id", "ticker", "title", "url", "score", "why"], "brief to_label");
+    for (const r of b.waiting.items) has(r, ["ticker", "title", "url", "nm_first_seen"], "brief waiting row");
+  },
+  "/v1/calendar": async () => {
+    const b = await ok("GET", "/v1/calendar?days=30");
+    has(b, ["from", "days", "entries"], "calendar");
+    assert.ok(b.entries.length, "the sheet calendar has entries in 30 days");
+    for (const e of b.entries) has(e, ["ticker", "kind", "start", "precision", "text"], "calendar entry");
+  },
+  "/v1/news-ops": async () => {
+    // An isolated news-monitor-db with the ops tables, so the shared env.NEWS stays as it is.
+    const news = addOpsTables(newsDb());
+    addAlert(news, { source_key: "ticker:SYM", rule: "crosscheck_missing_release", detail: { ticker: "SYM", form: "8-K", items: ["7.01", "9.01"] } });
+    addManagedConfig(news, 1, [{ key: "m_test", name: "Test Co" }]);
+    addHealth(news, "m_test", 5);
+    const r = await request(worker, { ...env, NEWS: news }, "GET", "/v1/news-ops", { role: "app" });
+    assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
+    const b = r.body;
+    has(b, ["alerts", "managed", "as_of"], "news-ops");
+    has(b.alerts, ["open", "open_count", "bing_open", "resolved_24h"], "news-ops.alerts");
+    assert.ok(b.alerts.open.length);
+    for (const a of b.alerts.open) has(a, ["source_key", "rule", "opened_at", "last_seen_at", "acknowledged", "snoozed", "detail"], "news-ops alert");
+    has(b.managed, ["configured", "failing", "failing_count", "last_attempt", "config_updated_at"], "news-ops.managed");
+    assert.ok(b.managed.failing.length);
+    for (const f of b.managed.failing) has(f, ["key", "name", "fail_count", "last_ok", "last_error"], "news-ops failing");
+  },
+  "/v1/recall": async () => {
+    const events = [["SYM-1", "on_time"], ["SYM-2", "late"], ["SYM-3", "missed"]].map(([id, status]) => ({ id, ticker: "SYM", event: `Test event ${id}`,
+      event_date: "2026-01-02", kind: "news", public_url: `https://news.example.com/${id}`, status, checked_at: "2026-01-15" }));
+    const load = await request(worker, env, "POST", "/v1/admin/recall", { body: { source: "test-seed", events } });
+    assert.equal(load.status, 200, JSON.stringify(load.body));
+    assert.equal(load.body.accepted, 3);
+    const b = await ok("GET", "/v1/recall");
+    has(b, ["total", "by_status", "by_kind", "checked_at"], "recall");
+    has(b.by_status, ["on_time", "late", "partial", "missed"], "recall.by_status");
+    for (const r of b.by_kind) has(r, ["kind", "on_time", "late", "partial", "missed", "total"], "recall kind row");
+    const b2 = await ok("GET", "/v1/recall?events=1");
+    assert.ok(!("events" in b2), "the app token never gets the event list");
   },
 };
 async function ok(method, path, body) {

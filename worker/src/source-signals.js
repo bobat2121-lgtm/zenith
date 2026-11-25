@@ -19,6 +19,16 @@
 //     (probe_*) write probe_verdict and probe_detail there once a day. Only the
 //     latest check is kept, so a failing probe's `since` is the time of the
 //     check that found it failing.
+//
+// GET /v1/news-ops (app, admin; Zenith show, phase 0) adds the Coverage page's ops
+// strip, also SELECT only:
+//   ops_alerts (src/ops.js): one row per (source_key, rule); open means
+//     resolved_at IS NULL. Bing-host alerts are left out: the source's
+//     source_diagnostics.request_host is on bing.com, or the alert's
+//     detail.final_url is (Bing feed flaps clear by themselves).
+//   universe_managed_config / universe_managed_health (the managed lane): the
+//     latest config revision's sources, failing when fail_count >= MANAGED_FAIL_MIN.
+//     Health rows for keys no longer in the config are ignored.
 import SITE_SOURCES from "./site-sources.json";
 import { json, nowIso } from "./lib.js";
 
@@ -234,4 +244,96 @@ export async function sourceHealth(env, now = Date.now()) {
   if (!env.NEWS) return json({ error: "NEWS binding missing" }, 503);
   const [edgar, probes] = await Promise.all([edgarFastPath(env.NEWS, now), irProbes(env.NEWS, SITE_SOURCES.probes || {})]);
   return json({ edgar_fast_path: edgar, ir_probes: probes, as_of: nowIso(now) });
+}
+
+// --- News-monitor ops (Zenith show, phase 0) -------------------------------------
+export const MANAGED_FAIL_MIN = 3;
+const ALERT_DETAIL_KEYS = ["lane", "ticker", "fail_count", "last_ok", "last_error", "form", "items", "kind", "filed_at", "url", "p95_ratio", "cadence_min"];
+const ALERT_LIMIT = 50;
+const MANAGED_LIMIT = 50;
+// A Bing-host alert: by the source's diagnostics host, or by the alert's own final_url
+// (json_valid first: json_extract throws on a detail that is not JSON). Needs
+// `ops_alerts a LEFT JOIN source_diagnostics d ON d.key = a.source_key`.
+const BING_ALERT = `(COALESCE(d.request_host,'') LIKE '%bing.com'
+        OR COALESCE(CASE WHEN json_valid(a.detail) THEN json_extract(a.detail,'$.final_url') END,'') LIKE '%bing.com%')`;
+const ALERT_FROM = "FROM ops_alerts a LEFT JOIN source_diagnostics d ON d.key = a.source_key";
+const LATEST_CONFIG = "json_each((SELECT sources_json FROM universe_managed_config ORDER BY revision_seq DESC LIMIT 1)) j";
+
+const isScalar = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+
+// The detail fields the app shows. Strings are clipped, scalar arrays kept short,
+// nested objects and arrays holding them dropped, and url kept only when http(s).
+export function alertDetail(detail) {
+  let d;
+  try { d = JSON.parse(detail ?? "null"); } catch { return {}; }
+  if (!d || typeof d !== "object" || Array.isArray(d)) return {};
+  const out = {};
+  for (const k of ALERT_DETAIL_KEYS) {
+    if (!(k in d)) continue;
+    const v = d[k];
+    if (k === "url") {
+      if (typeof v === "string" && /^https?:\/\//i.test(v)) out.url = v.slice(0, 200);
+    } else if (typeof v === "string") out[k] = v.slice(0, 200);
+    else if (v === null || typeof v === "number" || typeof v === "boolean") out[k] = v;
+    else if (Array.isArray(v) && v.every(isScalar)) out[k] = v.slice(0, 10).map((x) => (typeof x === "string" ? x.slice(0, 60) : x));
+  }
+  return out;
+}
+
+async function opsAlerts(news, now) {
+  try {
+    const nowS = nowIso(now);
+    const [rows, bing, resolved] = await Promise.all([
+      news.prepare(
+        `SELECT a.source_key, a.rule, a.opened_at, a.last_seen_at, a.acknowledged_at, a.snoozed_until, a.detail
+           ${ALERT_FROM}
+          WHERE a.resolved_at IS NULL AND NOT ${BING_ALERT}
+          ORDER BY a.opened_at DESC LIMIT ${ALERT_LIMIT}`,
+      ).all(),
+      news.prepare(`SELECT COUNT(*) AS n ${ALERT_FROM} WHERE a.resolved_at IS NULL AND ${BING_ALERT} LIMIT 1`).first(),
+      news.prepare(`SELECT COUNT(*) AS n ${ALERT_FROM} WHERE a.resolved_at >= ? AND NOT ${BING_ALERT} LIMIT 1`).bind(nowIso(now - DAY_MS)).first(),
+    ]);
+    const open = (rows.results || []).map((r) => ({
+      source_key: r.source_key, rule: r.rule, opened_at: r.opened_at, last_seen_at: r.last_seen_at,
+      acknowledged: Boolean(r.acknowledged_at), snoozed: Boolean(r.snoozed_until && r.snoozed_until > nowS),
+      detail: alertDetail(r.detail),
+    }));
+    return { open, open_count: open.filter((r) => !r.acknowledged && !r.snoozed).length, bing_open: Number(bing?.n) || 0, resolved_24h: Number(resolved?.n) || 0 };
+  } catch (e) {
+    if (!missingTable(e)) console.error("news-ops alerts", e?.message || e);
+    return null;
+  }
+}
+
+async function managedLane(news) {
+  try {
+    const [rows, totals, config] = await Promise.all([
+      news.prepare(
+        `SELECT h.key, json_extract(j.value,'$.name') AS name, h.fail_count, h.last_ok, h.last_attempt, h.last_error
+           FROM ${LATEST_CONFIG}
+           JOIN universe_managed_health h ON h.key = json_extract(j.value,'$.key')
+          WHERE h.fail_count >= ?1 ORDER BY h.fail_count DESC, h.key LIMIT ${MANAGED_LIMIT}`,
+      ).bind(MANAGED_FAIL_MIN).all(),
+      news.prepare(
+        `SELECT COUNT(*) AS configured, MAX(h.last_attempt) AS last_attempt
+           FROM ${LATEST_CONFIG}
+           LEFT JOIN universe_managed_health h ON h.key = json_extract(j.value,'$.key') LIMIT 1`,
+      ).first(),
+      news.prepare("SELECT updated_at FROM universe_managed_config ORDER BY revision_seq DESC LIMIT 1").first(),
+    ]);
+    const failing = (rows.results || []).map((r) => ({ key: r.key, name: r.name ?? null, fail_count: r.fail_count, last_ok: r.last_ok,
+      last_attempt: r.last_attempt, last_error: clip(r.last_error, 160) }));
+    return { configured: Number(totals?.configured) || 0, failing, failing_count: failing.length, last_attempt: totals?.last_attempt || null,
+      config_updated_at: config?.updated_at || null };
+  } catch (e) {
+    if (!missingTable(e)) console.error("news-ops managed", e?.message || e);
+    return null;
+  }
+}
+
+// { alerts: {open, open_count, bing_open, resolved_24h} | null, managed: {...} | null, as_of }
+export async function newsOps(env, now = Date.now()) {
+  if (!env.NEWS) return json({ error: "NEWS binding missing" }, 503);
+  const [alerts, managed] = await Promise.all([opsAlerts(env.NEWS, now), managedLane(env.NEWS)]);
+  return json({ alerts, managed, as_of: nowIso(now) });
 }

@@ -14,9 +14,10 @@
 // ingest never fails over it.
 import COVERED from "./covered.json";
 import { MATCH } from "./rubric.generated.js";
-import { nowIso, skipReason, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups } from "./lib.js";
+import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, arrivalGate, isSecItem } from "./lib.js";
 import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
 import { mutedSources } from "./tuning.js";
+import { isOfficialRecord } from "./records.js";
 
 // Windowing, shared with the auxiliary ingest (auxiliary.js).
 export const BATCH = 400;
@@ -110,6 +111,71 @@ export async function storedArchiveCounts(db, rows, cursor, table = "items") {
   return out;
 }
 
+// --- Phase 0 gates: a source's first poll (its seed batch) -------------------
+// news-monitor stores a source's first poll with one shared first_seen, so a
+// row is in its source's seed batch iff its first_seen is the source's
+// MIN(first_seen) in news-monitor-db. Cached per NEWS binding, per isolate: a
+// source's MIN(first_seen) never changes once it has rows. SELECT only.
+const firstPoll = new WeakMap();   // news binding -> Map(source_key -> MIN(first_seen))
+export async function sourceFirstSeen(news, keys) {
+  let known = firstPoll.get(news);
+  if (!known) firstPoll.set(news, (known = new Map()));
+  const need = [...new Set(keys)].filter((k) => k != null && !known.has(k));
+  for (const part of chunk(need)) {
+    const res = await news.prepare(
+      `SELECT source_key, MIN(first_seen) AS f FROM items WHERE source_key IN (${part.map(() => "?").join(",")}) GROUP BY source_key`,
+    ).bind(...part).all();
+    for (const x of res.results || []) if (x.f != null) known.set(x.source_key, x.f);
+  }
+  return new Map([...new Set(keys)].map((k) => [k, known.get(k)]));
+}
+export const isSeedRow = (r, first) => first.get(r.source_key) != null && first.get(r.source_key) === r.first_seen;
+
+// A covered company's own source (the covered lane): its fresh rows always
+// take the fast path.
+export const isOwnLane = (key) => Object.prototype.hasOwnProperty.call(COVERED.sources, key);
+// The rows whose gate decision depends on seed membership: undated or old
+// rows (the 21-day window and the burst labels), and every row of a source
+// that is neither own-lane nor SEC (seed_fresh, integration ruling A1).
+const needsSeed = (r) => isArchiveCandidate(r) || !(isOwnLane(r.source_key) || isSecItem(r));
+export const seedMap = (news, rows) => sourceFirstSeen(news, rows.filter(needsSeed).map((r) => r.source_key));
+
+// The gate's context for one row (lib.js arrivalGate).
+export function gateContext(r, pipeline, first, park) {
+  return { pipeline, record: isOfficialRecord(r), seed: isSeedRow(r, first), burst: park.has(archiveGroupKey(r.source_key, r.first_seen)),
+    ownLane: isOwnLane(r.source_key), sec: isSecItem(r) };
+}
+
+// The park UPDATE for a group that is a burst in this window: parks what the
+// gate would have skipped (undated rows, and record_late rows over 21 days,
+// which core.md's archive-burst rule scores 0-9), never an admission that is
+// still valid (15-21 days) nor a released row. table: items or aux_items.
+export function parkGroupStatement(db, table, { sourceKey, firstSeen, cursor, seed }) {
+  return db.prepare(
+    `UPDATE ${table} SET state = 'skipped', claim_id = NULL, claimed_until = NULL, admit = NULL,
+            skip_reason = CASE WHEN published IS NULL THEN ? ELSE ? END
+      WHERE source_key = ? AND nm_first_seen = ? AND nm_rowid <= ? AND state = 'pending' AND released_at IS NULL
+        AND (published IS NULL OR (admit = 'record_late' AND julianday(nm_first_seen) - julianday(published) > 21))`,
+  ).bind(seed ? "archive_seed" : "undated_burst", seed ? "archive_seed" : "stale_on_arrival", sourceKey, firstSeen, cursor);
+}
+
+// Phase 0 gates (d), one pipeline per item: Coverage owns every news-monitor
+// row its ingest queues, a covered source's row or a counterparty row whose
+// route has a ticker and no key-account skip. Auxiliary stores a row only when
+// Coverage does not own it: a plain auxiliary source, a counterparty row the
+// key-account gate drops (dropped, with the covered tickers the source
+// affects), or one with no routable ticker. Decided from routing, never from
+// a stored skip_reason, so a coverage-owned row that Coverage parks (stale,
+// archive, muted, bad_url) is not stored on Auxiliary either.
+export function coverageOwner(r) {
+  if (isOwnLane(r.source_key)) return { owns: true };
+  const cp = COUNTERPARTY[r.source_key];
+  if (!cp) return { owns: false };
+  const route = routeCounterparty(r.title, cp, MATCH);
+  if (!route?.ticker) return { owns: false };
+  return route.skip ? { owns: false, dropped: route.skip, affects: [...(cp.affects || [])] } : { owns: true };
+}
+
 // Ticker, role and skip reason for one news-monitor row.
 export function routeRow(r) {
   const cp = COUNTERPARTY[r.source_key];
@@ -125,7 +191,7 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0;
+  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, held = 0;
   // A muted source's rows are stored skipped (source prefs, tuning.js).
   const muted = await mutedSources(db);
   for (let b = 0; b < MAX_BATCHES; b++) {
@@ -140,29 +206,35 @@ export async function ingest(env) {
     // Day-one archive rows (a seed or backfill of undated or old pages): parked,
     // not queued as fresh news. Earlier rows of the same poll are parked too.
     const park = archiveSeedGroups(routed.map((x) => x.r), await storedArchiveCounts(db, routed.map((x) => x.r), cursor));
+    // Phase 0 gates: seed membership (news-monitor MIN(first_seen), SELECT only).
+    const first = await seedMap(news, routed.map((x) => x.r));
     const groupRow = new Map(routed.map(({ r }) => [archiveGroupKey(r.source_key, r.first_seen), r]));
     for (const key of park) {
-      const { source_key: sourceKey, first_seen: firstSeen } = groupRow.get(key);
-      stmts.push(db.prepare(
-        `UPDATE items SET state = 'skipped', skip_reason = 'archive_seed', claim_id = NULL, claimed_until = NULL
-          WHERE source_key = ? AND nm_first_seen = ? AND nm_rowid <= ? AND state = 'pending' AND ${OLD_OR_UNDATED_SQL}`,
-      ).bind(sourceKey, firstSeen, cursor));
+      const g = groupRow.get(key);
+      stmts.push(parkGroupStatement(db, "items", { sourceKey: g.source_key, firstSeen: g.first_seen, cursor, seed: isSeedRow(g, first) }));
     }
     const updates = stmts.length;
     for (const { r, route } of routed) {
-      const archive = park.has(archiveGroupKey(r.source_key, r.first_seen)) && isArchiveCandidate(r);
-      // Only http(s) links are ever fetched or shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || route.skip || (muted.has(r.source_key) ? "muted_source" : null);
+      // The arrival gate (lib.js arrivalGate): the stale gate, archive bursts,
+      // and the admissions held for the daily grading budget (budget.js).
+      const gate = arrivalGate(r, gateContext(r, "coverage", first, park));
+      // Only http(s) links are ever fetched or shown in the feed. Precedence:
+      // bad_url, then the key-account gate (a rival row it drops is labelled
+      // rival_no_key_account whatever its age, so its Auxiliary copy is the
+      // one graded), then the arrival gate, then a muted source.
+      const reason = !isHttpUrl(r.url) ? "bad_url" : route.skip || gate.reason || (muted.has(r.source_key) ? "muted_source" : null);
+      const admit = reason ? null : gate.admit;
       if (reason) skipped++;
+      if (admit) held++;
       const feed = feedFields(r, route, now);
       if (feed.status) fromFeed++;
       stmts.push(db.prepare(
         `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects,
-           excerpt, excerpt_status, excerpt_at, excerpt_source, excerpt_fallback)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           excerpt, excerpt_status, excerpt_at, excerpt_source, excerpt_fallback, admit)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(r.nm_rowid, r.source_key, route.ticker, r.url, r.title || "(untitled)", r.published, r.category,
         r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason || null, route.role, route.affects,
-        feed.excerpt, feed.status, feed.at, feed.source, feed.fallback));
+        feed.excerpt, feed.status, feed.at, feed.source, feed.fallback, admit));
     }
     const n = stmts.length;
     stmts.push(setMeta(db, "nm_cursor", win.hi));
@@ -174,5 +246,5 @@ export async function ingest(env) {
     cursor = win.hi;
     if (win.n < BATCH) break;
   }
-  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed };
+  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held };
 }

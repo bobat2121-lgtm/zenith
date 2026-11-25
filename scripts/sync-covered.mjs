@@ -51,6 +51,9 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
     if (t && (s.lane === "covered" || s.covered === true || s.coveredTicker)) sources[s.key] = t;
   }
   const tickers = [...new Set(Object.values(sources))].sort();
+  // Covered (own-lane) record sources, for zenith-core's records.js: the SEC
+  // ones whose key does not start with edgar_ (unusual, strive_sec_northland).
+  const records = sourceList.filter((s) => sources[s.key] && isRecordSource(s)).map((s) => s.key).sort();
   const polled = new Set(sourceList.map((s) => s.key));
   // Declared on the source itself first; COUNTERPARTY_SOURCES rows and the
   // existing-source routing fill in what a source does not declare.
@@ -78,7 +81,7 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
     if (!affects.length) continue;
     counterparty[key] = { role: d.role, affects };
   }
-  return { tickers, sources, counterparty, warnings };
+  return { tickers, sources, counterparty, records, warnings };
 }
 
 // Ops sources: news-monitor's own health probes, site-structure checks and the
@@ -87,6 +90,22 @@ export const OPS_ADAPTERS = ["probe", "site_structure", "edgar_latest"];
 // SEC filing adapters: their auxiliary entries are marked sec, and zenith-core
 // never mutes, demotes or suggests either for them (round 4 Z7), whatever the key.
 export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
+// Official records (Phase 0 gates): registers and government documents. They
+// surface late by nature; on Coverage, zenith-core admits them past the 14-day
+// stale gate when core.md section 8's late-record exception can apply
+// (worker/src/records.js, lib.js arrivalGate), and Tuning never suggests
+// muting or demoting them. A record source is an SEC filing adapter, a
+// register adapter, or a strategic-lane source on a government host. Bing
+// searches (www.bing.com) are never records.
+export const RECORD_ADAPTERS = ["fpds_atom", "legistar_matters", "wargov_contract_paragraphs", "safetyact_awards", "regulations_gov", "federal_register"];
+export const OFFICIAL_HOST_RE = /(^|\.)(gov|mil)$|\.gov\.[a-z]{2}$|(^|\.)legistar\.com$|(^|\.)canada\.ca$|(^|\.)fmv\.se$/i;
+const STRATEGIC_LANES = ["strategic_noncompany", "strategic_fast_noncompany"];
+export function isRecordSource(s) {
+  if (SEC_ADAPTERS.includes(s?.adapter) || RECORD_ADAPTERS.includes(s?.adapter)) return true;
+  let host = "";
+  try { host = new URL(s?.endpoint || s?.url || "").hostname; } catch {}
+  return STRATEGIC_LANES.includes(s?.lane) && OFFICIAL_HOST_RE.test(host);
+}
 // Counterparty adapters that filter a third-party feed down to items about a
 // covered company (keyword RSS, contract and docket searches, lists). Their
 // items are graded on the Coverage page and are also coverage_subject
@@ -180,6 +199,7 @@ export function buildAux(sourceList, covered, peers = []) {
     sources[key] = { entity, name, status, lane: s.lane };
     if (subject.has(key)) Object.assign(sources[key], { coverage_subject: true, affects: subject.get(key) });
     if (SEC_ADAPTERS.includes(s.adapter)) sources[key].sec = true;
+    if (isRecordSource(s)) sources[key].record = true;
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
   return { sources, exclude: sortedExclude };
@@ -201,12 +221,12 @@ async function main(repo) {
   const cpPath = join(repo, "src", "counterparty-sources.js");
   const { COUNTERPARTY_SOURCES = [], COUNTERPARTY_EXISTING = {} } = existsSync(cpPath)
     ? await import(pathToFileURL(cpPath).href).catch(() => ({})) : {};
-  const { tickers, sources, counterparty, warnings } = buildCovered(SOURCES, { counterpartySources: COUNTERPARTY_SOURCES, existing: COUNTERPARTY_EXISTING });
+  const { tickers, sources, counterparty, records, warnings } = buildCovered(SOURCES, { counterpartySources: COUNTERPARTY_SOURCES, existing: COUNTERPARTY_EXISTING });
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   for (const t of tickers) if (!existsSync(join(root, "rubric", "companies", `${t}.md`))) warnings.push(`${t}: covered but has no rubric/companies/${t}.md sheet`);
   const out = {
     generated_from: "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js)",
-    tickers, sources, counterparty,
+    tickers, sources, counterparty, records,
   };
   const target = join(root, "worker", "src", "covered.json");
   writeFileSync(target, JSON.stringify(out, null, 2) + "\n");

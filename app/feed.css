@@ -83,9 +83,14 @@ div.st-key-zhealth [data-testid="stPopover"] button { min-height: 1.5rem; paddin
 div.st-key-zgrader { flex-wrap: wrap !important; row-gap: .2rem; margin-top: -.6rem; }
 div.st-key-zgrader [data-testid="stPopover"] button { min-height: 1.5rem; padding: 0 .55rem; font-size: .74rem; border-radius: 999px;
   white-space: nowrap; }
+/* Coverage page: news-monitor ops strip from /v1/news-ops (same look as the grader strip). */
+div.st-key-zops { flex-wrap: wrap !important; row-gap: .2rem; margin-top: -.6rem; }
+div.st-key-zops [data-testid="stPopover"] button { min-height: 1.5rem; padding: 0 .55rem; font-size: .74rem; border-radius: 999px;
+  white-space: nowrap; }
 /* At 375 px a strip (or a Source yield row) wraps and its control drops to the next row:
    Streamlit's -1rem markdown margin would pull the control over the text. */
 div.st-key-zhealth [data-testid="stMarkdownContainer"], div.st-key-zgrader [data-testid="stMarkdownContainer"],
+div.st-key-zops [data-testid="stMarkdownContainer"],
 div[class*="st-key-zyield-"] [data-testid="stMarkdownContainer"] { margin-bottom: 0; }
 
 /* Reason picker under a card's label row: one compact select that stays on one line
@@ -138,3 +143,9 @@ div[class*="st-key-zmode-"] [data-testid="stButtonGroup"] button,
 div[class*="st-key-zmode-"] [data-testid="stPopover"] button { white-space: nowrap; flex: 0 0 auto; min-width: max-content; }
 div[class*="st-key-zmode-"] [data-testid="stPopover"] button { min-height: 1.75rem; padding: 0 .6rem; font-size: .78rem; border-radius: 999px; }
 div[class*="st-key-zmode-"] button * { white-space: nowrap; }
+
+/* Brief page: the calendar's day headers and lines (also the brief's compact rows). */
+.z-cal-day { margin-top:.55rem; font-weight:700; color:var(--z-text); font-size:.85rem; }
+.z-cal { padding:.18rem 0; border-bottom:1px solid var(--z-line); font-size:.86rem; color:var(--z-soft); overflow-wrap:anywhere; }
+.z-cal a { color: var(--z-text) !important; }
+div.st-key-zcal { flex-wrap: wrap !important; row-gap: .2rem; }

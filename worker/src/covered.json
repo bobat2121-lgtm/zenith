@@ -1148,5 +1148,32 @@
         "UMAC"
       ]
     }
-  }
+  },
+  "records": [
+    "edgar_aglt",
+    "edgar_asst",
+    "edgar_aur",
+    "edgar_axon",
+    "edgar_bot",
+    "edgar_dpro",
+    "edgar_evlv",
+    "edgar_grrr",
+    "edgar_kdk",
+    "edgar_mbai",
+    "edgar_mrln",
+    "edgar_mstr",
+    "edgar_onds",
+    "edgar_pdyn",
+    "edgar_pl",
+    "edgar_pusa",
+    "edgar_rcat",
+    "edgar_satl",
+    "edgar_serv",
+    "edgar_spai",
+    "edgar_srfm",
+    "edgar_sym",
+    "edgar_umac",
+    "strive_sec_northland",
+    "unusual"
+  ]
 }

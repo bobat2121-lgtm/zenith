@@ -73,18 +73,19 @@ export function newsRows(now = Date.now()) {
     // Covered company: coverage only.
     { tag: "covered", source_key: "redcat", title: "Red Cat wins Army follow-on order for Black Widow systems", first_seen: iso(now, 6 * HOUR) },
     // Counterparty filter built for a covered company (FPDS notices naming Planet Labs): graded on
-    // Coverage and also auxiliary as a coverage subject; this one is mainly about the covered company.
+    // Coverage only (one pipeline per item, Phase 0 gates d); this one is mainly about the covered company.
     { tag: "co_mention", source_key: "fpds_pl", title: "Contract notice: Planet Labs PBC imagery subscription", first_seen: iso(now, 5.5 * HOUR) },
     // Ops: a site-structure watcher.
     { tag: "ops", source_key: "site_kodiak", title: "kodiak.ai sitemap changed", first_seen: iso(now, 5.2 * HOUR) },
     // Archive seed burst: six undated pages from one poll.
+    // seed: the source's first poll (insertNews adds no earlier poll for it).
     ...Array.from({ length: 6 }, (_, k) => ({ tag: "archive", source_key: "zoox", url: `https://zoox.com/journal/${k}`, title: `Zoox journal page ${k}`,
-      published: null, first_seen: burst })),
+      published: null, first_seen: burst, seed: true })),
     // Runtime managed_* key for a covered company: a coverage duplicate, never auxiliary.
     { tag: "managed_covered", source_key: "managed_draganfly_news", title: "Draganfly news mention", first_seen: iso(now, 4.5 * HOUR) },
     // Peer newsroom.
     { tag: "anduril_noise", source_key: "anduril", title: "Anduril hosts Arsenal-1 hiring event in Ohio", first_seen: iso(now, 4 * HOUR) },
-    // Counterparty company channel: also an auxiliary name.
+    // Counterparty company channel routed to a covered ticker: Coverage only (one pipeline per item).
     { tag: "skydio", source_key: "skydio", title: "Skydio X10 now deployed with two more state police agencies", first_seen: iso(now, 3.5 * HOUR) },
     // Runtime managed_* key for a name outside the static registry.
     { tag: "managed", source_key: "managed_fort_robotics_news", title: "FORT Robotics closes $40M Series C for machine safety controllers",
@@ -99,9 +100,21 @@ export function newsRows(now = Date.now()) {
 }
 
 // Inserts rows into a newsDb() (test/helpers/worker-env.js) that has a body column.
+// Like a live system, each source first gets one earlier poll, 60 days back
+// (before both ingests' backfill windows, so zenith-core never reads it): the
+// test rows are then not their source's first poll, which the Phase 0 arrival
+// gate would hold for the daily grading budget (seed_fresh, budget.js). A row
+// marked seed: true is its source's first poll: no earlier poll is added.
 let seq = 0;
+const HISTORY_MS = 60 * 24 * 3_600_000;
 export function insertNews(news, rows) {
   const stmt = news.db.prepare("INSERT INTO items (source_key, url, title, published, category, first_seen, notified, body) VALUES (?, ?, ?, ?, NULL, ?, 1, ?)");
+  const known = new Set(news.db.prepare("SELECT DISTINCT source_key FROM items").all().map((x) => x.source_key));
+  for (const key of new Set(rows.map((r) => r.source_key))) {
+    if (known.has(key) || rows.some((r) => r.source_key === key && r.seed)) continue;
+    const old = new Date(Date.now() - HISTORY_MS).toISOString();
+    stmt.run(key, `https://news.example.com/${key}/earlier-poll`, `${key} earlier poll`, old, old, null);
+  }
   for (const r of rows) {
     stmt.run(r.source_key, r.url ?? `https://news.example.com/${r.source_key}/${++seq}`, r.title,
       r.published === undefined ? r.first_seen : r.published, r.first_seen, r.body ?? null);
@@ -131,11 +144,13 @@ export function gradesFor(claim, coveredTicker, { invalid = false } = {}) {
       why: "Trade-press copy of the Anduril Series G release.", flags: ["reason:duplicate"], dup_of: invalid ? media.item_id : lead.item_id },
     { ...base, item_id: nga.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
       why: "NGA imagery agreement with Planet Labs.", flags: ["reason:covered_name"], covered_ticker: invalid ? "XYZ" : "PL" },
-    { ...base, item_id: skydio.item_id, entity: "Skydio", score: 55, band: "borderline", event_type: "deployment",
-      why: "Two more state police agencies deployed Skydio X10.", flags: ["reason:minor"] },
-    { ...base, item_id: fpds.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
-      why: "FPDS notice for a Planet Labs imagery subscription: the covered company's own award.", flags: ["reason:covered_name"], covered_ticker: "PL" },
+    // Counterparty rows routed to a covered ticker are Coverage-only since Phase 0 gates (d):
+    // these two grades apply only to a claim that still holds such a row.
+    ...(skydio ? [{ ...base, item_id: skydio.item_id, entity: "Skydio", score: 55, band: "borderline", event_type: "deployment",
+      why: "Two more state police agencies deployed Skydio X10.", flags: ["reason:minor"] }] : []),
+    ...(fpds ? [{ ...base, item_id: fpds.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
+      why: "FPDS notice for a Planet Labs imagery subscription: the covered company's own award.", flags: ["reason:covered_name"], covered_ticker: "PL" }] : []),
   ];
-  return { grades, ids: { lead: lead.item_id, noise: noise.item_id, fort: fort.item_id, media: media.item_id, nga: nga.item_id, skydio: skydio.item_id,
-    fpds: fpds.item_id } };
+  return { grades, ids: { lead: lead.item_id, noise: noise.item_id, fort: fort.item_id, media: media.item_id, nga: nga.item_id, skydio: skydio?.item_id,
+    fpds: fpds?.item_id } };
 }
