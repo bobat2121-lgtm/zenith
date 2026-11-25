@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hookJsonImports } from "./helpers/worker-env.js";
-import { buildCovered, buildAux, shortName, humanize, FILTER_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE } from "../scripts/sync-covered.mjs";
+import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
 const { makeAuxRoute } = await import("../worker/src/aux-route.js");
@@ -336,4 +336,23 @@ test("rivals do not change aux-sources: buildAux is identical with and without t
   const adapters = new Set(RIVAL_SOURCES.filter((s) => withRivals.counterparty[s.key]?.role === "rival").map((s) => s.adapter));
   for (const a of ["rss", "sitemap_diff", "html_diff", "edgar"]) assert.ok(adapters.has(a), a);
   assert.deepEqual(buildAux(RIVAL_SOURCES, withRivals, []), buildAux(RIVAL_SOURCES, without, []));
+});
+
+// covered.json channels (buildChannels): each source's own registrable domain.
+test("buildChannels: an own-host source gets its registrable domain; filter adapters, Bing and Google searches, ops sources, probe_ and site_ keys and non-URL endpoints get none; keys sorted", () => {
+  const channels = buildChannels([
+    { key: "zeta_news", adapter: "rss", endpoint: "https://ir.zeta.example/rss" },
+    { key: "acme_news", adapter: "rss", endpoint: "https://news.example.co.uk/feed" },
+    { key: "beta_blog", adapter: "sitemap_diff", url: "https://www.beta.example/sitemap.xml" },
+    { key: "acme_mentions", adapter: "rss_filtered", endpoint: "https://feeds.acme.example/search" },
+    { key: "acme_search", adapter: "rss", endpoint: "https://www.bing.com/news/search?q=acme&format=rss" },
+    { key: "acme_google", adapter: "rss", endpoint: "https://news.google.com/rss/search?q=acme" },
+    { key: "acme_site", adapter: "site_structure", endpoint: "https://acme.example/" },
+    { key: "probe_x", adapter: "rss", endpoint: "https://probe.example/rss" },
+    { key: "site_acme", adapter: "html_diff", endpoint: "https://acme.example/" },
+    { key: "acme_sec", adapter: "edgar", endpoint: "data.sec.example" },
+  ]);
+  assert.deepEqual(channels, { acme_news: "example.co.uk", beta_blog: "beta.example", zeta_news: "zeta.example" });
+  assert.deepEqual(Object.keys(channels), Object.keys(channels).slice().sort());
+  assert.ok(OPS_ADAPTERS.includes("site_structure"));
 });

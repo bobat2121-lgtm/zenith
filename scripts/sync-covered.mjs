@@ -8,7 +8,9 @@
 // e.g. hourly deck and IR-event feeds, keep that field).
 // Counterparty sources: every source that declares role and affects (any
 // source file), plus the hand-maintained COUNTERPARTY_EXISTING routing for
-// sources that predate those fields.
+// sources that predate those fields, plus the rivals listed in
+// registry/rivals.json. Channels: each source's own registrable domain
+// (buildChannels).
 //
 // Also writes worker/src/aux-sources.json: every other polled company or program
 // source (auxiliary names, graded on their own page) with its entity, display
@@ -27,6 +29,7 @@ import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 import { buildSiteSources } from "./site-sources.mjs";
+import { regDomain, hostOf } from "../worker/src/domain.js";
 
 export const ROLES = ["relationship", "customer", "program", "rival", "index_event"];
 const upper = (t) => String(t ?? "").trim().toUpperCase();
@@ -231,6 +234,25 @@ export function buildAux(sourceList, covered, peers = []) {
   return { sources, exclude: sortedExclude };
 }
 
+// covered.json channels: each source's own channel, { key: registrable domain
+// of its endpoint host }, so the Worker can tell a company's own page from a
+// copy elsewhere. Left out: filter adapters (third-party feeds filtered for a
+// company), ops sources, probe_* and site_* keys, Bing and Google searches,
+// and sources with no endpoint URL. Keys sorted.
+const SEARCH_DOMAINS = ["bing.com", "google.com"];
+export function buildChannels(sourceList) {
+  const out = {};
+  for (const s of sourceList || []) {
+    const key = s?.key;
+    if (!key || /^(probe|site)_/.test(key)) continue;
+    if (FILTER_ADAPTERS.includes(s.adapter) || OPS_ADAPTERS.includes(s.adapter)) continue;
+    const domain = regDomain(hostOf(s.endpoint || s.url));
+    if (!domain || SEARCH_DOMAINS.includes(domain)) continue;
+    out[key] = domain;
+  }
+  return Object.fromEntries(Object.keys(out).sort().map((k) => [k, out[k]]));
+}
+
 // The FPDS program, or a covered ticker's co-mention search; else null.
 function programName(entity, named, tickers) {
   if (entity === FPDS.entity) return FPDS.name;
@@ -255,6 +277,7 @@ async function main(repo) {
   const out = {
     generated_from: "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js) and registry/rivals.json",
     tickers, sources, counterparty, records,
+    channels: buildChannels(SOURCES),
   };
   const target = join(root, "worker", "src", "covered.json");
   writeFileSync(target, JSON.stringify(out, null, 2) + "\n");
