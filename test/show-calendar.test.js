@@ -4,6 +4,7 @@
 // tickers only. Synthetic towns, files and titles throughout.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { hookJsonImports, zenithDb, newsDb, TOKENS, request } from "./helpers/worker-env.js";
 import { addItem, addGrade } from "./helpers/d1.js";
 
@@ -132,6 +133,16 @@ test("GET /v1/calendar: the grader token still gets 200 with entries after the c
   assert.equal(r.status, 200);
   assert.ok(r.body.entries.length > 0);
   assert.ok(r.body.entries.some((e) => e.kind === "council_agenda"));
+});
+
+test("README: the GET /v1/calendar row names the roles the Worker lets in (grader, app; admin is implied)", async () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const row = readme.split("\n").find((l) => l.startsWith("| `GET /v1/calendar"));
+  assert.ok(row, "README has a GET /v1/calendar row");
+  const cell = row.split("|").at(-2).trim();
+  assert.equal(cell, "grader, app");
+  const env = newEnv();
+  for (const role of ["grader", "app"]) assert.equal((await request(worker, env, "GET", "/v1/calendar?days=30", { role })).status, 200, role);
 });
 
 test("the generated calendar keeps MSTR 2026-11-30 (MSCI) and MBAI 2026-12-22 (AGM)", () => {
