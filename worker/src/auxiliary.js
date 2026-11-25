@@ -13,12 +13,13 @@
 // rubric), not to a covered ticker. Read-through to covered tickers is a side
 // note (reads_through) and never a score.
 import COVERED from "./covered.json";
-import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
+import { AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
-import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, seedMap, isSeedRow, gateContext, parkGroupStatement } from "./ingest.js";
+import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, seedMap, isSeedRow, gateContext, parkGroupStatement,
+  coverageOwner } from "./ingest.js";
 import { isOfficialRecord } from "./records.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
-  olderEventDate, normalizeHeadline, normalizeRelations, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
+  olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
   HELD_SQL } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 import { auxEntitySighting, upsertAfterGrades, relationSightings } from "./expansion.js";
@@ -38,11 +39,20 @@ const STATS_ENTITY_DAYS = 30;
 // excerpt is the feed's own text when it carries the release itself, and an
 // auxiliary page is never fetched.
 //
+// One pipeline per item (Phase 0 gates (d), ingest.js coverageOwner): a row
+// Coverage owns (a covered source's, or a counterparty row routed to a ticker
+// and kept by the key-account gate) is never stored here, so no item is
+// graded twice. Auxiliary stores plain auxiliary sources, counterparty rows
+// with no routable ticker, and rival rows the key-account gate drops. A
+// one-time cleanup at deploy (meta aux_owner_cleanup) parks the waiting aux
+// copies of coverage-owned rows stored before this rule as 'on_coverage'.
+//
 // Coverage-subject sources (aux-route.js) joined after aux_nm_cursor had
 // passed their rows, so a one-time catch-up (meta aux_cs_cursor) scans the
 // rows from the 14-day backfill start up to aux_nm_cursor for those sources
-// only, bounded per run like the main scan, and then stops ('done'). A
-// zenith-db whose first auxiliary run routes them already never needs it.
+// only, bounded per run like the main scan, and then stops ('done'). Under the
+// one-pipeline rule it stores only the rows Coverage does not own. A zenith-db
+// whose first auxiliary run routes them already never needs it.
 //
 // Rival sources (Z11): a rival's item that the coverage key-account gate drops
 // (rival_no_key_account: its title names neither an affected company nor one
@@ -70,10 +80,37 @@ export async function ingestAux(env) {
     await db.batch([setMeta(db, "aux_nm_cursor", cursor), setMeta(db, "aux_cs_cursor", AUX_CS_DONE), setMeta(db, "aux_rv_cursor", AUX_CS_DONE)]);
   }
   const muted = await mutedSources(db);
+  // Phase 0 gates (d): once, before the scan, the waiting aux copies of rows Coverage owns leave the queue.
+  const ownerCleanup = await auxOwnerCleanup(db);
   const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted });
   const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, only: (route) => route.coverage_subject === true });
   const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, rivalCatchUp: true });
-  return { ...main, coverage_subject_catch_up: subjects, rival_catch_up: rivals };
+  return { ...main, owner_cleanup: ownerCleanup, coverage_subject_catch_up: subjects, rival_catch_up: rivals };
+}
+
+// One-time deploy cleanup (meta aux_owner_cleanup = 'done'): parks every
+// waiting aux row (pending, or claimed with an expired lease) whose
+// news-monitor row Coverage owns (coverageOwner), as 'on_coverage'. Never the
+// aux copy of a rival row the key-account gate drops, whatever its Coverage
+// stub's label. Bounded per run; done once a run finds fewer than the bound.
+export const AUX_OWNER_CLEANUP_BATCH = 1000;
+export async function auxOwnerCleanup(db, now = nowIso()) {
+  if ((await getMeta(db, "aux_owner_cleanup")) === AUX_CS_DONE) return null;
+  const rows = (await db.prepare(
+    `SELECT id, nm_rowid, source_key, title FROM aux_items WHERE state = 'pending' OR (state = 'claimed' AND claimed_until < ?) ORDER BY id LIMIT ?`,
+  ).bind(now, AUX_OWNER_CLEANUP_BATCH).all()).results || [];
+  const ids = rows.filter((r) => coverageOwner(r).owns).map((r) => r.id);
+  let parked = 0;
+  for (const part of chunk(ids)) {
+    const r = await db.prepare(
+      `UPDATE aux_items SET state = 'skipped', skip_reason = 'on_coverage', claim_id = NULL, claimed_until = NULL
+        WHERE id IN (${part.map(() => "?").join(",")}) AND (state = 'pending' OR (state = 'claimed' AND claimed_until < ?))`,
+    ).bind(...part, now).run();
+    parked += r.meta?.changes || 0;
+  }
+  const done = rows.length < AUX_OWNER_CLEANUP_BATCH;
+  if (done) await setMeta(db, "aux_owner_cleanup", AUX_CS_DONE).run();
+  return { scanned: rows.length, parked, done };
 }
 
 // A one-time catch-up (meta cursorKey) up to the main cursor (end). Returns
@@ -90,13 +127,12 @@ async function catchUp(db, news, end, cursorKey, opts) {
 }
 
 // For a rival source's row: whether the coverage key-account gate keeps it
-// (the same matcher as the coverage ingest, ingest.js routeRow), and the
+// (ingest.js coverageOwner, the coverage ingest's own routing), and the
 // covered tickers the source affects. null for any other source.
 export function rivalGate(r) {
   const cp = COUNTERPARTY[r.source_key];
   if (cp?.role !== "rival") return null;
-  const cov = routeCounterparty(r.title, cp, MATCH);
-  return { onCoverage: Boolean(cov?.ticker && !cov.skip), affects: [...(cp.affects || [])] };
+  return { onCoverage: coverageOwner(r).owns, affects: [...(cp.affects || [])] };
 }
 
 // Scans news-monitor rows after `cursor` (up to `end` when given) in BATCH-row
@@ -115,10 +151,11 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     for (const r of await newsRows(news, cursor, win.hi)) {
       let route = auxRoute(r.source_key);
       if (!route) continue;
-      const rival = rivalGate(r);
-      if (rivalCatchUp && !rival) continue;
-      if (rival?.onCoverage) { if (rivalCatchUp) onCoverage.push(r); continue; }
-      if (rival) route = { ...route, coverage_subject: true, affects: rival.affects };
+      if (rivalCatchUp && COUNTERPARTY[r.source_key]?.role !== "rival") continue;
+      // One pipeline per item (ingest.js coverageOwner): a row Coverage owns is never stored here.
+      const own = coverageOwner(r);
+      if (own.owns) { if (rivalCatchUp) onCoverage.push(r); continue; }
+      if (own.dropped) route = { ...route, coverage_subject: true, affects: own.affects };
       if (only(route)) routed.push({ r, route });
     }
     matched += routed.length;

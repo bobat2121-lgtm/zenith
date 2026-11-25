@@ -159,6 +159,23 @@ export function parkGroupStatement(db, table, { sourceKey, firstSeen, cursor, se
   ).bind(seed ? "archive_seed" : "undated_burst", seed ? "archive_seed" : "stale_on_arrival", sourceKey, firstSeen, cursor);
 }
 
+// Phase 0 gates (d), one pipeline per item: Coverage owns every news-monitor
+// row its ingest queues, a covered source's row or a counterparty row whose
+// route has a ticker and no key-account skip. Auxiliary stores a row only when
+// Coverage does not own it: a plain auxiliary source, a counterparty row the
+// key-account gate drops (dropped, with the covered tickers the source
+// affects), or one with no routable ticker. Decided from routing, never from
+// a stored skip_reason, so a coverage-owned row that Coverage parks (stale,
+// archive, muted, bad_url) is not stored on Auxiliary either.
+export function coverageOwner(r) {
+  if (isOwnLane(r.source_key)) return { owns: true };
+  const cp = COUNTERPARTY[r.source_key];
+  if (!cp) return { owns: false };
+  const route = routeCounterparty(r.title, cp, MATCH);
+  if (!route?.ticker) return { owns: false };
+  return route.skip ? { owns: false, dropped: route.skip, affects: [...(cp.affects || [])] } : { owns: true };
+}
+
 // Ticker, role and skip reason for one news-monitor row.
 export function routeRow(r) {
   const cp = COUNTERPARTY[r.source_key];

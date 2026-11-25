@@ -2,9 +2,11 @@
 // auxiliary name are copied into aux_items by their own cursor, with the
 // coverage ingest's windowing, skip reasons and archive parking; feed text that
 // is the release becomes the excerpt and no page is ever fetched. The coverage
-// tables and cursor never move because of it. Coverage-subject sources (filters
-// built for a covered company) are stored with coverage_subject and affects, and
-// a one-time catch-up (aux_cs_cursor) stores their rows the cursor had passed.
+// tables and cursor never move because of it. One pipeline per item (Phase 0
+// gates d): a row Coverage owns (covered, or a counterparty row routed to a
+// ticker) is never stored here; a rival row the key-account gate drops is,
+// with coverage_subject and affects, and a one-time catch-up (aux_cs_cursor)
+// stores such rows the cursor had passed.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hookJsonImports, zenithDb, newsDb, TOKENS, request } from "./helpers/worker-env.js";
@@ -33,24 +35,26 @@ async function offline(run) {
 const meta = (db, key) => db.rows("SELECT value FROM meta WHERE key = ?", key)[0]?.value ?? null;
 const atStart = (db, key = "aux_nm_cursor") => db.db.prepare("INSERT INTO meta (key, value) VALUES (?, '0')").run(key);
 
-test("routes auxiliary sources only: covered, ops and covered-duplicate rows are not stored; coverage subjects are, marked", async () => {
+test("routes auxiliary sources only: covered, ops, covered-duplicate and coverage-owned counterparty rows are not stored; gate-dropped rival rows are, marked", async () => {
   const news = newsDb();
   const db = zenithDb();
   atStart(db);
   atStart(db, "nm_cursor");
   for (const source_key of ["anduril", "nga", "redcat", "aglt_rel", "site_kodiak", "probe_x", "edgar_latest", "managed_draganfly_news",
     "ia_media_dronelife", "edgar_ssti", "skydio", "maymobility_news"]) ins(news, { source_key, title: `${source_key} news` });
+  // A rival's item naming no affected company or key account: dropped by the key-account gate.
+  ins(news, { source_key: "neura", title: "NEURA Robotics opens a plant in Metzingen" });
   const r = await ingestAux({ DB: db, NEWS: news });
-  assert.equal(r.scanned, 12);
-  assert.equal(r.inserted, 7);
+  assert.equal(r.scanned, 13);
+  assert.equal(r.inserted, 6);
   const rows = Object.fromEntries(db.rows("SELECT source_key, entity_key, entity_name, status, state, coverage_subject, affects FROM aux_items")
     .map((x) => [x.source_key, { ...x }]));
-  assert.deepEqual(Object.keys(rows).sort(), ["aglt_rel", "anduril", "edgar_ssti", "ia_media_dronelife", "maymobility_news", "nga", "skydio"]);
+  // Phase 0 gates (d): aglt_rel (a co-mention filter) and skydio (a counterparty company channel)
+  // route to a covered ticker, so Coverage owns their rows and they are not stored here.
+  assert.deepEqual(Object.keys(rows).sort(), ["anduril", "edgar_ssti", "ia_media_dronelife", "maymobility_news", "neura", "nga"]);
   assert.deepEqual(rows.anduril, { source_key: "anduril", entity_key: "anduril", entity_name: "Anduril (private)", status: "private", state: "pending",
     coverage_subject: 0, affects: null });
-  assert.deepEqual(rows.aglt_rel, { source_key: "aglt_rel", entity_key: "aglt_rel", entity_name: "Agility Robotics partner mentions", status: "public",
-    state: "pending", coverage_subject: 1, affects: "AGLT" });
-  assert.equal(rows.skydio.coverage_subject, 0, "a counterparty company's own channel is a plain auxiliary name");
+  assert.deepEqual([rows.neura.state, rows.neura.coverage_subject, rows.neura.affects], ["pending", 1, "AGLT"], "a gate-dropped rival row is aux-only, a coverage subject");
   assert.deepEqual([rows.nga.entity_key, rows.nga.status], ["nga", "program"]);
   assert.deepEqual([rows.ia_media_dronelife.entity_key, rows.ia_media_dronelife.status], ["media_dronelife", "media"]);
   assert.deepEqual([rows.edgar_ssti.entity_key, rows.edgar_ssti.status], ["ssti", "unknown"]);
@@ -59,12 +63,13 @@ test("routes auxiliary sources only: covered, ops and covered-duplicate rows are
   assert.equal(meta(db, "nm_cursor"), "0", "nor moves the coverage cursor");
   assert.ok(meta(db, "aux_last_ingest_at"));
 
-  // The coverage ingest of the same rows: covered and counterparty items only.
-  // skydio is a counterparty source and also auxiliary, so it is on both pages.
+  // The coverage ingest of the same rows: covered and counterparty items only;
+  // the rival row's coverage copy is the skipped stub.
   const c = await ingest({ DB: db, NEWS: news });
-  assert.equal(c.scanned, 12);
-  assert.deepEqual(db.rows("SELECT source_key FROM items ORDER BY id").map((x) => x.source_key), ["redcat", "aglt_rel", "skydio"]);
-  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items")[0].n, 7, "nor does the coverage ingest touch aux_items");
+  assert.equal(c.scanned, 13);
+  assert.deepEqual(db.rows("SELECT source_key, state, skip_reason FROM items ORDER BY id").map((x) => [x.source_key, x.state, x.skip_reason]),
+    [["redcat", "pending", null], ["aglt_rel", "pending", null], ["skydio", "pending", null], ["neura", "skipped", "rival_no_key_account"]]);
+  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items")[0].n, 6, "nor does the coverage ingest touch aux_items");
   assert.equal(meta(db, "aux_nm_cursor"), String(r.cursor));
 });
 
@@ -179,7 +184,7 @@ test("feed text that is the release becomes the excerpt (status feed); teasers a
   for (const k of ["teaser", "deck", "none"]) assert.deepEqual([rows[k].excerpt, rows[k].excerpt_status], [null, null], k);
 });
 
-test("catch-up: coverage-subject rows the cursor passed before they were routed are stored once, from the 14-day backfill start", async () => {
+test("catch-up: coverage-subject rows the cursor passed before they were routed are stored once, from the 14-day backfill start, only when Coverage does not own them", async () => {
   const news = newsDb();
   const db = zenithDb();
   // Round 1 already ran: its cursor passed every row, and stored only plain auxiliary names.
@@ -192,38 +197,32 @@ test("catch-up: coverage-subject rows the cursor passed before they were routed 
   ins(news, { source_key: "site_kodiak", title: "Site change", first_seen: iso(6 * DAY) });
   ins(news, { source_key: "aglt_rel", url: "javascript:alert(1)", title: "Bad link", first_seen: iso(5 * DAY) });
   ins(news, { source_key: "wargov_contracts_matched", title: "War.gov paragraph naming Red Cat", first_seen: iso(4 * DAY), published: iso(4 * DAY) });
-  db.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '9'), ('nm_cursor', '9')").run();
+  ins(news, { source_key: "neura", title: "NEURA Robotics opens a plant in Metzingen", first_seen: iso(3 * DAY), published: iso(3 * DAY) });
+  db.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '10'), ('nm_cursor', '10')").run();
   db.db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, nm_first_seen, ingested_at)
     VALUES (3, 'anduril', 'anduril', 'Anduril (private)', 'private', 'https://news.example.com/anduril/x', 'Anduril news', ?, ?)`).run(iso(9 * DAY), iso(9 * DAY));
   // A new coverage-subject row after the cursor: the main scan routes it now.
   ins(news, { source_key: "dronedominance_lists", title: "Vendor list updated" });
   const r = await ingestAux({ DB: db, NEWS: news });
-  assert.deepEqual([r.scanned, r.inserted, r.cursor], [1, 1, 10]);
+  assert.deepEqual([r.scanned, r.inserted, r.cursor], [1, 0, 11], "the new vendor-list row routes to a covered ticker: Coverage owns it");
   const cu = r.coverage_subject_catch_up;
-  assert.deepEqual([cu.scanned, cu.matched, cu.inserted, cu.skipped_on_arrival, cu.done], [9, 6, 5, 2, true],
-    "rows 2-10: five coverage-subject rows stored (the new one was already there), two of them skipped");
+  assert.deepEqual([cu.scanned, cu.matched, cu.inserted, cu.skipped_on_arrival, cu.done], [10, 1, 1, 0, true],
+    "rows 2-11: the Drone Dominance, FPDS, co-mention and war.gov rows are Coverage's; only the gate-dropped rival row is stored");
   assert.equal(meta(db, "aux_cs_cursor"), AUX_CS_DONE);
   const got = db.rows("SELECT nm_rowid, source_key, entity_key, state, skip_reason, coverage_subject, affects FROM aux_items ORDER BY nm_rowid").map((x) => ({ ...x }));
   assert.deepEqual(got.map((x) => [x.nm_rowid, x.source_key, x.state, x.skip_reason]), [
-    [2, "dronedominance", "pending", null],
     [3, "anduril", "pending", null],
-    [4, "fpds_pl", "pending", null],
-    [5, "fpds_pl", "skipped", "stale_on_arrival"],
-    [8, "aglt_rel", "skipped", "bad_url"],
-    [9, "wargov_contracts_matched", "pending", null],
-    [10, "dronedominance_lists", "pending", null],
+    [10, "neura", "pending", null],
   ]);
   const by = Object.fromEntries(got.map((x) => [x.nm_rowid, x]));
-  assert.deepEqual([by[2].entity_key, by[2].coverage_subject, by[2].affects], ["dronedominance", 1, "RCAT,DPRO,PUSA,UMAC"]);
-  assert.deepEqual([by[4].entity_key, by[4].affects], ["fpds", "PL"]);
+  assert.deepEqual([by[10].entity_key, by[10].coverage_subject, by[10].affects], ["neura", 1, "AGLT"]);
   assert.deepEqual([by[3].coverage_subject, by[3].affects], [0, null], "round 1's own rows are left as they were");
-  assert.equal(by[10].coverage_subject, 1);
   // Coverage never moves, and a later run does no catch-up.
   assert.equal(db.rows("SELECT COUNT(*) AS n FROM items")[0].n, 0);
-  assert.equal(meta(db, "nm_cursor"), "9");
+  assert.equal(meta(db, "nm_cursor"), "10");
   const again = await ingestAux({ DB: db, NEWS: news });
   assert.deepEqual([again.scanned, again.inserted, again.coverage_subject_catch_up], [0, 0, null]);
-  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items")[0].n, 7);
+  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items")[0].n, 2);
 });
 
 test("catch-up is bounded per run like the main scan (six 400-row windows) and resumes from aux_cs_cursor", async () => {
@@ -231,7 +230,8 @@ test("catch-up is bounded per run like the main scan (six 400-row windows) and r
   const db = zenithDb();
   const seen = iso(DAY);
   const stmt = news.db.prepare("INSERT INTO items (source_key, url, title, published, category, first_seen, notified) VALUES (?, ?, 'T', ?, NULL, ?, 1)");
-  for (let i = 0; i < 3000; i++) stmt.run(i % 10 === 0 ? "pl_rel" : i % 10 === 1 ? "anduril" : "redcat", `https://x.example/${i}`, seen, seen);
+  // neura: a rival whose rows ('T') name no covered company or key account, so the catch-up stores them (Coverage drops them).
+  for (let i = 0; i < 3000; i++) stmt.run(i % 10 === 0 ? "neura" : i % 10 === 1 ? "anduril" : "redcat", `https://x.example/${i}`, seen, seen);
   db.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '3000')").run();
   const r1 = await ingestAux({ DB: db, NEWS: news });
   assert.equal(r1.scanned, 0);
@@ -241,15 +241,15 @@ test("catch-up is bounded per run like the main scan (six 400-row windows) and r
   const r2 = await ingestAux({ DB: db, NEWS: news });
   assert.deepEqual([r2.coverage_subject_catch_up.scanned, r2.coverage_subject_catch_up.inserted, r2.coverage_subject_catch_up.done], [600, 60, true]);
   assert.equal(meta(db, "aux_cs_cursor"), AUX_CS_DONE);
-  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'pl_rel' AND coverage_subject = 1 AND affects = 'PL'")[0].n, 300);
-  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key != 'pl_rel'")[0].n, 0, "the catch-up stores coverage subjects only");
+  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'neura' AND coverage_subject = 1 AND affects = 'AGLT'")[0].n, 300);
+  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key != 'neura'")[0].n, 0, "the catch-up stores coverage subjects only");
   assert.equal((await ingestAux({ DB: db, NEWS: news })).coverage_subject_catch_up, null);
 });
 
 test("catch-up: a first auxiliary run routes coverage subjects itself and never needs one; nothing to scan finishes it", async () => {
   const news = newsDb();
   const db = zenithDb();
-  ins(news, { source_key: "dronedominance", title: "Drone Dominance update", first_seen: iso(2 * DAY), published: iso(2 * DAY) });
+  ins(news, { source_key: "neura", title: "NEURA Robotics update", first_seen: iso(2 * DAY), published: iso(2 * DAY) });
   const r = await ingestAux({ DB: db, NEWS: news });
   assert.deepEqual([r.inserted, r.coverage_subject_catch_up], [1, null]);
   assert.equal(meta(db, "aux_cs_cursor"), AUX_CS_DONE);
@@ -324,4 +324,61 @@ test("POST /v1/admin/aux-ingest runs the auxiliary ingest for admin only", async
   assert.equal((await request(worker, env, "POST", "/v1/admin/aux-ingest", { role: "app" })).status, 403);
   const r = await request(worker, env, "POST", "/v1/admin/aux-ingest");
   assert.deepEqual([r.status, r.body.inserted], [200, 1]);
+});
+
+// --- Phase 0 gates (d): one pipeline per item ---------------------------------
+test("one pipeline: a row Coverage queues is never stored in aux; a rival row the gate drops is aux-only; the coverage copy is the skipped stub", async () => {
+  const { coverageOwner } = await import("../worker/src/ingest.js");
+  assert.deepEqual(coverageOwner({ source_key: "redcat", title: "x" }), { owns: true });
+  assert.deepEqual(coverageOwner({ source_key: "fpds_pl", title: "Contract notice: Planet Labs PBC" }), { owns: true });
+  assert.deepEqual(coverageOwner({ source_key: "anduril", title: "x" }), { owns: false });
+  assert.deepEqual(coverageOwner({ source_key: "neura", title: "NEURA Robotics opens a plant" }), { owns: false, dropped: "rival_no_key_account", affects: ["AGLT"] });
+  assert.deepEqual(coverageOwner({ source_key: "neura", title: "NEURA Robotics and Agility Robotics compare notes" }), { owns: true });
+  const news = newsDb();
+  const db = zenithDb();
+  atStart(db);
+  atStart(db, "nm_cursor");
+  db.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_cs_cursor', 'done'), ('aux_rv_cursor', 'done')").run();
+  ins(news, { source_key: "fpds_pl", title: "Contract notice: Planet Labs PBC imagery" });
+  ins(news, { source_key: "fpds_pl", title: "Old notice", published: iso(400 * DAY) });               // Coverage parks it: still Coverage's
+  ins(news, { source_key: "neura", title: "NEURA Robotics opens a plant", published: iso(40 * DAY) }); // dropped and old
+  ins(news, { source_key: "neura", title: "NEURA Robotics and Agility Robotics compare notes" });     // kept by the gate
+  await ingest({ DB: db, NEWS: news });
+  await ingestAux({ DB: db, NEWS: news });
+  const cov = db.rows("SELECT title, state, skip_reason FROM items ORDER BY nm_rowid").map((x) => [x.title, x.state, x.skip_reason]);
+  assert.deepEqual(cov, [
+    ["Contract notice: Planet Labs PBC imagery", "pending", null],
+    ["Old notice", "skipped", "stale_on_arrival"],
+    ["NEURA Robotics opens a plant", "skipped", "rival_no_key_account"],
+    ["NEURA Robotics and Agility Robotics compare notes", "pending", null],
+  ]);
+  const aux = db.rows("SELECT title, state, skip_reason, coverage_subject FROM aux_items").map((x) => [x.title, x.state, x.skip_reason, x.coverage_subject]);
+  assert.deepEqual(aux, [["NEURA Robotics opens a plant", "skipped", "stale_on_arrival", 1]], "only the gate-dropped rival row is on Auxiliary");
+});
+
+test("one pipeline: the deploy cleanup parks waiting aux copies of coverage-owned rows once (meta aux_owner_cleanup), and never the aux copy of a gate-dropped rival row whose coverage stub is stale_on_arrival", async () => {
+  const { auxOwnerCleanup } = await import("../worker/src/auxiliary.js");
+  const news = newsDb();
+  const db = zenithDb();
+  const add = (nm, source_key, title, state = "pending", claimed_until = null) => db.db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status,
+      url, title, nm_first_seen, ingested_at, state, claim_id, claimed_until) VALUES (?, ?, ?, ?, 'program', ?, ?, ?, ?, ?, ?, ?)`)
+    .run(nm, source_key, source_key, source_key, `https://x.example/${nm}`, title, iso(DAY), iso(DAY), state, claimed_until ? "c" : null, claimed_until);
+  add(1, "fpds_pl", "Contract notice: Planet Labs PBC imagery");                       // coverage-owned, pending
+  add(2, "skydio", "Skydio X10 deployed", "claimed", iso(DAY));                         // coverage-owned, expired lease
+  add(3, "skydio", "Skydio X10 live lease", "claimed", iso(-DAY));                      // a live lease is left alone
+  add(4, "neura", "NEURA Robotics opens a plant");                                      // gate-dropped rival: stays
+  add(5, "anduril", "Anduril news");                                                    // plain aux: stays
+  add(6, "fpds_pl", "Graded notice", "graded");                                         // history: stays
+  // The rival row's coverage stub is stale_on_arrival (a pre-Phase 0 label).
+  db.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, nm_first_seen, ingested_at, state, skip_reason, role)
+    VALUES (4, 'neura', 'AGLT', 'https://x.example/4', 'NEURA Robotics opens a plant', ?, ?, 'skipped', 'stale_on_arrival', 'rival')`).run(iso(DAY), iso(DAY));
+  const r = await ingestAux({ DB: db, NEWS: news });
+  assert.deepEqual(r.owner_cleanup, { scanned: 4, parked: 2, done: true });
+  const st = Object.fromEntries(db.rows("SELECT nm_rowid, state, skip_reason FROM aux_items").map((x) => [x.nm_rowid, `${x.state}:${x.skip_reason}`]));
+  assert.deepEqual(st, { 1: "skipped:on_coverage", 2: "skipped:on_coverage", 3: "claimed:null", 4: "pending:null", 5: "pending:null", 6: "graded:null" });
+  assert.equal(meta(db, "aux_owner_cleanup"), AUX_CS_DONE);
+  add(7, "fpds_pl", "Stored after the cleanup ran");
+  assert.equal((await ingestAux({ DB: db, NEWS: news })).owner_cleanup, null, "runs once");
+  assert.equal(await auxOwnerCleanup(db), null);
+  assert.equal(db.rows("SELECT state FROM aux_items WHERE nm_rowid = 7")[0].state, "pending");
 });

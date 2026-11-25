@@ -73,7 +73,7 @@ export function newsRows(now = Date.now()) {
     // Covered company: coverage only.
     { tag: "covered", source_key: "redcat", title: "Red Cat wins Army follow-on order for Black Widow systems", first_seen: iso(now, 6 * HOUR) },
     // Counterparty filter built for a covered company (FPDS notices naming Planet Labs): graded on
-    // Coverage and also auxiliary as a coverage subject; this one is mainly about the covered company.
+    // Coverage only (one pipeline per item, Phase 0 gates d); this one is mainly about the covered company.
     { tag: "co_mention", source_key: "fpds_pl", title: "Contract notice: Planet Labs PBC imagery subscription", first_seen: iso(now, 5.5 * HOUR) },
     // Ops: a site-structure watcher.
     { tag: "ops", source_key: "site_kodiak", title: "kodiak.ai sitemap changed", first_seen: iso(now, 5.2 * HOUR) },
@@ -85,7 +85,7 @@ export function newsRows(now = Date.now()) {
     { tag: "managed_covered", source_key: "managed_draganfly_news", title: "Draganfly news mention", first_seen: iso(now, 4.5 * HOUR) },
     // Peer newsroom.
     { tag: "anduril_noise", source_key: "anduril", title: "Anduril hosts Arsenal-1 hiring event in Ohio", first_seen: iso(now, 4 * HOUR) },
-    // Counterparty company channel: also an auxiliary name.
+    // Counterparty company channel routed to a covered ticker: Coverage only (one pipeline per item).
     { tag: "skydio", source_key: "skydio", title: "Skydio X10 now deployed with two more state police agencies", first_seen: iso(now, 3.5 * HOUR) },
     // Runtime managed_* key for a name outside the static registry.
     { tag: "managed", source_key: "managed_fort_robotics_news", title: "FORT Robotics closes $40M Series C for machine safety controllers",
@@ -144,11 +144,13 @@ export function gradesFor(claim, coveredTicker, { invalid = false } = {}) {
       why: "Trade-press copy of the Anduril Series G release.", flags: ["reason:duplicate"], dup_of: invalid ? media.item_id : lead.item_id },
     { ...base, item_id: nga.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
       why: "NGA imagery agreement with Planet Labs.", flags: ["reason:covered_name"], covered_ticker: invalid ? "XYZ" : "PL" },
-    { ...base, item_id: skydio.item_id, entity: "Skydio", score: 55, band: "borderline", event_type: "deployment",
-      why: "Two more state police agencies deployed Skydio X10.", flags: ["reason:minor"] },
-    { ...base, item_id: fpds.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
-      why: "FPDS notice for a Planet Labs imagery subscription: the covered company's own award.", flags: ["reason:covered_name"], covered_ticker: "PL" },
+    // Counterparty rows routed to a covered ticker are Coverage-only since Phase 0 gates (d):
+    // these two grades apply only to a claim that still holds such a row.
+    ...(skydio ? [{ ...base, item_id: skydio.item_id, entity: "Skydio", score: 55, band: "borderline", event_type: "deployment",
+      why: "Two more state police agencies deployed Skydio X10.", flags: ["reason:minor"] }] : []),
+    ...(fpds ? [{ ...base, item_id: fpds.item_id, entity: "Planet Labs", score: null, band: "covered", event_type: "covered",
+      why: "FPDS notice for a Planet Labs imagery subscription: the covered company's own award.", flags: ["reason:covered_name"], covered_ticker: "PL" }] : []),
   ];
-  return { grades, ids: { lead: lead.item_id, noise: noise.item_id, fort: fort.item_id, media: media.item_id, nga: nga.item_id, skydio: skydio.item_id,
-    fpds: fpds.item_id } };
+  return { grades, ids: { lead: lead.item_id, noise: noise.item_id, fort: fort.item_id, media: media.item_id, nga: nga.item_id, skydio: skydio?.item_id,
+    fpds: fpds?.item_id } };
 }

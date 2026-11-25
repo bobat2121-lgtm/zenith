@@ -347,7 +347,14 @@ test("Z7 mute: parks pending and expired-claimed items in both pipelines, skips 
   await ingestAux(env);
   assert.deepEqual(one(env, "SELECT state, skip_reason FROM items WHERE source_key='skydio' ORDER BY id DESC LIMIT 1"), { state: "skipped", skip_reason: "muted_source" });
   assert.deepEqual(one(env, "SELECT state, skip_reason FROM items WHERE source_key='redcat' ORDER BY id DESC LIMIT 1"), { state: "pending", skip_reason: null });
-  assert.deepEqual(one(env, "SELECT state, skip_reason FROM aux_items WHERE source_key='skydio' ORDER BY id DESC LIMIT 1"), { state: "skipped", skip_reason: "muted_source" });
+  // Phase 0 gates (d): skydio's rows route to a covered ticker, so Coverage owns
+  // them and the aux ingest stores none; a muted plain auxiliary source's new
+  // rows are stored skipped there.
+  assert.equal(one(env, "SELECT COUNT(*) AS n FROM aux_items WHERE source_key='skydio'").n, 2);
+  await post(env, "/v1/source-prefs", { source_key: "anduril", action: "mute" });
+  nmRowAdd(env.NEWS, { source_key: "anduril", title: "Anduril opens a plant" });
+  await ingestAux(env);
+  assert.deepEqual(one(env, "SELECT state, skip_reason FROM aux_items WHERE source_key='anduril' ORDER BY id DESC LIMIT 1"), { state: "skipped", skip_reason: "muted_source" });
   // The grader never sees them.
   const claim = (await post(env, "/v1/queue/claim", { limit: 50 }, "grader")).body;
   assert.ok(claim.items.every((i) => i.source_key !== "skydio" || i.item_id === live));
@@ -651,7 +658,8 @@ test("Z11 one-time rival catch-up (aux_rv_cursor): stores dropped rows, marks st
   store(1, "Pixxel launches three Fireflies");
   store(2, "Pixxel signs with Satellogic on hyperspectral data");
   store(4, "Pixxel hires a CFO", { state: "graded" });
-  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '5'), ('aux_cs_cursor', 'done')").run();
+  // aux_owner_cleanup done: this test is about the rival catch-up alone (the Phase 0 deploy cleanup would park row 2 first).
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_nm_cursor', '5'), ('aux_cs_cursor', 'done'), ('aux_owner_cleanup', 'done')").run();
   const r = await ingestAux(env);
   assert.deepEqual([r.rival_catch_up.done, r.rival_catch_up.matched, r.rival_catch_up.parked_on_coverage], [true, 3, 1]);
   assert.equal(meta(env.DB, "aux_rv_cursor"), AUX_CS_DONE);
