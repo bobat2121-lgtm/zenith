@@ -319,3 +319,36 @@ test("held rows are not waiting in the brief: waiting.items and counts leave the
   assert.equal(w.held, 3, "both roles");
   assert.equal(w.oldest, env.DB.rows("SELECT nm_first_seen AS t FROM items WHERE id = ?", released)[0].t, "the held 5-hour row is not the oldest");
 });
+
+// Overlapping cron runs (final verifier's race probe): each run reads the day's
+// budget before it writes, so two runs whose reads interleave must still not
+// release past 20 a day or 5 a source. Reads here wait a tick, as on real D1.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function slowDb(db, readMs) {
+  const wrap = (s) => ({
+    inner: s,
+    bind: (...a) => wrap(s.bind(...a)),
+    all: async () => { await sleep(readMs); return s.all(); },
+    first: async (c) => { await sleep(readMs); return s.first(c); },
+    run: async () => { await sleep(1); return s.run(); },
+  });
+  return { prepare: (sql) => wrap(db.prepare(sql)), batch: async (stmts) => { await sleep(1); return db.batch(stmts.map((s) => s.inner)); } };
+}
+test("interleaved releaseHeld runs never release past 20 a UTC day or 5 a source", async () => {
+  for (const [delays, readMs] of [[[0, 0], 5], [[0, 2], 5], [[0, 7, 13], 4], [[0, 1, 2, 3], 3]]) {
+    const env = newEnv();
+    for (let s = 0; s < 10; s++) for (let k = 0; k < 10; k++) addAux(env, held({ admit: "seed_fresh", source_key: `testsrc${s}` }));
+    for (let k = 0; k < 10; k++) addItem(env, held());
+    const now = Date.now();
+    const runs = delays.map(async (d) => { await sleep(d); return releaseHeld({ DB: slowDb(env.DB, readMs) }, { now }); });
+    await Promise.all(runs);
+    const per = env.DB.rows(`SELECT source_key, COUNT(*) AS n FROM (SELECT source_key FROM items WHERE released_at IS NOT NULL
+      UNION ALL SELECT source_key FROM aux_items WHERE released_at IS NOT NULL) GROUP BY source_key`);
+    const total = per.reduce((a, r) => a + r.n, 0);
+    assert.equal(total, 20, `delays ${delays}: the day's budget is spent once, not once per run (${JSON.stringify(per)})`);
+    for (const r of per) assert.ok(r.n <= 5, `delays ${delays}: ${r.source_key} released ${r.n}`);
+    const again = await releaseHeld(env, { now });
+    assert.deepEqual(again.released, { coverage: 0, aux: 0 });
+    assert.equal(again.used_today, 20);
+  }
+});

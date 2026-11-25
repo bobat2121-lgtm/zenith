@@ -45,13 +45,14 @@ const TABLES = [
   { kind: "aux", table: "aux_items", scope: "" },
 ];
 
-// Rows released since 00:00 UTC, per source, across both tables. Rescue rows
-// count: this same function releases them.
+// Rows released since 00:00 UTC (bound as ?1), per source, across both tables.
+// Rescue rows count: this same function releases them.
+const RELEASED_SINCE = `SELECT source_key FROM items WHERE released_at >= ?1
+       UNION ALL SELECT source_key FROM aux_items WHERE released_at >= ?1`;
 export async function releasedToday(db, now = Date.now()) {
   const day = utcDayStart(now);
   const rows = (await db.prepare(
-    `SELECT source_key, COUNT(*) AS n FROM (SELECT source_key FROM items WHERE released_at >= ?1
-       UNION ALL SELECT source_key FROM aux_items WHERE released_at >= ?1) GROUP BY source_key`,
+    `SELECT source_key, COUNT(*) AS n FROM (${RELEASED_SINCE}) GROUP BY source_key`,
   ).bind(day).all()).results || [];
   return new Map(rows.map((r) => [r.source_key, r.n]));
 }
@@ -73,6 +74,7 @@ export async function releaseHeld(env, { now = Date.now() } = {}) {
   let left = cfg.total - usedTotal;
   const released = { coverage: 0, aux: 0 };
   const at = nowIso(now);
+  const day = utcDayStart(now);
   for (const t of TABLES) {
     if (left <= 0) break;
     const queued = (await db.prepare(`SELECT COUNT(*) AS n FROM ${t.table} WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first())?.n || 0;
@@ -93,19 +95,31 @@ export async function releaseHeld(env, { now = Date.now() } = {}) {
       if (left <= 0 || room <= 0) break;
       const u = used.get(c.source_key) || 0;
       if (u >= cfg.per_source) continue;
-      pick.push(c.id);
+      pick.push(c);
       used.set(c.source_key, u + 1);
       left--;
       room--;
     }
-    for (const part of chunk(pick)) {
-      const r = await db.prepare(
-        `UPDATE ${t.table} SET released_at = ? WHERE id IN (${part.map(() => "?").join(",")}) AND state = 'pending' AND released_at IS NULL`,
-      ).bind(at, ...part).run();
-      released[t.kind] += r.meta?.changes || 0;
+    // The reads above can be stale: two overlapping cron runs both see the
+    // same budget left. So each row is released by its own UPDATE whose WHERE
+    // re-counts today's released rows, in total and for that row's source,
+    // inside the same statement. A D1 statement is atomic, D1 runs statements
+    // one at a time, and a batch runs its statements in order in one
+    // transaction, each seeing the writes before it; so however two runs
+    // interleave, no UPDATE can take the day past TOTAL or a source past
+    // PER_SOURCE. (A meta lease only narrows the race: a run slower than its
+    // lease still overlaps the next.) Released rows count whether or not
+    // admit is still set (a mute clears it), as in releasedToday.
+    if (pick.length) {
+      const res = await db.batch(pick.map((c) => db.prepare(
+        `UPDATE ${t.table} SET released_at = ?2 WHERE id = ?3 AND source_key = ?4 AND state = 'pending' AND released_at IS NULL
+           AND (SELECT COUNT(*) < ?5 AND TOTAL(source_key = ?4) < ?6 FROM (${RELEASED_SINCE}))`,
+      ).bind(day, at, c.id, c.source_key, cfg.total, cfg.per_source)));
+      for (const r of res) released[t.kind] += r.meta?.changes || 0;
     }
   }
-  const usedToday = usedTotal + released.coverage + released.aux;
+  // Re-read: an overlapping run may have released rows since the first read.
+  const usedToday = [...(await releasedToday(db, now)).values()].reduce((a, b) => a + b, 0);
   return { released, held: await heldCounts(db), used_today: usedToday, left: Math.max(0, cfg.total - usedToday), budget: cfg, at };
 }
 
