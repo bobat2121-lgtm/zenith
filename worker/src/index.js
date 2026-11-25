@@ -569,7 +569,7 @@ export default {
       try { console.log("bill lines", JSON.stringify(await billLinesPass(env))); } catch (e) { console.error("bill lines failed", e?.stack || e); }
       // Auxiliary names last, on their own: coverage is always served first.
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
-      // Phase 0 gates: war.gov digests get their text from the bulletin feed (excerpt.js).
+      // Phase 0 gates: war.gov digests get their text from the bulletin feed (wargov.js).
       try { console.log("wargov excerpts", JSON.stringify(await enrichAuxWargov(env))); } catch (e) { console.error("wargov excerpts failed", e?.stack || e); }
       // Phase 0 gates: release held rows under the daily grading budget (budget.js).
       try { console.log("gate budget", JSON.stringify(await releaseHeld(env))); } catch (e) { console.error("gate budget failed", e?.stack || e); }
