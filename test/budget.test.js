@@ -299,6 +299,22 @@ test("releaseHeld releases source_cap and seed_fresh rows before record_late, st
   assert.ok(env.DB.rows("SELECT MAX(nm_first_seen) AS t FROM aux_items WHERE admit = 'source_cap' AND released_at IS NOT NULL")[0].t < capRel[0]);
 });
 
+// Phase 1 (Part C §6.3): an FPDS row held record_fresh goes ahead of older held rows.
+test("releaseHeld releases a record_fresh row ahead of older held rows and inside 20/5", async () => {
+  const env = newEnv();
+  const srcs = ["o1", "o2", "o3", "o4", "o5", "o6"];
+  for (let k = 0; k < 25; k++) {
+    addItem(env, held({ source_key: srcs[k % 6], admit: k % 2 ? "rescue" : "record_late", nm_first_seen: iso((100 + k) * HOUR) }));
+  }
+  const fresh = addItem(env, held({ source_key: "fpds_testco", admit: "record_fresh", nm_first_seen: iso(HOUR) }));
+  const r = await releaseHeld(env, { now: Date.now() });
+  assert.ok(env.DB.rows("SELECT released_at FROM items WHERE id = ?", fresh)[0].released_at, "released in the first run");
+  assert.equal(r.released.coverage, 20);
+  const per = env.DB.rows("SELECT source_key, COUNT(*) AS n FROM items WHERE released_at IS NOT NULL GROUP BY source_key");
+  assert.equal(per.reduce((a, x) => a + x.n, 0), 20);
+  for (const x of per) assert.ok(x.n <= 5, `${x.source_key} released ${x.n}`);
+});
+
 test("muting a source parks its held rows with admit cleared, so a Left out grade after unmuting is claimable at once, not held again", async () => {
   const env = newEnv();
   const app = (method, path, body) => request(worker, env, method, path, { role: "app", body });

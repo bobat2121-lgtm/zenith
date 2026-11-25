@@ -124,6 +124,40 @@ test("arrivalGate: a capped, fresh, non-seed row of a counterparty or aux source
   }
 });
 
+// Phase 1 (Part C §6.3): undated FPDS rows after the source's first poll are budgeted.
+test("record_fresh: an undated FPDS row after its source's first poll is held", () => {
+  const ctx = { pipeline: "coverage", record: true, fpds: true, seed: false, burst: false };
+  assert.deepEqual(gate(null, ctx), { reason: null, admit: "record_fresh" });
+  // Dated FPDS rows are unchanged: fresh ones keep the fast path.
+  assert.deepEqual(gate(3, ctx), plain);
+});
+
+test("an undated non-FPDS record row keeps today's fast path", () => {
+  assert.deepEqual(gate(null, { pipeline: "coverage", record: true, fpds: false, seed: false, burst: false }), plain);
+  assert.deepEqual(gate(null, { pipeline: "aux", record: true, fpds: false, seed: false, burst: false }), plain);
+});
+
+test("an undated FPDS row in a burst is undated_burst, a seed undated row is seed_fresh", () => {
+  const ctx = { pipeline: "coverage", record: true, fpds: true, seed: false, burst: true };
+  assert.deepEqual(gate(null, ctx), { reason: "undated_burst", admit: null });
+  assert.deepEqual(gate(null, { ...ctx, burst: false, seed: true }), { reason: null, admit: "seed_fresh" });
+  assert.deepEqual(gate(null, { ...ctx, seed: true }), { reason: "archive_seed", admit: null });
+});
+
+test("an FPDS seed 102 days late is record_late; 125 days is stale_on_arrival; day 120 is exclusive", () => {
+  const ctx = { pipeline: "coverage", record: true, fpds: true, seed: true, burst: false };
+  const fpds = (published, first_seen) => arrivalGate({ source_key: "fpds_testco", published, first_seen }, ctx);
+  // A synthetic pair seen on one first poll: signed 102 and 125 days before.
+  assert.deepEqual(fpds("2026-08-21T00:00:00Z", "2026-12-01T06:00:00Z"), { reason: null, admit: "record_late" });
+  assert.deepEqual(fpds("2026-07-29T00:00:00Z", "2026-12-01T06:00:00Z"), { reason: "stale_on_arrival", admit: null });
+  // Signed at 00:00Z: any time on day 120 after signing is over 120 days.
+  assert.deepEqual(fpds("2026-08-14T00:00:00Z", "2026-12-11T23:00:00Z"), { reason: null, admit: "record_late" });
+  assert.deepEqual(fpds("2026-08-14T00:00:00Z", "2026-12-12T03:00:00Z"), { reason: "stale_on_arrival", admit: null });
+  // No record exception past 21 days on Auxiliary.
+  assert.deepEqual(arrivalGate({ source_key: "fpds_testco", published: "2026-08-21T00:00:00Z", first_seen: "2026-12-01T06:00:00Z" }, { ...ctx, pipeline: "aux" }),
+    { reason: "stale_on_arrival", admit: null });
+});
+
 // --- Through the ingests -------------------------------------------------------
 const newEnv = (extra = {}) => {
   const env = { DB: zenithDb(), NEWS: newsDb(), ...TOKENS, ...extra };

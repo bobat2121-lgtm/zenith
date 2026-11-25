@@ -24,3 +24,11 @@ export const isRecordSource = (key) => {
 // Item level (gates, claim payload): the source is a record source, or the
 // item itself is on sec.gov.
 export const isOfficialRecord = (row) => isRecordSource(row?.source_key) || isSecItem(row);
+
+// Phase 1: an FPDS source (aux-sources.json entity "fpds"). Its undated rows
+// after the first poll are held 'record_fresh' (lib.js arrivalGate). `aux` is
+// for tests; production passes only the key.
+export const isFpdsSource = (key, aux = AUX) => {
+  const k = String(key ?? "");
+  return own(aux?.sources, k) && aux.sources[k]?.entity === "fpds";
+};

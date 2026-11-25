@@ -133,14 +133,15 @@ export async function releaseHeld(env, { now = Date.now() } = {}) {
     if (room <= 0) continue;
     // At most PER_SOURCE candidates per source in SQL, so one big seed never
     // hides every other source. Fresh rows come first, they are
-    // time-sensitive: a new source's first-poll rows (seed_fresh) and fast-path
-    // rows over the source cap (source_cap); then oldest first.
+    // time-sensitive: a new source's first-poll rows (seed_fresh), fast-path
+    // rows over the source cap (source_cap) and an FPDS source's undated rows
+    // after its first poll (record_fresh); then oldest first.
     const cands = (await db.prepare(
       `SELECT id, source_key, admit, nm_first_seen, rn FROM (
          SELECT id, source_key, admit, nm_first_seen,
-                ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY (admit IN ('seed_fresh','source_cap')) DESC, nm_first_seen, id) AS rn
+                ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY (admit IN ('seed_fresh','source_cap','record_fresh')) DESC, nm_first_seen, id) AS rn
            FROM ${t.table} WHERE state = 'pending' AND ${HELD_SQL()} ${t.scope})
-        WHERE rn <= ?1 ORDER BY (admit IN ('seed_fresh','source_cap')) DESC, nm_first_seen, id LIMIT 500`,
+        WHERE rn <= ?1 ORDER BY (admit IN ('seed_fresh','source_cap','record_fresh')) DESC, nm_first_seen, id LIMIT 500`,
     ).bind(cfg.per_source).all()).results || [];
     const pick = [];
     for (const c of cands) {
