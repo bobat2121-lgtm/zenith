@@ -399,7 +399,10 @@ export async function gradedNotices(db, { sinceIso }) {
 // outcome_day, outcome_url, item_id_outcome and deferred or closed. Decision rows
 // never make entries of their own: their titles carry no ", agenda" tail.
 const AGENDA_RE = /, agenda (20\d\d-\d\d-\d\d)\b/;
-const DEFERRED_RE = /tabled|held|referr|continu|postpon|defer|laid over|withdrawn/i;
+// Spec D §5.3's terms plus news-monitor's deferral set (§5.1 step 6: refer, table,
+// hold, withdr), so "Refer to Committee", "Table", "Hold" and "Withdraw" read as
+// deferred. The added short stems need a word start ("accountable", "stakeholder").
+const DEFERRED_RE = /tabled|held|referr|continu|postpon|defer|laid over|withdr|\brefer|\btable|\bhold/i;
 const VOTE_SEP = " — vote ";
 const TAIL_SEP = " — ";
 const RIVAL_MARK_RE = /^\[[^\]]+\]\s*\([^)]*\brival\)/;

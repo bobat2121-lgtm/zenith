@@ -157,6 +157,25 @@ test("a TABLED vote gives deferred:true, not closed", async () => {
   assert.equal((await councilAgendas(env2.DB, { sinceIso: SINCE }))[0].deferred, true);
 });
 
+test("news-monitor's deferral wordings (Refer to Committee, Table, Hold, Withdraw) give deferred:true; look-alike words do not", async () => {
+  const cases = [
+    ["Refer to Committee (carried 9-0)", true],
+    ["Table (carried 7-0)", true],
+    ["Hold (carried)", true],
+    ["Withdraw (carried)", true],
+    ["Accept as accountable (carried 7-0)", false],
+    ["Approve stakeholder agreement (carried 5-2)", false],
+  ];
+  let event = 520;
+  for (const [tail, deferred] of cases) {
+    const env = newEnv();
+    await addAgenda(env, "2026-11-12");
+    await addVote(env, event++, "2026-11-12", tail);
+    const [e] = await councilAgendas(env.DB, { sinceIso: SINCE });
+    assert.deepEqual([e.deferred, e.closed], deferred ? [true, undefined] : [undefined, true], tail);
+  }
+});
+
 test("a vote dated before the agenda day (committee) does not close the entry", async () => {
   const env = newEnv();
   await addAgenda(env, "2026-11-19");
