@@ -282,3 +282,58 @@ test("buildAux marks record by adapter, or by a .gov/.mil/legistar host in the s
   assert.equal(isRecordSource({ adapter: "rss", lane: "strategic_noncompany", endpoint: "not a url" }), false);
   assert.ok(RECORD_ADAPTERS.includes("fpds_atom") && OFFICIAL_HOST_RE.test("www.war.gov"));
 });
+
+// Phase 2 rival lists (registry/rivals.json, buildCovered's rivals option):
+// sources already polled, declared rivals in Zenith only.
+const RIVAL_SOURCES = [
+  { key: "acmeco", lane: "covered", covered: true, coveredTicker: "AAA", adapter: "rss", name: "Acme Co", endpoint: "https://ir.acme.example/rss" },
+  { key: "bolt", lane: "covered", covered: true, coveredTicker: "BBB", adapter: "rss", name: "Bolt", endpoint: "https://bolt.example/rss" },
+  { key: "rival_new", lane: "private_adjacent", adapter: "sitemap_diff", name: "New Rival", endpoint: "https://www.newrival.example/sitemap.xml" },
+  { key: "rival_old", lane: "public_adjacent", adapter: "rss", name: "Old Rival", endpoint: "https://ir.oldrival.example/rss", role: "rival", affects: ["AAA"] },
+  { key: "rival_shadow", lane: "private_adjacent", adapter: "html_diff", name: "Shadow Rival", endpoint: "https://shadow.example/news", shadow: true },
+  { key: "rival_bing", lane: "public_adjacent", adapter: "rss_filtered", name: "Rival search", endpoint: "https://www.bing.com/news/search?q=x&format=rss" },
+  { key: "partner", lane: "private_adjacent", adapter: "sitemap_diff", name: "Partner", endpoint: "https://partner.example/sitemap.xml", role: "relationship", affects: ["AAA"] },
+  { key: "rival_sec", lane: "public_adjacent", adapter: "edgar", name: "Rival SEC", endpoint: "data.sec.example" },
+  { key: "rival_page", lane: "private_adjacent", adapter: "html_diff", name: "Rival page", endpoint: "https://page.example/newsroom" },
+];
+
+test("rivals option: a polled key becomes a rival of the ticker, affects are unioned; covered, shadow, Bing, unpolled and other-role keys are skipped with one warning each", () => {
+  const before = buildCovered(RIVAL_SOURCES);
+  const rivals = {
+    BBB: [{ key: "rival_new" }, "rival_old", { key: "acmeco" }, { key: "rival_shadow" }, { key: "rival_bing" }, { key: "gone" }, { key: "partner" }],
+    AAA: [{ key: "rival_sec" }],
+    ZZZ: [{ key: "rival_page" }],
+  };
+  const { counterparty, sources, warnings } = buildCovered(RIVAL_SOURCES, { rivals });
+  assert.deepEqual(counterparty.rival_new, { role: "rival", affects: ["BBB"] });
+  assert.deepEqual(counterparty.rival_old, { role: "rival", affects: ["AAA", "BBB"] }, "already a rival of AAA: BBB is added");
+  assert.deepEqual(counterparty.rival_sec, { role: "rival", affects: ["AAA"] });
+  assert.equal(counterparty.rival_page, undefined, "a ticker that is not covered routes nothing");
+  assert.ok(warnings.some((w) => w.startsWith("rival_page:") && w.includes("ZZZ not covered")));
+  // Skipped keys keep their old entry.
+  assert.deepEqual(sources, before.sources);
+  assert.equal(counterparty.acmeco, undefined);
+  assert.equal(sources.acmeco, "AAA");
+  assert.equal(counterparty.rival_shadow, undefined);
+  assert.equal(counterparty.rival_bing, undefined);
+  assert.equal(counterparty.gone, undefined);
+  assert.deepEqual(counterparty.partner, { role: "relationship", affects: ["AAA"] });
+  const why = { acmeco: "covered company's own source", rival_shadow: "shadow source", rival_bing: "Bing search", gone: "not a polled source", partner: "already has role relationship" };
+  for (const [key, text] of Object.entries(why)) {
+    const mine = warnings.filter((w) => w.startsWith(`${key}: registry/rivals.json`));
+    assert.equal(mine.length, 1, `${key} warned once`);
+    assert.ok(mine[0].includes(text), `${key}: ${mine[0]}`);
+  }
+  // No rivals (the option's default) is today's output.
+  assert.deepEqual(buildCovered(RIVAL_SOURCES, { rivals: {} }).counterparty, before.counterparty);
+});
+
+test("rivals do not change aux-sources: buildAux is identical with and without the rivals option, for rss, sitemap_diff, html_diff and edgar adapters", () => {
+  const rivals = { BBB: ["rival_new", "rival_old", "rival_sec", "rival_page"], AAA: ["rival_page"] };
+  const without = buildCovered(RIVAL_SOURCES);
+  const withRivals = buildCovered(RIVAL_SOURCES, { rivals });
+  assert.notDeepEqual(withRivals.counterparty, without.counterparty, "the option did route something");
+  const adapters = new Set(RIVAL_SOURCES.filter((s) => withRivals.counterparty[s.key]?.role === "rival").map((s) => s.adapter));
+  for (const a of ["rss", "sitemap_diff", "html_diff", "edgar"]) assert.ok(adapters.has(a), a);
+  assert.deepEqual(buildAux(RIVAL_SOURCES, withRivals, []), buildAux(RIVAL_SOURCES, without, []));
+});

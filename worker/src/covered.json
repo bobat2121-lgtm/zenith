@@ -1,5 +1,5 @@
 {
-  "generated_from": "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js)",
+  "generated_from": "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js) and registry/rivals.json",
   "tickers": [
     "AGLT",
     "ASST",
@@ -1272,7 +1272,9 @@
     "avav": {
       "role": "rival",
       "affects": [
-        "MRLN"
+        "MRLN",
+        "ONDS",
+        "PUSA"
       ]
     },
     "beta": {
@@ -1303,6 +1305,120 @@
       "role": "relationship",
       "affects": [
         "UMAC"
+      ]
+    },
+    "metaplanet": {
+      "role": "rival",
+      "affects": [
+        "ASST",
+        "MSTR"
+      ]
+    },
+    "twentyone": {
+      "role": "rival",
+      "affects": [
+        "ASST",
+        "MSTR"
+      ]
+    },
+    "coreweave": {
+      "role": "rival",
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "nebius": {
+      "role": "rival",
+      "affects": [
+        "GRRR",
+        "SERV"
+      ]
+    },
+    "bitmine": {
+      "role": "rival",
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "aevex": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "epirus": {
+      "role": "rival",
+      "affects": [
+        "ONDS",
+        "PUSA"
+      ]
+    },
+    "gecko": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "perennial": {
+      "role": "rival",
+      "affects": [
+        "ONDS",
+        "PUSA"
+      ]
+    },
+    "ratel": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "droneshield": {
+      "role": "rival",
+      "affects": [
+        "ONDS",
+        "PUSA"
+      ]
+    },
+    "spaceeyes": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "spaceeyes_sec": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "neros": {
+      "role": "rival",
+      "affects": [
+        "PUSA"
+      ]
+    },
+    "avride": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "coco": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "robotcom": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "starship": {
+      "role": "rival",
+      "affects": [
+        "SERV"
       ]
     }
   },
