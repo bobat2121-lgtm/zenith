@@ -894,6 +894,48 @@
         "AXON"
       ]
     },
+    "fpds_evlv": {
+      "role": "customer",
+      "affects": [
+        "EVLV"
+      ]
+    },
+    "fpds_rcat": {
+      "role": "customer",
+      "affects": [
+        "RCAT"
+      ]
+    },
+    "fpds_pdyn_sarcos": {
+      "role": "customer",
+      "affects": [
+        "PDYN"
+      ]
+    },
+    "fpds_mrln": {
+      "role": "customer",
+      "affects": [
+        "MRLN"
+      ]
+    },
+    "fpds_kdk": {
+      "role": "customer",
+      "affects": [
+        "KDK"
+      ]
+    },
+    "fpds_dpro": {
+      "role": "customer",
+      "affects": [
+        "DPRO"
+      ]
+    },
+    "fpds_aglt": {
+      "role": "customer",
+      "affects": [
+        "AGLT"
+      ]
+    },
     "legistar_oakland_axon": {
       "role": "customer",
       "affects": [
