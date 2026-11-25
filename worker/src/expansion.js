@@ -82,7 +82,7 @@
 import COVERED from "./covered.json";
 import AUX from "./aux-sources.json";
 import { MATCH } from "./rubric.generated.js";
-import { json, nowIso, chunk, isHttpUrl, candidateName, dedupeKey, coveredTicker, normalizeAbout, LEGAL_SUFFIXES, RELATION_TYPES } from "./lib.js";
+import { json, nowIso, chunk, isHttpUrl, candidateName, dedupeKey, coveredTicker, normalizeAbout, LEGAL_SUFFIXES, RELATION_TYPES, audit } from "./lib.js";
 import { getMeta, setMeta } from "./ingest.js";
 
 // The name helpers and the relation types live in lib.js, beside the grade
@@ -509,7 +509,8 @@ export function decisionRefusal(row, action) {
 
 const NEXT = { approve: "approved", reject: "rejected", reopen: "pending" };
 
-export async function expansionDecide(env, body, role) {
+// who (phase 1): lib.js whoFor, for the audit row; the decisions JSON keeps by: role.
+export async function expansionDecide(env, body, role, who) {
   const id = Number(body?.id);
   if (!Number.isInteger(id) || id <= 0) return json({ error: "id must be the candidate id" }, 400);
   const action = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "";
@@ -540,6 +541,8 @@ export async function expansionDecide(env, body, role) {
     "UPDATE expansion_candidates SET status = ?, decisions = json_insert(decisions, '$[#]', json(?)) WHERE id = ? AND status = ?",
   ).bind(status, JSON.stringify(decision), id, row.status).run();
   if (!r.meta?.changes) return json({ error: `candidate ${id} changed while deciding: reload and try again` }, 400);
+  await audit(db, who, { action: `expansion_${action}`, target_kind: "expansion_candidate", target_id: id,
+    before: { status: row.status }, after: { status, reason, tickers, has_note: note != null } });
   return json({ ok: true, id, status, was: row.status, decision });
 }
 
@@ -548,7 +551,8 @@ const sameList = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.string
 // Marks approved rows compiled (E3 step 10), only when each is still approved
 // with the tickers the compile read; the others are returned as mismatches and
 // left unchanged.
-export async function expansionCompiled(env, body, role) {
+// who (phase 1): one audit row per compiled id; mismatches write none.
+export async function expansionCompiled(env, body, role, who) {
   const items = body?.items;
   if (!Array.isArray(items) || !items.length || items.length > 200) return json({ error: "items must be an array of 1-200 { id, tickers }" }, 400);
   const bodyRef = clip(body?.ref, 80);
@@ -598,6 +602,11 @@ export async function expansionCompiled(env, body, role) {
       if (res[k]?.meta?.changes) compiled.push(t.w.id);
       else mismatches.push({ id: t.w.id, error: `candidate ${t.w.id} changed while compiling: read it again` });
     });
+    for (const t of todo) {
+      if (!compiled.includes(t.w.id)) continue;
+      await audit(db, who, { action: "expansion_compiled", target_kind: "expansion_candidate", target_id: t.w.id,
+        before: { status: "approved" }, after: { status: "compiled", ref: t.w.ref, tickers: [...t.w.tickers].sort() } });
+    }
   }
   return json({ ok: mismatches.length === 0, compiled, mismatches });
 }

@@ -9,7 +9,7 @@
 // and reach zenith-db only through the admin route. Examples here are synthetic
 // (say 7 events: 3 on time, 2 late, 1 partial, 1 missed).
 import COVERED from "./covered.json";
-import { json, nowIso } from "./lib.js";
+import { json, nowIso, audit } from "./lib.js";
 
 export const RECALL_KINDS = ["filing", "regulator", "local_government", "program_award", "register", "trade_press", "news"];
 export const RECALL_STATUSES = ["on_time", "late", "partial", "missed"];
@@ -82,7 +82,9 @@ async function urlHits(db, table, urls) {
   return new Map(rows.map((r) => [r.url, r]));
 }
 
-export async function recallLoad(env, body) {
+// who (phase 1): lib.js whoFor. A load that stored events writes one audit row
+// with counts and event ids, never event text or notes; a dry run writes none.
+export async function recallLoad(env, body, who) {
   if (!body || typeof body !== "object" || !Array.isArray(body.events)) return json({ error: "body.events must be an array" }, 400);
   if (typeof body.source !== "string" || !SOURCE_RE.test(body.source)) return json({ error: "source must be 1-60 characters of a-z, 0-9 and -" }, 400);
   if (!body.events.length || body.events.length > MAX_EVENTS) return json({ error: `events must hold 1-${MAX_EVENTS} events` }, 400);
@@ -133,6 +135,9 @@ export async function recallLoad(env, body) {
     const stmts = accepted.map((e) => db.prepare(UPSERT).bind(e.id, ...COLS.map((c) => (c === "source" ? body.source : c === "loaded_at" ? now : e[c]))));
     if (replace) stmts.push(db.prepare("DELETE FROM recall_events WHERE source = ? AND id NOT IN (SELECT value FROM json_each(?))").bind(body.source, keep));
     await db.batch(stmts);
+    await audit(db, who, { action: "recall_load", target_kind: "recall_source", target_id: body.source,
+      after: { accepted: accepted.length, rejected: rejected.length, replaced, matched_items: accepted.filter((e) => e.captured_item_id != null).length,
+        ids: accepted.map((e) => e.id) } });
   }
   return json({
     accepted: accepted.length, rejected, matched_items: accepted.filter((e) => e.captured_item_id != null).length,

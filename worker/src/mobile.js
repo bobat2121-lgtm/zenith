@@ -6,7 +6,7 @@
 // else gets 403, so the page is inert until one of them is configured.
 // Strict CSP: one nonce'd inline script and style, no external resources, no
 // inline event handlers. Titles and grader text are escaped as untrusted.
-import { json, tokenMatches, isHttpUrl, universeSql, HELD_SQL } from "./lib.js";
+import { json, tokenMatches, isHttpUrl, universeSql, HELD_SQL, whoForMobile } from "./lib.js";
 import { fmtEt, fmtAge } from "./et.js";
 
 export const MOBILE_LABELS = [
@@ -259,7 +259,8 @@ export function sameOrigin(request, url) {
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
-// deps.feedback(body) -> Response: the POST /v1/feedback handler.
+// deps.feedback(body, who) -> Response: the POST /v1/feedback handler; who is the
+// audit actor (lib.js whoForMobile: "app" by token, a hash of the Access email).
 export async function mobile(request, env, url, deps = {}) {
   const path = url.pathname.replace(/\/+$/, "") || "/";
   if (path !== "/m" && path !== "/m/feedback") return new Response("not found\n", { status: 404, headers: SECURITY });
@@ -293,7 +294,7 @@ export async function mobile(request, env, url, deps = {}) {
     return isForm ? messagePage(`Not saved: ${msg}.`, 400) : json({ error: msg }, 400);
   }
   if (typeof deps.feedback !== "function") return json({ error: "feedback unavailable" }, 500);
-  const res = await deps.feedback(body);
+  const res = await deps.feedback(body, await whoForMobile(auth, request));
   if (!isForm) return res;
   if (res.ok) {
     return new Response(null, { status: 303, headers: { location: `/m#i${Number.isInteger(body.item_id) ? body.item_id : ""}`, ...SECURITY } });

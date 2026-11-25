@@ -22,7 +22,7 @@ import { budgetSettings, fastPathCounter } from "./budget.js";
 import { WARGOV_HOLD_MINUTES } from "./wargov.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
-  HELD_SQL, capUndated } from "./lib.js";
+  HELD_SQL, capUndated, audit } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 import { auxEntitySighting, upsertAfterGrades, relationSightings } from "./expansion.js";
 
@@ -664,7 +664,8 @@ export async function auxFeed(env, url) {
 
 // Records a label against the item's current grade. "Too high" / "too low"
 // compare against a score, so they need one.
-export async function auxFeedback(env, body) {
+// who: lib.js whoFor, for the audit row (phase 1).
+export async function auxFeedback(env, body, who) {
   const itemId = Number(body?.item_id);
   const label = String(body?.label || "").toLowerCase();
   if (!Number.isInteger(itemId)) return json({ error: "item_id required" }, 400);
@@ -678,8 +679,14 @@ export async function auxFeedback(env, body) {
     return json({ error: `${label} needs a scored grade to compare against` }, 400);
   }
   const note = body?.note ? String(body.note).slice(0, 1000) : null;
+  const prev = await env.DB.prepare("SELECT id, label, reason FROM aux_feedback WHERE item_id = ? ORDER BY id DESC LIMIT 1").bind(itemId).first();
   const res = await env.DB.prepare("INSERT INTO aux_feedback (item_id, grade_id, label, note, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(itemId, item.grade_id ?? null, label, note, why.reason, nowIso()).run();
+  await audit(env.DB, who, {
+    action: "label", target_kind: "aux_item", target_id: String(itemId),
+    before: prev ? { feedback_id: prev.id, label: prev.label, reason: prev.reason } : null,
+    after: { feedback_id: res.meta.last_row_id, label, reason: why.reason, grade_id: item.grade_id ?? null, has_note: note != null },
+  });
   return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: item.grade_id ?? null, reason: why.reason });
 }
 
