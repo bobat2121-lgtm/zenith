@@ -563,7 +563,7 @@ def site_change_html(ch: dict) -> str:
 
 
 # ---- Grader health (/v1/ops: Coverage strip and Tuning page; unit tested) --------------
-GAP_NOTE = ("A gap usually means the account's usage limit refused the hourly grader run: the routine "
+GAP_NOTE = ("A gap usually means the account's usage limit refused a scheduled grader run: the routine "
             "stops in about a second, before it reaches zenith-core, so no run is recorded.")
 BAD_STATUS = ("late", "down")
 
@@ -620,16 +620,61 @@ def grader_gaps(ops) -> list[dict]:
     return [x for x in (grader_of(ops) or {}).get("gaps_7d") or [] if isinstance(x, dict)]
 
 
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def open_gap_of(g) -> dict | None:
+    """The grader block's open gap (phase 1 /v1/ops), or None (none, or an older zenith-core)."""
+    gap = g.get("open_gap") if isinstance(g, dict) else None
+    return gap if isinstance(gap, dict) else None
+
+
+def _missed(gap: dict) -> int:
+    return max(1, _num(gap.get("missed_runs")))
+
+
+def _every(g: dict, gap: dict | None = None) -> int | None:
+    """Expected minutes between grader runs: the open gap's, else the grader block's."""
+    for src in (gap or {}, g or {}):
+        if src.get("expected_every_min") is not None and _num(src.get("expected_every_min")) > 0:
+            return _num(src["expected_every_min"])
+    return None
+
+
+def released_by_source(backlog) -> tuple[list[dict], int | None]:
+    """(rows, per_source) from backlog.released_by_source_today: rows of {source_key, n}, most
+    first; per_source from the rows, the field's own object or backlog.budget. ([], None) when absent."""
+    if not isinstance(backlog, dict):
+        return [], None
+    field = backlog.get("released_by_source_today")
+    rows, cap = field, None
+    if isinstance(field, dict):
+        cap = field.get("per_source")
+        rows = next((field[k] for k in ("top", "sources", "items") if isinstance(field.get(k), list)), [])
+    rows = [r for r in rows or [] if isinstance(r, dict)] if isinstance(rows, list) else []
+    if cap is None:
+        cap = next((r["per_source"] for r in rows if r.get("per_source") is not None), None)
+    budget = backlog.get("budget")
+    if cap is None and isinstance(budget, dict):
+        cap = budget.get("per_source")
+    return sorted(rows, key=lambda r: -_num(r.get("n"))), (_num(cap) if cap is not None else None)
+
+
 def grader_strip_html(ops) -> str:
     """One line: "Grader: last run 12 min ago · Aux backlog 96 (oldest Nov 9) · Headlines
-    waiting 239", the run part red when the grader is late or down. Escaped."""
+    waiting 239 · Budget 20/20 today (max 4/5 per source)", the run part red when the grader
+    is late or down or has missed runs. Escaped."""
     g = grader_of(ops)
     if g is None:
         return '<div class="z-health">Grader: not available yet</div>'
     last, status = g.get("last_run_at"), str(g.get("status") or "")
     run = f"last run {html.escape(run_ago(last))}" if last else "no runs yet"
-    if status in BAD_STATUS:
-        run = f'<span class="z-bad">{html.escape(status)} · {run}</span>'
+    gap = open_gap_of(g)
+    if gap is not None:
+        run = f"{_plural(_missed(gap), 'run')} missed · {run}"
+    if status in BAD_STATUS or gap is not None:
+        run = f'<span class="z-bad">{html.escape(status or "late")} · {run}</span>'
     parts = [f"Grader: {run}"]
     backlog = g.get("backlog")
     if isinstance(backlog, dict):
@@ -637,17 +682,48 @@ def grader_strip_html(ops) -> str:
         if _num(backlog.get("aux_pending")) and backlog.get("oldest_aux_pending_at"):
             aux += f" (oldest {html.escape(day_text(backlog['oldest_aux_pending_at']))})"
         parts += [aux, f"Headlines waiting {_num(backlog.get('headlines_waiting'))}"]
+        budget = backlog.get("budget")
+        if "released_today" in backlog and isinstance(budget, dict) and budget.get("total") is not None:
+            use = f"Budget {_num(backlog.get('released_today'))}/{_num(budget.get('total'))} today"
+            rows, cap = released_by_source(backlog)
+            if rows:
+                use += f" (max {_num(rows[0].get('n'))}/{cap if cap is not None else '?'} per source)"
+            parts.append(use)
     return f'<div class="z-health">{" · ".join(parts)}</div>'
 
 
+def open_gap_line(ops) -> str | None:
+    """ "Now: no run since Nov 25 14:08 UTC (2 missed, expected every 30 min)." or None."""
+    g = grader_of(ops)
+    gap = open_gap_of(g)
+    if gap is None:
+        return None
+    since = gap.get("from") or g.get("last_run_at")
+    every = _every(g, gap)
+    return (f"Now: no run since {utc_text(since)} ({_missed(gap)} missed"
+            + (f", expected every {every} min" if every else "") + ").")
+
+
+def gaps_header(ops) -> str:
+    """The count of missed-run gaps in 7 days; never "No missed" while a gap is open."""
+    gaps = grader_gaps(ops)
+    if gaps:
+        return f"Missed grader runs, last 7 days: {len(gaps)}."
+    if open_gap_of(grader_of(ops)) is not None:
+        return "No earlier missed grader runs in the last 7 days."
+    return "No missed grader runs in the last 7 days."
+
+
 def gap_lines(ops) -> list[str]:
-    """Plain-text lines for the strip's popover: the gaps over 2 h in 7 days, and why they happen."""
+    """Plain-text lines for the strip's popover: an open gap first, then the missed-run gaps in
+    7 days, and why they happen."""
     if grader_of(ops) is None:
         return ["Grader health is not available yet (this zenith-core has no /v1/ops)."]
-    gaps = grader_gaps(ops)
-    lines = [f"Gaps over 2 h between grader runs, last 7 days: {len(gaps)}." if gaps
-             else "No gaps over 2 h between grader runs in the last 7 days."]
-    lines += [f"  {utc_text(x.get('from'))} to {utc_text(x.get('to'))} ({_hours(x.get('hours'))})" for x in gaps]
+    now = open_gap_line(ops)
+    lines = ([now] if now else []) + [gaps_header(ops)]
+    for x in grader_gaps(ops):
+        missed = f", {_num(x.get('missed_runs'))} missed" if x.get("missed_runs") is not None else ""
+        lines.append(f"  {utc_text(x.get('from'))} to {utc_text(x.get('to'))} ({_hours(x.get('hours'))}{missed})")
     return lines + [GAP_NOTE]
 
 
@@ -681,6 +757,8 @@ def grader_details(ops) -> list[str]:
         lines.append("Last run: " + ", ".join(f"{k} {_num(run[k])}" for k in ("claimed", "graded") if k in run) + ".")
     if "runs_24h" in g:
         lines.append(f"Runs in the last 24 h: {_num(g['runs_24h'])}.")
+    if _every(g):
+        lines.append(f"Expected every {_every(g)} min.")
     backlog = g.get("backlog")
     if isinstance(backlog, dict):
         oldest = backlog.get("oldest_aux_pending_at")
@@ -689,12 +767,105 @@ def grader_details(ops) -> list[str]:
                      + (f" (oldest first seen {utc_text(oldest)})" if oldest else "")
                      + f", {_num(backlog.get('headlines_waiting'))} graded cards waiting for a headline."
                      + held_budget_text(backlog))
+    lines += grades_today_lines(g)
+    if isinstance(backlog, dict):
+        lines += backlog_phase1_lines(backlog)
     for c in g.get("checks") or []:
         if isinstance(c, dict):
             state = str(c.get("state") or "?")
             detail = one_line(c.get("detail")) if state != "ok" else ""
             lines.append(f"Check {c.get('key') or '?'}: {state}" + (f". {detail}" if detail else ""))
     return lines
+
+
+def _grades_part(name: str, d) -> str:
+    if not isinstance(d, dict):
+        return ""
+    paths = [("budgeted", "budgeted"), ("fast_path", "fast path"), ("regrade", "re-grades"), ("own_lane", "own lane")]
+    inner = ", ".join(f"{text} {_num(d.get(k))}" for k, text in paths if k in d)
+    return f"{name} {_num(d.get('n'))}" + (f" ({inner})" if inner else "")
+
+
+def grades_today_lines(g) -> list[str]:
+    """ "Grades today (UTC): coverage 12 (budgeted 4, fast path 7, re-grades 1, own lane 5);
+    auxiliary 3 (...)." from grader.grades_today; [] for an older zenith-core."""
+    today = g.get("grades_today") if isinstance(g, dict) else None
+    if not isinstance(today, dict):
+        return []
+    parts = [p for p in (_grades_part("coverage", today.get("coverage")), _grades_part("auxiliary", today.get("aux"))) if p]
+    return [f"Grades today (UTC): {'; '.join(parts)}."] if parts else []
+
+
+def backlog_phase1_lines(backlog: dict) -> list[str]:
+    """Tuning lines for the phase 1 backlog fields, each only when /v1/ops sends it."""
+    lines = []
+    rows, cap = released_by_source(backlog)
+    if rows:
+        lines.append("Released today by source: " + ", ".join(
+            f"{one_line(r.get('source_key')) or '?'} {_num(r.get('n'))}/{cap if cap is not None else '?'}" for r in rows) + ".")
+    stuck, stale = backlog.get("stuck_claims"), backlog.get("stale_claims")
+    stuck = stuck if isinstance(stuck, dict) else {}
+    stale = stale if isinstance(stale, dict) else {}
+    counts = [_num(stuck.get("coverage")), _num(stuck.get("aux")), _num(stale.get("coverage")), _num(stale.get("aux"))]
+    if any(counts):
+        lines.append(f"Claims not returned after 15 min: coverage {counts[0]}, auxiliary {counts[1]} "
+                     f"(lease expired: {counts[2]}/{counts[3]}).")
+    held = _num(backlog.get("source_cap_held"))
+    if held > 0:
+        budget = backlog.get("budget")
+        per = budget.get("per_source") if isinstance(budget, dict) else None
+        lines.append(f"Held by the source cap: {held} (hidden from the feeds until released"
+                     + (f", at most {_num(per)} per source a day" if per is not None else "") + ").")
+    return lines
+
+
+# ---- Phase 1: grader banner (/v1/ops on every Streamlit page; unit tested) -----------
+# Red when the grader missed a scheduled run, is late or down, or left coverage claims
+# unreturned. Aux stuck or stale claims and the queue_stale check never trigger it (aux
+# lease expiries are routine; queue_stale is on Tuning). Never starts with "Grader:", the strip.
+def grader_alert(ops) -> str | None:
+    """Plain text for the banner, or None when all is well (or there is no grader block)."""
+    g = grader_of(ops)
+    if g is None:
+        return None
+    status = str(g.get("status") or "")
+    gap = open_gap_of(g)
+    unfinished = g.get("last_run_unfinished") is True
+    if status not in BAD_STATUS and gap is None and not unfinished:
+        return None
+    parts = []
+    if gap is not None:
+        since = gap.get("from") or g.get("last_run_at")
+        every = _every(g, gap)
+        lead = (f"Grader down: missed {_plural(_missed(gap), 'run')}," if status == "down"
+                else f"Grader missed {_plural(_missed(gap), 'run')}:")
+        parts.append(f"{lead} last activity {utc_text(since)} ({run_ago(since)})"
+                     + (f", expected every {every} min" if every else ""))
+    elif status in BAD_STATUS:
+        # An older zenith-core (no open_gap): its status alone.
+        last = g.get("last_run_at")
+        parts.append(f"Grader {status}: " + (f"last run {run_ago(last)}" if last else "no run recorded"))
+    if unfinished:
+        backlog = g.get("backlog") if isinstance(g.get("backlog"), dict) else {}
+        stuck = backlog.get("stuck_claims") if isinstance(backlog.get("stuck_claims"), dict) else {}
+        c = _num(stuck.get("coverage"))
+        what = f"{_plural(c, 'coverage item')}" if c else "coverage items"
+        parts.append(f"Last run stopped part-way: {what} claimed over 15 min ago and not returned")
+    return " · ".join(parts) or None
+
+
+def grader_banner_html(ops) -> str:
+    """The banner's HTML (escaped), or "" when there is nothing to show."""
+    text = grader_alert(ops)
+    return f'<div class="z-banner">{html.escape(text)}</div>' if text else ""
+
+
+def grader_banner() -> None:
+    """Every Streamlit page: the red grader banner, from the cached /v1/ops the strip shares."""
+    ops, _ = optional_json("/v1/ops")
+    banner = grader_banner_html(ops) if ops is not None else ""
+    if banner:
+        st.markdown(banner, unsafe_allow_html=True)
 
 
 # ---- Zenith show (phase 0) ---------------------------------------------------------
@@ -1106,6 +1277,7 @@ def render_brief() -> None:
             get_json.clear()
             st.rerun()
     _show_flash()
+    grader_banner()
     st.markdown("#### Brief")
     window = st.segmented_control("Window", list(BRIEF_WINDOWS), default=BRIEF_DEFAULT, required=True, key="brief-window",
                                   persist_state="session", label_visibility="collapsed") or BRIEF_DEFAULT
@@ -1915,6 +2087,8 @@ def render(page: FeedPage) -> None:
             st.error(f"API unavailable: {e}")
             st.stop()
 
+    # Phase 1: after the sidebar, so /v1/stats stays the first GET.
+    grader_banner()
     head, switch = st.columns([3, 2], vertical_alignment="bottom")
     head.markdown(f"#### {page.title}")
     # The sort control and, beside it, what each label does; the pair wraps at 375 px (feed.css st-key-zmode-*).
@@ -2114,11 +2288,14 @@ def tuning_grader() -> None:
     st.markdown(grader_strip_html(ops), unsafe_allow_html=True)
     for line in grader_details(ops):
         st.text(line)
+    now = open_gap_line(ops)
+    if now:
+        st.text(now)
     gaps = grader_gaps(ops)
     if gaps:
         _table(["From", "To", "Gap"], [[utc_text(g.get("from")), utc_text(g.get("to")), _hours(g.get("hours"))] for g in gaps])
     else:
-        st.caption("No gaps over 2 h between grader runs in the last 7 days.")
+        st.caption(gaps_header(ops))
     st.caption(GAP_NOTE + (f" As of {utc_text(ops['as_of'])}." if ops.get("as_of") else ""))
 
 
@@ -2212,6 +2389,7 @@ def tuning_expansion() -> None:
 
 
 def render_tuning() -> None:
+    grader_banner()
     with st.sidebar:
         st.markdown('<div class="z-brand">ZEN<span>I</span>TH</div><div class="z-sub">grader tuning</div>',
                     unsafe_allow_html=True)

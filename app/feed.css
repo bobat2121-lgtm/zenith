@@ -71,6 +71,10 @@ div[class*="st-key-zcard-"] [data-testid="stExpander"] details summary { padding
 /* Coverage page: source-health strip (failing names in red) and Site changes. */
 .z-health { color: var(--z-dim); font-size: .8rem; line-height: 1.4; }
 .z-bad { color: var(--z-red-text); font-weight: 700; }
+/* Phase 1: the grader banner at the top of every page; wraps at 375 px. */
+.z-banner { border-left: 3px solid var(--z-red); background: var(--z-panel); color: var(--z-red-text); font-weight: 700;
+  font-size: .84rem; line-height: 1.4; padding: .45rem .7rem; margin-bottom: .5rem; max-width: 100%;
+  white-space: normal; overflow-wrap: anywhere; }
 div.st-key-zhealth { flex-wrap: wrap !important; row-gap: .2rem; margin-top: -.4rem; }
 div.st-key-zhealth [data-testid="stPopover"] button { min-height: 1.5rem; padding: 0 .55rem; font-size: .74rem; border-radius: 999px;
   white-space: nowrap; }
