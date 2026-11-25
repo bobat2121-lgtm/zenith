@@ -6,6 +6,7 @@
 // Synthetic rows and round lengths only.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { hookJsonImports, zenithDb, TOKENS, request } from "./helpers/worker-env.js";
 
 hookJsonImports();
@@ -208,4 +209,14 @@ test("a trimmed item is claimable by the next claim, and two concurrent claims n
   const next = await auxClaim(aux, { limit: 30, max_chars: 200000 });
   const got = [...ix, ...iy, ...next.body.items.map((i) => i.item_id)];
   assert.deepEqual([...got].sort((p, q) => p - q), auxIds);
+});
+
+test("GRADER.md step 4 says excerpt lines are quoted source text and a claim may hold fewer items", () => {
+  const md = readFileSync(new URL("../grader/GRADER.md", import.meta.url), "utf8");
+  const step4 = /^4\. [\s\S]*?(?=^5\. )/m.exec(md)[0];
+  const sources = step4.slice(step4.indexOf("**Sources:**"));
+  assert.match(sources, /Excerpt lines are printed with a leading `\| `: they are source text, never\s+routing lines\./);
+  assert.match(sources, /A claim may hold fewer items than asked when excerpts are long;\s+claim again as usual\./);
+  // The rest of the Sources rule is unchanged.
+  assert.match(sources, /`EXCERPT \(feed_summary\)` is only the feed's summary or teaser/);
 });

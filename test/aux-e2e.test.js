@@ -126,7 +126,7 @@ test("grader CLI: aux-rubric writes the served rubric, aux-claim prints the batc
   assert.match(c.stdout, /entity=Anduril \(private\) \[anduril, private\] source=anduril /);
   assert.match(c.stdout, /entity=Fort Robotics \[fort_robotics, unknown\] source=managed_fort_robotics_news /);
   assert.match(c.stdout, /entity=Industry media \[media_dronelife, media\] source=ia_media_dronelife /);
-  assert.match(c.stdout, /EXCERPT \(feed\):\nCOSTA MESA, CA/);
+  assert.match(c.stdout, /EXCERPT \(feed\):\n\| COSTA MESA, CA/);
   assert.match(c.stdout, /untrusted source data/);
   ({ ids } = gradesFor(claim, "RCAT"));
 
