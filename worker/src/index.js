@@ -1,7 +1,8 @@
 // zenith-core — graded research feed for the covered universe, plus auxiliary
 // names (every other company or program news-monitor follows; auxiliary.js).
 //   cron  : ingest covered-lane items from news-monitor-db, fetch excerpts, then ingest auxiliary items,
-//           the one-time expansion backfill, and last the SEC party pass (sec-parties.js)
+//           war.gov digest text (wargov.js), the held-row release (budget.js), the one-time
+//           expansion backfill, and last the SEC party pass (sec-parties.js)
 //   grader: POST /v1/queue/claim, POST /v1/grades, GET /v1/rubric[/TICKER|/peers|/aux], GET /v1/labels, GET /v1/recent,
 //           POST /v1/aux/claim, POST /v1/aux/grades, GET /v1/aux/recent, GET /v1/aux/labels,
 //           POST /v1/headlines/claim, POST /v1/headlines (headline-only pass; headlines.js)
@@ -11,8 +12,15 @@
 //           (grader health and source tuning; tuning.js)
 //   app   : GET /v1/expansion/candidates, POST /v1/expansion/decide, POST /v1/expansion/compiled
 //           (the source-expansion approve queue; expansion.js)
+//   app   : GET /v1/brief, GET /v1/calendar (the brief as data and the calendar; brief.js, calendar.js),
+//           GET /v1/news-ops (news-monitor alerts and the managed lane; source-signals.js),
+//           GET /v1/recall (the recall scoreboard, counts only; recall.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim),
-//           POST /v1/admin/bill-lines (one pass of the bill autonomy lines; bill-lines.js)
+//           POST /v1/admin/bill-lines (one pass of the bill autonomy lines; bill-lines.js),
+//           POST /v1/admin/recall (loads the recall events; recall.js),
+//           POST /v1/admin/requeue {mode: "rescue"} (skipped rows back as held rows; budget.js; not before 2026-11-29, dry_run first)
+//   budget: rows the arrival gate holds are released by the cron under a daily grading budget,
+//           20 a UTC day, 5 per source, queue guard 60 (budget.js)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";

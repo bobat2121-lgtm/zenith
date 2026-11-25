@@ -40,5 +40,34 @@ class UndatedBurstTest(unittest.TestCase):
         self.assertNotIn("pandas", sys.modules)
 
 
+# Integration I-4 (plans/phase0-build-spec.md section 6): the held line in the Grader section.
+BACKLOG = {"coverage_pending": 4, "aux_pending": 6, "headlines_waiting": 2}
+BACKLOG_LINE = "Backlog: 4 coverage items pending, 6 auxiliary pending, 2 graded cards waiting for a headline."
+
+
+class GraderHeldTest(unittest.TestCase):
+    def test_grader_details_shows_held_and_budget(self):
+        backlog = {**BACKLOG, "coverage_held": 3, "aux_held": 9, "released_today": 7,
+                   "budget": {"total": 20, "per_source": 5, "guard": 60}, "double_graded_24h": 1}
+        details = zf.grader_details({"grader": {"status": "ok", "backlog": backlog}})
+        self.assertIn(BACKLOG_LINE + " 12 held for the daily grading budget (7 released today of 20).", details)
+        # Fields from an older or partial zenith-core: no released_today, or no budget.
+        self.assertEqual(zf.held_budget_text({"aux_held": 2}), " 2 held for the daily grading budget.")
+        self.assertEqual(zf.held_budget_text({"coverage_held": 1, "released_today": 4}),
+                         " 1 held for the daily grading budget (4 released today).")
+        self.assertEqual(zf.held_budget_text({"coverage_held": "<b>x</b>", "aux_held": None, "released_today": 0, "budget": {"total": 20}}),
+                         " 0 held for the daily grading budget (0 released today of 20).")
+
+    def test_grader_details_without_held_fields_is_unchanged(self):
+        details = zf.grader_details({"grader": {"status": "ok", "backlog": dict(BACKLOG)}})
+        self.assertIn(BACKLOG_LINE, details)
+        self.assertFalse(any("held" in line for line in details))
+        self.assertEqual(zf.held_budget_text(None), "")
+        self.assertEqual(zf.held_budget_text({"released_today": 3, "budget": {"total": 20}}), "")
+
+    def test_no_pandas_after_grader_details(self):
+        self.assertNotIn("pandas", sys.modules)
+
+
 if __name__ == "__main__":
     unittest.main()

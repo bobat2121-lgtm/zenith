@@ -5,8 +5,9 @@ single-page app did. Auxiliary Names reads /v1/aux/feed and labels through
 /v1/aux/feedback. Both read /v1/stats (auxiliary counts live under stats.aux).
 Tuning reads /v1/calibration, /v1/expansion/candidates, /v1/source-yield,
 /v1/left-out and /v1/ops and writes /v1/expansion/decide (approve, reject,
-reopen), /v1/source-prefs and /v1/left-out/grade; the Coverage page shows /v1/ops
-as its grader strip. A route an older zenith-core lacks shows "not available yet".
+reopen), /v1/source-prefs and /v1/left-out/grade; it also reads /v1/recall
+(counts only). The Coverage page shows /v1/ops as its grader strip and
+/v1/news-ops as its ops strip. Brief reads /v1/brief and /v1/calendar. A route an older zenith-core lacks shows "not available yet".
 Titles, excerpts and grader text are untrusted: every string that reaches HTML
 is escaped, links must be http(s), and excerpts render as plain text.
 """
@@ -650,6 +651,23 @@ def gap_lines(ops) -> list[str]:
     return lines + [GAP_NOTE]
 
 
+def held_budget_text(backlog) -> str:
+    """' N held for the daily grading budget (M released today of T).' when /v1/ops
+    reports held rows (backlog.coverage_held / aux_held, released_today, budget.total);
+    '' for an older zenith-core without those fields. Plain text (st.text)."""
+    if not isinstance(backlog, dict) or not any(k in backlog for k in ("coverage_held", "aux_held")):
+        return ""
+    held = _num(backlog.get("coverage_held")) + _num(backlog.get("aux_held"))
+    budget = backlog.get("budget")
+    total = budget.get("total") if isinstance(budget, dict) else None
+    if "released_today" in backlog:
+        released = _num(backlog.get("released_today"))
+        tail = f" ({released} released today of {_num(total)})" if total is not None else f" ({released} released today)"
+    else:
+        tail = ""
+    return f" {held} held for the daily grading budget{tail}."
+
+
 def grader_details(ops) -> list[str]:
     """Plain-text lines for the Tuning page's Grader section (gaps are a table there)."""
     g = grader_of(ops)
@@ -669,7 +687,8 @@ def grader_details(ops) -> list[str]:
         lines.append(f"Backlog: {_num(backlog.get('coverage_pending'))} coverage items pending, "
                      f"{_num(backlog.get('aux_pending'))} auxiliary pending"
                      + (f" (oldest first seen {utc_text(oldest)})" if oldest else "")
-                     + f", {_num(backlog.get('headlines_waiting'))} graded cards waiting for a headline.")
+                     + f", {_num(backlog.get('headlines_waiting'))} graded cards waiting for a headline."
+                     + held_budget_text(backlog))
     for c in g.get("checks") or []:
         if isinstance(c, dict):
             state = str(c.get("state") or "?")

@@ -297,3 +297,25 @@ test("muting a source parks its held rows with admit cleared, so a Left out grad
   assert.deepEqual(ids(await claim(env, "/v1/aux/claim")), [a], "the next grader run grades it, as Left out says");
   assert.deepEqual(ids(await claim(env)), [c]);
 });
+
+// Integration I-1 (plans/phase0-build-spec.md section 6): the brief's waiting list and counts.
+test("held rows are not waiting in the brief: waiting.items and counts leave them out; waiting.held counts them", async () => {
+  const env = newEnv();
+  const fresh = addItem(env, { nm_first_seen: iso(10 * MIN) });
+  const released = addItem(env, held({ released_at: iso(MIN), nm_first_seen: iso(2 * HOUR) }));
+  const h1 = addItem(env, held({ nm_first_seen: iso(5 * HOUR) }));
+  const h2 = addItem(env, held({ admit: "seed_fresh", nm_first_seen: iso(HOUR) }));
+  addItem(env, { role: "customer", ticker: "AUR", nm_first_seen: iso(20 * MIN) });
+  const hCp = addItem(env, held({ role: "customer", ticker: "AUR", nm_first_seen: iso(6 * HOUR) }));
+  env.DB.db.prepare("UPDATE items SET ingested_at = nm_first_seen").run();
+  const r = await request(worker, env, "GET", `/v1/brief?since=${encodeURIComponent(iso(DAY))}`, { role: "app" });
+  assert.equal(r.status, 200);
+  const w = r.body.waiting;
+  const shown = w.items.map((i) => i.item_id).sort((a, b) => a - b);
+  assert.deepEqual(shown, [fresh, released].sort((a, b) => a - b), "a released row is waiting; held rows are not");
+  for (const id of [h1, h2, hCp]) assert.ok(!shown.includes(id));
+  assert.equal(w.count, 2);
+  assert.equal(w.counterparty_count, 1);
+  assert.equal(w.held, 3, "both roles");
+  assert.equal(w.oldest, env.DB.rows("SELECT nm_first_seen AS t FROM items WHERE id = ?", released)[0].t, "the held 5-hour row is not the oldest");
+});

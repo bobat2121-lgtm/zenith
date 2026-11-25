@@ -7,7 +7,7 @@
 //     GET /v1/calibration: analyst labels against the grades they were given on.
 // Crons fire at both candidate UTC times (EST and EDT); slotsAt() keeps only the
 // one that is the slot's ET wall time. The 5-minute tick retries missed slots.
-import { json, nowIso } from "./lib.js";
+import { json, nowIso, HELD_SQL } from "./lib.js";
 import { etParts, etToUtc, addDays, fmtEt, fmtAge, fmtDay, DAY_MS } from "./et.js";
 import { discordSendAll, escapeMd, clip, link, figures, bandName, splitMessages } from "./discord.js";
 import { CALENDAR, CALENDAR_VERSION } from "./calendar.generated.js";
@@ -123,14 +123,19 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
   const tickers = covered?.tickers || null;
   const inUniverse = tickers ? " AND ticker IN (SELECT value FROM json_each(?))" : "";
   const tickerBind = tickers ? [JSON.stringify(tickers)] : [];
+  // Held rows (the daily grading budget, budget.js) are not waiting: they are
+  // counted apart in waiting.held, both roles.
   const waitingRows = (await db.prepare(
     `SELECT id AS item_id, ticker, title, url, source_key, state, nm_first_seen, ingested_at
-       FROM items WHERE state IN ('pending','claimed') AND role IS NULL${inUniverse} ORDER BY nm_first_seen DESC LIMIT 60`,
+       FROM items WHERE state IN ('pending','claimed') AND role IS NULL AND NOT ${HELD_SQL()}${inUniverse} ORDER BY nm_first_seen DESC LIMIT 60`,
   ).bind(...tickerBind).all()).results || [];
   const counts = await db.prepare(
     `SELECT SUM(CASE WHEN role IS NULL THEN 1 ELSE 0 END) AS own, SUM(CASE WHEN role IS NOT NULL THEN 1 ELSE 0 END) AS cp,
             MIN(CASE WHEN role IS NULL THEN MAX(nm_first_seen, ingested_at) END) AS oldest
-       FROM items WHERE state IN ('pending','claimed')${inUniverse}`,
+       FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}${inUniverse}`,
+  ).bind(...tickerBind).first();
+  const heldCount = await db.prepare(
+    `SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND ${HELD_SQL()}${inUniverse}`,
   ).bind(...tickerBind).first();
 
   // Sheet entries, graded notices and council agendas (runtimeEntries logs and
@@ -145,7 +150,7 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
     kind, generated_at: nowIso(now), from, to, today,
     leads_digests: byTicker,
     counterparty: graded.filter((r) => r.role),
-    waiting: { count: counts?.own || 0, counterparty_count: counts?.cp || 0, oldest: counts?.oldest || null, items: waitingRows },
+    waiting: { count: counts?.own || 0, counterparty_count: counts?.cp || 0, oldest: counts?.oldest || null, held: heldCount?.n || 0, items: waitingRows },
     catalysts,
     health: {
       grader_last_run: lastRun?.last_seen_at || null,
