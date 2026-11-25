@@ -678,7 +678,9 @@ export async function auxFeedback(env, body) {
 // counted case-insensitively under the latest grade's spelling.
 export async function auxStats(env) {
   const db = env.DB;
-  const byState = (await db.prepare("SELECT state, COUNT(*) AS n FROM aux_items GROUP BY state").all()).results || [];
+  // Phase 0 gates: held rows are counted as state 'held', never as pending (as index.js stats).
+  const byState = (await db.prepare(`SELECT CASE WHEN state = 'pending' AND ${HELD_SQL()} THEN 'held' ELSE state END AS state, COUNT(*) AS n
+    FROM aux_items GROUP BY 1`).all()).results || [];
   const byBand = (await db.prepare("SELECT g.band, COUNT(*) AS n FROM aux_items i JOIN aux_grades g ON g.id = i.grade_id GROUP BY g.band").all()).results || [];
   const entities = (await db.prepare(
     `WITH names AS (

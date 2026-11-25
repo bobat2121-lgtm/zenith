@@ -192,6 +192,9 @@ test("held rows are not waiting: ops backlog, stats by_state, oldestPending and 
   assert.equal(st.pending, 1);
   assert.equal(st.held, 2);
   assert.equal(s.oldest_pending_first_seen, env.DB.rows("SELECT nm_first_seen FROM items WHERE id = ?", fresh)[0].nm_first_seen);
+  // Auxiliary the same (the app's Auxiliary "Waiting" is pending + claimed): the fresh and the released row are pending, the held one is held.
+  const ast = Object.fromEntries(s.aux.by_state.map((x) => [x.state, x.n]));
+  assert.deepEqual(ast, { pending: 2, held: 1, graded: 1 });
 
   // queue_stale: only held covered rows waiting over 75 minutes -> ok.
   const hb = newEnv();
