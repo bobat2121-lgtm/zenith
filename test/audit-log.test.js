@@ -434,6 +434,68 @@ test("admin run and admin grade override are audited; grader grades are not", as
   assert.equal(count(env, "SELECT COUNT(*) AS n FROM audit_log WHERE actor = 'grader'"), 0);
 });
 
+test("admin ingest, aux-ingest and bill-lines runs are each one admin_run row with numeric fields only", async () => {
+  const env = newEnv();
+  for (const job of ["ingest", "aux-ingest", "bill-lines"]) {
+    const r = await post(env, `/v1/admin/${job}`, {});
+    assert.equal(r.status, 200, `${job}: ${JSON.stringify(r.body)}`);
+    const [row, ...more] = auditRows(env, "admin_run").filter((x) => x.target_id === job);
+    assert.equal(more.length, 0, job);
+    assert.deepEqual([row.actor, row.via, row.target_kind], ["admin", "token", "job"], job);
+    const want = Object.fromEntries(Object.entries(r.body).filter(([, v]) => typeof v === "number"));
+    assert.deepEqual(row.after, want, `${job}: the response's top-level numbers, nothing else`);
+  }
+  assert.equal(count(env, "SELECT COUNT(*) AS n FROM audit_log"), 3);
+});
+
+test("admin aux grades are one grade_override row on aux_grades whose results keep entity", async () => {
+  const env = newEnv();
+  const a = addAux(env);
+  const b = addAux(env);
+  const g = (item_id, over) => ({ item_id, entity: "Testco Robotics", score: 80, band: "digest", event_type: "contract", why: "w", reads_through: [],
+    flags: ["reason:material"], confidence: 0.7, read_source: true, dup_of: null, covered_ticker: null, ...over });
+  const res = await post(env, "/v1/aux/grades", { run_id: "run-admin", model: "m", grades: [g(a), g(b, { entity: "Othertest Labs", score: 30, band: "reject", flags: ["reason:minor"] })] });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.accepted, 2);
+  const rows = auditRows(env, "grade_override");
+  assert.equal(rows.length, 1);
+  const [row] = rows;
+  assert.deepEqual([row.actor, row.via, row.target_kind, row.target_id, row.after.accepted], ["admin", "token", "aux_grades", null, 2]);
+  assert.deepEqual(row.after.results, res.body.results);
+  assert.deepEqual(row.after.results.map((x) => x.entity), ["Testco Robotics", "Othertest Labs"]);
+  assert.ok(row.after.results.every((x) => !("ticker" in x)), "an undefined ticker is not stored");
+});
+
+test("requeue sec_excerpts is audited with only the requeued ids; a dry run writes nothing", async () => {
+  const sec = JSON.parse(readFileSync(new URL("./fixtures/sec-filings.json", import.meta.url), "utf8")).pages;
+  const url = "https://www.sec.gov/Archives/edgar/data/1828108/000182810826000045/aur-20261028.htm";
+  const env = newEnv({ CONTACT_EMAIL: "ops@example.org" });
+  const graded = addItem(env, { source_key: "edgar_aur", ticker: "AUR", url, title: "Testco: 8-K filed 2026-10-28" });
+  addGrade(env, graded, { ticker: "AUR", score: 55, band: "borderline", flags: ["reason:primary_source", "no_figures"] });
+  // Still pending: read, but not requeued.
+  const pending = addItem(env, { source_key: "edgar_aur", ticker: "AUR", url: url.replace("aur-20261028", "missing"), title: "Testco: 8-K pending" });
+  const dry = await post(env, "/v1/admin/requeue", { mode: "sec_excerpts", dry_run: true });
+  assert.equal(dry.body.remaining, 2, JSON.stringify(dry.body));
+  assert.equal(count(env, "SELECT COUNT(*) AS n FROM audit_log"), 0);
+  const real = globalThis.fetch;
+  globalThis.fetch = async (u) => new Response(sec[String(u)] ?? "missing", { status: sec[String(u)] ? 200 : 404, headers: { "content-type": "text/html" } });
+  let r;
+  try {
+    r = (await post(env, "/v1/admin/requeue", { mode: "sec_excerpts" })).body;
+  } finally { globalThis.fetch = real; }
+  assert.deepEqual([r.processed, r.requeued], [2, 1], JSON.stringify(r));
+  assert.deepEqual(r.items.filter((i) => i.requeued).map((i) => i.item_id), [graded]);
+  assert.ok(r.items.some((i) => i.item_id === pending && !i.requeued));
+  const rows = auditRows(env, "requeue");
+  assert.equal(rows.length, 1);
+  const [row] = rows;
+  assert.deepEqual([row.actor, row.target_kind, row.target_id], ["admin", "items", "sec_excerpts"]);
+  assert.deepEqual(row.after, { mode: "sec_excerpts", cleared: r.cleared, processed: 2, requeued: 1, ids: [graded], ids_total: 1 });
+  // Nothing left to read: processed 0, cleared 0, no second row.
+  assert.equal((await post(env, "/v1/admin/requeue", { mode: "sec_excerpts" })).body.processed, 0);
+  assert.equal(auditRows(env, "requeue").length, 1);
+});
+
 test("ids lists are capped at 500 through requeue", async () => {
   const env = newEnv();
   const real = addItem(env);
