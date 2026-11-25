@@ -76,3 +76,40 @@ test("new Legistar and FCC space rows: Coverage routes them by company name, the
   const held = env.DB.rows("SELECT source_key FROM items WHERE admit = 'seed_fresh' AND released_at IS NULL");
   assert.equal(held.length, 0, "six held rows over five sources all fit the budget");
 });
+
+// Phase 1 FPDS by vendor UEI (plans/phase1-build-spec.md Part C 6.2, Z8): the
+// seven new fpds_* keys, synced from news-monitor by scripts/sync-covered.mjs.
+// Key names and tickers only; titles, PIIDs and amounts below are synthetic.
+const { default: AUX } = await import("../worker/src/aux-sources.json", { with: { type: "json" } });
+const FPDS_KEYS = { fpds_evlv: "EVLV", fpds_rcat: "RCAT", fpds_pdyn_sarcos: "PDYN", fpds_mrln: "MRLN", fpds_kdk: "KDK", fpds_dpro: "DPRO", fpds_aglt: "AGLT" };
+
+test("new FPDS keys sync as customer counterparties with entity fpds (Z8)", () => {
+  for (const [k, t] of Object.entries(FPDS_KEYS)) {
+    assert.deepEqual(COVERED.counterparty[k], { role: "customer", affects: [t] }, `${k} counterparty`);
+    assert.ok(!Object.hasOwn(COVERED.sources, k), `${k} is not a covered own-lane source`);
+    const a = AUX.sources[k];
+    assert.ok(a, `${k} in aux-sources.json`);
+    assert.equal(a.entity, "fpds", k);
+    assert.equal(a.record, true, k);
+    assert.equal(a.coverage_subject, true, k);
+    assert.deepEqual(a.affects, [t], k);
+    assert.equal(a.lane, "strategic_noncompany", k);
+    assert.ok(!a.sec, `${k} is not SEC`);
+    assert.ok(!Object.hasOwn(AUX.exclude, k), `${k} is not excluded`);
+    assert.equal(isRecordSource(k), true, `${k} is a record source`);
+  }
+});
+
+test("new FPDS keys: Coverage owns their seed rows under the key's ticker and holds them; none is stored on Auxiliary", async () => {
+  const env = newEnv();
+  for (const [k, t] of Object.entries(FPDS_KEYS)) {
+    nm(env, { source_key: k, title: `[${t}] FPDS: TEST AGENCY purchase order TEST${t}0001 mod P00001 to TESTCO ${t} INC — $250K obligated`,
+      published: ago(6), url: `https://www.fpds.example/ATOM?q=VENDOR_UEI:TEST${t}#9999-TEST${t}0001-P00001` });
+  }
+  await ingest(env);
+  await ingestAux(env);
+  const keys = Object.keys(FPDS_KEYS);
+  const cov = Object.fromEntries(env.DB.rows("SELECT source_key, ticker, role, state, admit FROM items").map((x) => [x.source_key, [x.ticker, x.role, x.state, x.admit]]));
+  for (const [k, t] of Object.entries(FPDS_KEYS)) assert.deepEqual(cov[k], [t, "customer", "pending", "seed_fresh"], k);
+  assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM aux_items WHERE source_key IN (${keys.map(() => "?").join(",")})`, ...keys)[0].n, 0);
+});
