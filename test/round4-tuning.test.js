@@ -579,6 +579,63 @@ test("Z11 rival items the key-account gate drops are auxiliary (coverage subject
   assert.ok(!(await get(env, "/v1/aux/feed?order=newest")).body.items.some((i) => i.source_key === "tfvector"));
 });
 
+// Phase 0 gates (c): every rival row graded once, on the Auxiliary side.
+const daysBefore = (seen, d) => new Date(Date.parse(seen) - d * DAY).toISOString();
+function rivalSeed(env) {
+  for (const key of ["nm_cursor", "aux_nm_cursor"]) atStart(env.DB, key);
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('aux_cs_cursor', 'done'), ('aux_rv_cursor', 'done')").run();
+  const seen = iso(DAY);
+  // A rival source's first poll: dated 18, 30, 40 and 50 days back and two undated pages (a seed burst).
+  for (const [d, t] of [[18, "Vector ships interceptor kits"], [30, "Vector opens a plant"], [40, "Vector hires a COO"], [50, "Vector wins a grant"]]) {
+    nmRowAdd(env.NEWS, { source_key: "tfvector", title: t, published: daysBefore(seen, d), first_seen: seen });
+  }
+  for (const k of [1, 2]) nmRowAdd(env.NEWS, { source_key: "tfvector", title: `Vector page ${k}`, published: null, first_seen: seen });
+  return seen;
+}
+
+test("rival seed on aux: rows 15-21 days old are seed_window; 22+ days and undated rows archive_seed", async () => {
+  const env = newEnv();
+  rivalSeed(env);
+  await ingest(env);
+  await ingestAux(env);
+  const aux = Object.fromEntries(env.DB.rows("SELECT title, state, skip_reason, admit, coverage_subject FROM aux_items WHERE source_key = 'tfvector'")
+    .map((x) => [x.title, [x.state, x.skip_reason, x.admit, x.coverage_subject]]));
+  assert.deepEqual(aux["Vector ships interceptor kits"], ["pending", null, "seed_window", 1]);
+  for (const t of ["Vector opens a plant", "Vector hires a COO", "Vector wins a grant", "Vector page 1", "Vector page 2"]) {
+    assert.deepEqual(aux[t], ["skipped", "archive_seed", null, 1], t);
+  }
+});
+
+test("coverage: a rival row the gate drops is labelled rival_no_key_account even when 40 days old or in an archive burst; a kept rival row keeps today's time-gate labels", async () => {
+  const env = newEnv();
+  rivalSeed(env);
+  const later = iso(HOUR);
+  nmRowAdd(env.NEWS, { source_key: "tfvector", title: "Vector expands its distributor network", published: daysBefore(later, 40), first_seen: later });
+  nmRowAdd(env.NEWS, { source_key: "tfvector", title: "Vector teams with Red Cat Holdings on payloads", published: daysBefore(later, 40), first_seen: later });
+  await ingest(env);
+  const cov = Object.fromEntries(env.DB.rows("SELECT title, state, skip_reason, admit FROM items WHERE source_key = 'tfvector'")
+    .map((x) => [x.title, [x.state, x.skip_reason, x.admit]]));
+  for (const t of ["Vector ships interceptor kits", "Vector opens a plant", "Vector page 1", "Vector expands its distributor network"]) {
+    assert.deepEqual(cov[t], ["skipped", "rival_no_key_account", null], t);
+  }
+  assert.deepEqual(cov["Vector teams with Red Cat Holdings on payloads"], ["skipped", "stale_on_arrival", null], "kept by the key-account gate: the time gate applies");
+});
+
+test("a gate-dropped rival row is graded once: no coverage claim ever returns it; one aux claim does after release", async () => {
+  const env = newEnv();
+  rivalSeed(env);
+  await ingest(env);
+  await ingestAux(env);
+  await releaseHeld(env);
+  const cc = (await post(env, "/v1/queue/claim", { limit: 50 }, "grader")).body;
+  assert.ok(!cc.items.some((i) => i.source_key === "tfvector"), "never on Coverage");
+  const a1 = (await post(env, "/v1/aux/claim", { limit: 40 }, "grader")).body;
+  assert.deepEqual(a1.items.filter((i) => i.source_key === "tfvector").map((i) => [i.title, i.admit, i.coverage_subject]),
+    [["Vector ships interceptor kits", "seed_window", true]]);
+  const a2 = (await post(env, "/v1/aux/claim", { limit: 40 }, "grader")).body;
+  assert.ok(!a2.items.some((i) => i.source_key === "tfvector"), "claimed once");
+});
+
 test("Z11 one-time rival catch-up (aux_rv_cursor): stores dropped rows, marks stored ones, parks kept ones as on_coverage, then stops", async () => {
   const env = newEnv();
   const news = env.NEWS;

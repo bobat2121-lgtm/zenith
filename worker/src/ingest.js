@@ -201,8 +201,11 @@ export async function ingest(env) {
       // The arrival gate (lib.js arrivalGate): the stale gate, archive bursts,
       // and the admissions held for the daily grading budget (budget.js).
       const gate = arrivalGate(r, gateContext(r, "coverage", first, park));
-      // Only http(s) links are ever fetched or shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : gate.reason || route.skip || (muted.has(r.source_key) ? "muted_source" : null);
+      // Only http(s) links are ever fetched or shown in the feed. Precedence:
+      // bad_url, then the key-account gate (a rival row it drops is labelled
+      // rival_no_key_account whatever its age, so its Auxiliary copy is the
+      // one graded), then the arrival gate, then a muted source.
+      const reason = !isHttpUrl(r.url) ? "bad_url" : route.skip || gate.reason || (muted.has(r.source_key) ? "muted_source" : null);
       const admit = reason ? null : gate.admit;
       if (reason) skipped++;
       if (admit) held++;
