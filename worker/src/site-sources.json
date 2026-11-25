@@ -158,6 +158,21 @@
       "label": "AGLT press page",
       "expect": null
     },
+    "probe_army_article_jiatf": {
+      "ticker": null,
+      "label": "army article jiatf",
+      "expect": null
+    },
+    "probe_army_news": {
+      "ticker": null,
+      "label": "army news",
+      "expect": null
+    },
+    "probe_army_rss": {
+      "ticker": null,
+      "label": "army",
+      "expect": "feed"
+    },
     "probe_axon_newsroom": {
       "ticker": "AXON",
       "label": "AXON newsroom",
@@ -177,6 +192,11 @@
       "ticker": "PL",
       "label": "PL bw release",
       "expect": null
+    },
+    "probe_dvids_news_rss": {
+      "ticker": null,
+      "label": "dvids news",
+      "expect": "feed"
     },
     "probe_gnw_bot_rss": {
       "ticker": "BOT",
@@ -281,6 +301,11 @@
     "probe_sym_ir_news_rss": {
       "ticker": "SYM",
       "label": "SYM news",
+      "expect": "feed"
+    },
+    "probe_wargov_news_rss": {
+      "ticker": null,
+      "label": "wargov news",
       "expect": "feed"
     },
     "probe_xtraf_ir_events_rss": {

@@ -802,6 +802,13 @@
         "GRRR"
       ]
     },
+    "fedreg_fcc_space": {
+      "role": "program",
+      "affects": [
+        "PL",
+        "SATL"
+      ]
+    },
     "nhtsa_sgo_ads": {
       "role": "program",
       "affects": [
@@ -891,6 +898,114 @@
       "role": "customer",
       "affects": [
         "AXON"
+      ]
+    },
+    "legistar_fresno": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_hayward": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_elpaso": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_toledo": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_stpaul": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_milwaukee": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_sanjose": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_dallas": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_corpuschristi": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_cookcounty": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_nashville": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
+    "legistar_dane": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
       ]
     },
     "regulations_eas_srfm": {
