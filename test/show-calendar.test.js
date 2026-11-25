@@ -59,6 +59,10 @@ test("A4: a rival-marked title gives no entry, a product-only title gives no ent
   await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
     title: `[AXON] (Flock/ALPR, rival) Testville City Council 26-1: Flock Safety ALPR agreement — In Committee, agenda ${day}` });
   assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "rival-marked");
+  // Rule 1 on its own: a rival-marked title that also names the company is still skipped.
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] (Flock/ALPR, rival) Testville City Council 26-11: ALPR vendor replaces Axon Enterprise cameras — In Committee, agenda ${day}` });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "rival-marked, names the company");
   await addItem(env.DB, { ticker: "SERV", source_key: "legistar_testville_serv",
     title: `[SERV] Testville City Council 26-2: personal delivery device rules — In Committee, agenda ${day}` });
   assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "product-only");
