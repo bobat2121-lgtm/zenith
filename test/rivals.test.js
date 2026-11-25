@@ -58,9 +58,13 @@ test("basis: each listed key has a '-' or '±' read-through to its ticker in pee
   }
 });
 
-// End to end on a synthetic covered map: the real covered.json plus a rival
-// source rivx for ONDS. Registered after hookJsonImports, so this hook runs first.
+// End to end on a synthetic covered map and a synthetic key account: the real
+// covered.json plus a rival source rivx for ONDS, and the bundled rubric's MATCH
+// with one made-up ONDS key-account term appended. Registered after
+// hookJsonImports, so these hooks run first.
 const COVERED_URL = new URL("../worker/src/covered.json", import.meta.url).href;
+const RUBRIC_URL = new URL("../worker/src/rubric.generated.js", import.meta.url).href;
+const ACCOUNT = "Synthetic Account Co";
 hookJsonImports();
 registerHooks({
   load(url, context, nextLoad) {
@@ -68,6 +72,13 @@ registerHooks({
       const covered = JSON.parse(readFileSync(fileURLToPath(url), "utf8"));
       covered.counterparty = { ...covered.counterparty, rivx: { role: "rival", affects: ["ONDS"] } };
       return { format: "module", source: `export default ${JSON.stringify(covered)};`, shortCircuit: true };
+    }
+    if (url === RUBRIC_URL) {
+      const loaded = nextLoad(url, context);
+      const source = `${String(Buffer.from(loaded.source))}
+MATCH.ONDS = { ...MATCH.ONDS, accounts: [...(MATCH.ONDS.accounts || []), ${JSON.stringify(ACCOUNT)}] };
+`;
+      return { ...loaded, source, shortCircuit: true };
     }
     return nextLoad(url, context);
   },
@@ -77,8 +88,8 @@ const { ingestAux, AUX_CS_DONE } = await import("../worker/src/auxiliary.js");
 const { MATCH } = await import("../worker/src/rubric.generated.js");
 
 test("a rival row naming no ONDS term is a skipped Coverage stub and a coverage-subject aux row; one naming an ONDS key account is graded on Coverage only; neither is admitted", async () => {
-  const account = (MATCH.ONDS.accounts || []).find((a) => typeof a === "string" && a.trim().length >= 3);
-  assert.ok(account, "ONDS has a key account term");
+  const account = ACCOUNT;
+  assert.ok(MATCH.ONDS.accounts.includes(account), "the synthetic ONDS key account is in the loaded MATCH");
   const news = newsDb();
   const db = zenithDb();
   const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
