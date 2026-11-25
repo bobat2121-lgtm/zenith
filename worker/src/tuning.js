@@ -13,7 +13,7 @@ import AUX from "./aux-sources.json";
 import { auxRoute } from "./aux-route.js";
 import { heartbeatChecks } from "./delivery.js";
 import { headlinesWaiting } from "./headlines.js";
-import { json, nowIso, universeSql, HELD_SQL, LEASE_MINUTES } from "./lib.js";
+import { json, nowIso, universeSql, HELD_SQL, LEASE_MINUTES, audit } from "./lib.js";
 import { budgetSettings, releasedToday, heldCounts, utcDayStart, fastPathCounts } from "./budget.js";
 import { isRecordSource } from "./records.js";
 
@@ -81,7 +81,11 @@ export async function getSourcePrefs(env) {
 // whose lease ran out, as muted_source in both pipelines. normal deletes the
 // row: future items flow again, and parked items stay parked (Left out can
 // send one back to the grader).
-export async function postSourcePrefs(env, body) {
+// Phase 1 audit (who: lib.js whoFor): one row when the action or the note
+// changed, or the call parked rows (a repeated mute parks new pending rows);
+// an identical repeat, or normal on an unset source, writes none. The note
+// text is never audited, only has_note and note_changed.
+export async function postSourcePrefs(env, body, who) {
   const key = typeof body?.source_key === "string" ? body.source_key.trim() : body?.source_key;
   const action = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "";
   if (!SOURCE_ACTIONS.includes(action)) return json({ error: `action must be one of ${SOURCE_ACTIONS.join(", ")}` }, 400);
@@ -89,8 +93,11 @@ export async function postSourcePrefs(env, body) {
   if (refusal) return json({ error: refusal }, 400);
   const db = env.DB;
   const now = nowIso();
+  const old = await db.prepare("SELECT action, updated_at, note FROM source_prefs WHERE source_key = ?").bind(key).first();
+  const before = old ? { action: old.action, updated_at: old.updated_at, has_note: old.note != null } : null;
   if (action === "normal") {
     await db.prepare("DELETE FROM source_prefs WHERE source_key = ?").bind(key).run();
+    if (old) await audit(db, who, { action: "source_pref", target_kind: "source", target_id: key, before, after: null });
     return json({ ok: true, source_key: key, action, parked: { coverage: 0, aux: 0 } });
   }
   const note = body?.note == null || body.note === "" ? null : String(body.note).slice(0, 500);
@@ -109,7 +116,13 @@ export async function postSourcePrefs(env, body) {
     }
   }
   const res = await db.batch(stmts);
-  return json({ ok: true, source_key: key, action, parked: { coverage: res[1]?.meta?.changes || 0, aux: res[2]?.meta?.changes || 0 } });
+  const parked = { coverage: res[1]?.meta?.changes || 0, aux: res[2]?.meta?.changes || 0 };
+  const noteChanged = (old?.note ?? null) !== note;
+  if (old?.action !== action || noteChanged || parked.coverage + parked.aux > 0) {
+    await audit(db, who, { action: "source_pref", target_kind: "source", target_id: key, before,
+      after: { action, has_note: note != null, note_changed: noteChanged, parked } });
+  }
+  return json({ ok: true, source_key: key, action, parked });
 }
 
 // --- Source yield (Z8) ----------------------------------------------------------
@@ -225,7 +238,8 @@ export async function leftOut(env, url) {
 // grader run grades it. A muted_source item waits while its source is muted,
 // and an item already shown on the other page (rival_no_key_account on
 // Coverage with its aux copy, on_coverage in aux) stays where it is.
-export async function leftOutGrade(env, body) {
+// Phase 1 audit (who: lib.js whoFor): one row when the item moved; refusals write none.
+export async function leftOutGrade(env, body, who) {
   const k = leftKind(body?.kind);
   if (!k) return json({ error: "kind must be coverage or aux" }, 400);
   const id = Number(body?.id);
@@ -241,6 +255,10 @@ export async function leftOutGrade(env, body) {
   const r = await env.DB.prepare(
     `UPDATE ${k.table} SET state = 'pending', skip_reason = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL WHERE id = ? AND state = 'skipped'`,
   ).bind(id).run();
+  if (r.meta.changes > 0) {
+    await audit(env.DB, who, { action: "left_out_grade", target_kind: body.kind === "aux" ? "aux_item" : "coverage_item", target_id: id,
+      before: { state: "skipped", skip_reason: item.skip_reason }, after: { state: "pending" } });
+  }
   return json({ ok: r.meta.changes > 0, kind: body.kind, id, was: item.skip_reason, state: "pending" });
 }
 

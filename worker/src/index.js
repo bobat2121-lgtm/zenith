@@ -27,6 +27,8 @@ import { ingest } from "./ingest.js";
 import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
 import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS, HELD_SQL } from "./lib.js";
+// Phase 1: the audit log (migration 0017): who did what, for every human or token action that changes state.
+import { audit, whoFor } from "./lib.js";
 // Phase 0 gates: the daily grading budget (held rows) and the admin rescue.
 import { releaseHeld, rescueSkipped } from "./budget.js";
 import { isOfficialRecord } from "./records.js";
@@ -341,7 +343,8 @@ async function feed(env, url) {
 
 // Records a label against the grade being shown: grade_id, or ticker (that
 // ticker's grade of the item, as the feed shows it), else the primary grade.
-async function feedback(env, body) {
+// who: lib.js whoFor / whoForMobile, for the audit row.
+async function feedback(env, body, who) {
   const itemId = Number(body?.item_id);
   const label = String(body?.label || "").toLowerCase();
   if (!Number.isInteger(itemId)) return json({ error: "item_id required" }, 400);
@@ -371,8 +374,16 @@ async function feedback(env, body) {
   }
   const labelTicker = grade?.ticker ?? item.ticker;
   const note = body?.note ? String(body.note).slice(0, 1000) : null;
+  // The audit's before: the latest earlier label of this item under this ticker (a correction supersedes it).
+  const prev = await env.DB.prepare("SELECT id, label, reason FROM feedback WHERE item_id = ? AND ticker = ? ORDER BY id DESC LIMIT 1")
+    .bind(itemId, labelTicker).first();
   const res = await env.DB.prepare("INSERT INTO feedback (item_id, label, note, grade_id, ticker, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(itemId, label, note, grade?.id ?? null, labelTicker, why.reason, nowIso()).run();
+  await audit(env.DB, who, {
+    action: "label", target_kind: "coverage_item", target_id: `${itemId}:${labelTicker}`,
+    before: prev ? { feedback_id: prev.id, label: prev.label, reason: prev.reason } : null,
+    after: { feedback_id: res.meta.last_row_id, label, reason: why.reason, grade_id: grade?.id ?? null, has_note: note != null },
+  });
   return json({ ok: true, feedback_id: res.meta.last_row_id, grade_id: grade?.id ?? null, ticker: labelTicker, reason: why.reason });
 }
 
@@ -476,7 +487,8 @@ async function requeueIds(env, ids) {
   return requeued;
 }
 
-async function requeueLateFlags(env, body) {
+// The audit is written here, not in requeue(): the response's items stop at 200.
+async function requeueLateFlags(env, body, who) {
   const day = String(body?.graded_on || LATE_FLAG_BACKFILL_DAY).slice(0, 10);
   const dayEnd = Date.parse(`${day}T00:00:00Z`) + 86_400_000;
   const from = body?.graded_from ? String(body.graded_from) : day;
@@ -498,24 +510,62 @@ async function requeueLateFlags(env, body) {
   }).map((r) => ({ item_id: r.item_id, ticker: r.ticker, score: r.score, band: r.band, seen_after_days: sightingAgeDays(r.published, r.first_seen),
     flags: JSON.parse(r.flags).filter((f) => f === "late_first_sighting" || f === "reason:stale"), title: r.title }));
   const requeued = body?.dry_run ? 0 : await requeueIds(env, picked.map((r) => r.item_id));
+  if (!body?.dry_run && requeued > 0) {
+    await audit(env.DB, who, { action: "requeue", target_kind: "items", target_id: "late_flags",
+      after: { mode: "late_flags", graded_from: from, graded_to: to, matched: picked.length, requeued, ids: picked.map((r) => r.item_id) } });
+  }
   return json({ mode: "late_flags", graded_from: from, graded_to: to, matched: picked.length, considered: rows.length, requeued, dry_run: Boolean(body?.dry_run), items: picked.slice(0, 200) });
 }
 
-async function requeue(env, body) {
-  if (body?.mode === "late_flags") return requeueLateFlags(env, body);
+// Audited (phase 1) only when it is not a dry run and changed at least one row.
+async function requeue(env, body, who) {
+  if (body?.mode === "late_flags") return requeueLateFlags(env, body, who);
   if (body?.mode === "sec_excerpts") {
     const r = await refreshSecExcerpts(env, body, COVERED.tickers);
+    if (!r.error && !r.dry_run && ((r.processed || 0) > 0 || (r.cleared || 0) > 0)) {
+      await audit(env.DB, who, { action: "requeue", target_kind: "items", target_id: "sec_excerpts",
+        after: { mode: "sec_excerpts", cleared: r.cleared, processed: r.processed, requeued: r.requeued, ids: (r.items || []).filter((i) => i.requeued).map((i) => i.item_id) } });
+    }
     return json(r, r.error ? 409 : 200);
   }
   // Phase 0 gates: turns skipped rows into held rows for the daily budget (budget.js). Not before 2026-11-29; dry_run first.
+  // rescueSkipped writes its own audit row (its ids span both tables).
   if (body?.mode === "rescue") {
-    const r = await rescueSkipped(env, body);
+    const r = await rescueSkipped(env, body, { who });
     return json(r, r.error ? 400 : 200);
   }
   if (body?.mode) return json({ error: "mode must be late_flags, sec_excerpts or rescue (or pass item_ids)" }, 400);
   const ids = (body?.item_ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
   if (!ids.length) return json({ error: "item_ids required" }, 400);
-  return json({ requeued: await requeueIds(env, ids) });
+  const requeued = await requeueIds(env, ids);
+  if (requeued > 0) await audit(env.DB, who, { action: "requeue", target_kind: "items", target_id: "item_ids", after: { mode: "item_ids", requeued, ids } });
+  return json({ requeued });
+}
+
+// Phase 1 audit: an admin-started run (ingest, enrich, aux-ingest, bill-lines),
+// with the result's top-level numeric fields. Returns the result unchanged.
+async function auditRun(env, who, job, result) {
+  const after = {};
+  for (const [k, v] of Object.entries(result && typeof result === "object" ? result : {})) if (typeof v === "number" && Number.isFinite(v)) after[k] = v;
+  await audit(env.DB, who, { action: "admin_run", target_kind: "job", target_id: job, after });
+  return result;
+}
+
+// Phase 1 audit: grades stored with the admin token (no claim needed). The
+// response is read through a clone and returned unchanged; it carries no
+// grade ids, and item_id stays the raw ref ("123" or "123#TICKER").
+async function auditGradeOverride(env, who, kind, res) {
+  try {
+    const b = await res.clone().json();
+    if ((b?.accepted || 0) > 0) {
+      await audit(env.DB, who, { action: "grade_override", target_kind: kind, target_id: null,
+        // Coverage results carry ticker, aux results entity (an undefined key is not stored).
+        after: { accepted: b.accepted, results: (b.results || []).map(({ item_id, ticker, entity, score, band }) => ({ item_id, ticker, entity, score, band })) } });
+    }
+  } catch (e) {
+    console.error("audit failed", "grade_override", kind, null);
+  }
+  return res;
 }
 
 export default {
@@ -523,7 +573,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true, service: "zenith-core", rubric_version: RUBRIC_VERSION });
     if (url.pathname === "/m" || url.pathname.startsWith("/m/")) {
-      return mobile(request, env, url, { feedback: (body) => feedback(env, body), tickers: COVERED.tickers });
+      return mobile(request, env, url, { feedback: (body, w) => feedback(env, body, w), tickers: COVERED.tickers });
     }
     const routeKey = `${request.method} ${url.pathname.startsWith("/v1/rubric") ? "/v1/rubric" : url.pathname}`;
     const allowed = ALLOW[routeKey];
@@ -531,46 +581,54 @@ export default {
     const role = roleFor(request, env);
     if (!role) return json({ error: "unauthorized" }, 401);
     if (!allowed.includes(role)) return json({ error: "forbidden" }, 403);
+    // Phase 1: who acts, for the audit log (lib.js audit).
+    const who = whoFor(role, request);
     switch (routeKey) {
       case "POST /v1/queue/claim": return json(await claim(env, await readJson(request)));
-      case "POST /v1/grades": return submitGrades(env, await readJson(request), role);
+      case "POST /v1/grades": {
+        const res = await submitGrades(env, await readJson(request), role);
+        return role === "admin" ? auditGradeOverride(env, who, "coverage_grades", res) : res;
+      }
       case "GET /v1/labels": return labels(env, url);
       case "GET /v1/recent": return recent(env, url);
       case "GET /v1/rubric": return rubric(url);
       case "GET /v1/feed": return feed(env, url);
-      case "POST /v1/feedback": return feedback(env, await readJson(request));
+      case "POST /v1/feedback": return feedback(env, await readJson(request), who);
       case "GET /v1/stats": return stats(env);
       case "GET /v1/brief": return briefRoute(env, COVERED, url);
       case "GET /v1/calendar": return calendarRoute(env, COVERED, url);
       case "GET /v1/calibration": return calibrationRoute(env);
-      case "POST /v1/admin/ingest": return json(await ingest(env));
-      case "POST /v1/admin/enrich": return json(await enrich(env));
-      case "POST /v1/admin/requeue": return requeue(env, await readJson(request));
-      case "POST /v1/admin/bill-lines": return json(await billLinesPass(env));
+      case "POST /v1/admin/ingest": return json(await auditRun(env, who, "ingest", await ingest(env)));
+      case "POST /v1/admin/enrich": return json(await auditRun(env, who, "enrich", await enrich(env)));
+      case "POST /v1/admin/requeue": return requeue(env, await readJson(request), who);
+      case "POST /v1/admin/bill-lines": return json(await auditRun(env, who, "bill-lines", await billLinesPass(env)));
       case "POST /v1/aux/claim": return json(await auxClaim(env, await readJson(request)));
-      case "POST /v1/aux/grades": return submitAuxGrades(env, await readJson(request), role);
+      case "POST /v1/aux/grades": {
+        const res = await submitAuxGrades(env, await readJson(request), role);
+        return role === "admin" ? auditGradeOverride(env, who, "aux_grades", res) : res;
+      }
       case "GET /v1/aux/recent": return auxRecent(env, url);
       case "GET /v1/aux/labels": return auxLabels(env, url);
       case "GET /v1/aux/feed": return auxFeed(env, url);
-      case "POST /v1/aux/feedback": return auxFeedback(env, await readJson(request));
-      case "POST /v1/admin/aux-ingest": return json(await ingestAux(env));
+      case "POST /v1/aux/feedback": return auxFeedback(env, await readJson(request), who);
+      case "POST /v1/admin/aux-ingest": return json(await auditRun(env, who, "aux-ingest", await ingestAux(env)));
       case "GET /v1/site-changes": return siteChanges(env, url);
       case "GET /v1/source-health": return sourceHealth(env);
       case "POST /v1/headlines/claim": return json(await headlineClaim(env, await readJson(request)));
       case "POST /v1/headlines": return submitHeadlines(env, await readJson(request), role);
       case "GET /v1/ops": return ops(env);
       case "GET /v1/source-prefs": return getSourcePrefs(env);
-      case "POST /v1/source-prefs": return postSourcePrefs(env, await readJson(request));
+      case "POST /v1/source-prefs": return postSourcePrefs(env, await readJson(request), who);
       case "GET /v1/source-yield": return sourceYield(env, url);
       case "GET /v1/left-out": return leftOut(env, url);
-      case "POST /v1/left-out/grade": return leftOutGrade(env, await readJson(request));
+      case "POST /v1/left-out/grade": return leftOutGrade(env, await readJson(request), who);
       case "GET /v1/expansion/candidates": return expansionCandidates(env, url);
-      case "POST /v1/expansion/decide": return expansionDecide(env, await readJson(request), role);
-      case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role);
+      case "POST /v1/expansion/decide": return expansionDecide(env, await readJson(request), role, who);
+      case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role, who);
       // Zenith show (phase 0)
       case "GET /v1/news-ops": return newsOps(env);
       case "GET /v1/recall": return recallRoute(env, url, role);
-      case "POST /v1/admin/recall": return recallLoad(env, await readJson(request));
+      case "POST /v1/admin/recall": return recallLoad(env, await readJson(request), who);
     }
     return json({ error: "not found" }, 404);
   },

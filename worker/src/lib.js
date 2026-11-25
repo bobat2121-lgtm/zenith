@@ -134,6 +134,98 @@ export function roleFor(request, env) {
   return null;
 }
 
+// --- Audit log (phase 1, migration 0017) ----------------------------------------
+// One audit_log row per human or token action that changes state. The table is
+// append-only (D1 triggers). Grader and cron writes are not audited.
+//   actor: "admin" | "app" (the token's role, as the expansion decisions' by
+//   field), "access:<16 hex of SHA-256 of the lowercased email>" (/m through
+//   Cloudflare Access; the raw email is never stored), "access:unknown" (an
+//   Access token with no email), "unknown" (a handler called without who: a
+//   wiring bug). via: "token" | "access" | "internal".
+export const AUDIT_ACTIONS = ["label", "source_pref", "left_out_grade", "expansion_approve", "expansion_reject", "expansion_reopen",
+  "expansion_compiled", "requeue", "rescue", "recall_load", "admin_run", "grade_override"];
+export const AUDIT_MAX_LIST = 500;
+export const AUDIT_MAX_BYTES = 8192;
+const rayOf = (request) => {
+  try { return request?.headers?.get?.("cf-ray") || null; } catch { return null; }
+};
+
+export function whoFor(role, request) {
+  return { actor: role, via: "token", request_id: rayOf(request) };
+}
+
+async function sha256hex(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// auth: mobile.js authorizeMobile's { ok, via, email }. Never throws.
+export async function whoForMobile(auth, request) {
+  const request_id = rayOf(request);
+  if (auth?.via !== "access") return { actor: "app", via: "token", request_id };
+  const email = typeof auth.email === "string" ? auth.email.trim().toLowerCase() : "";
+  if (!email) return { actor: "access:unknown", via: "access", request_id };
+  try {
+    return { actor: `access:${(await sha256hex(email)).slice(0, 16)}`, via: "access", request_id };
+  } catch {
+    return { actor: "access:unknown", via: "access", request_id };
+  }
+}
+
+// Every array, at the top level or one level down, keeps its first
+// AUDIT_MAX_LIST entries, with <name>_total next to it holding its full length.
+function capLists(v, depth = 0) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  const out = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (Array.isArray(x)) {
+      out[k] = x.slice(0, AUDIT_MAX_LIST);
+      out[`${k}_total`] = x.length;
+    } else out[k] = depth === 0 ? capLists(x, 1) : x;
+  }
+  return out;
+}
+
+// The stored JSON of a before or after value: null stays null; over
+// AUDIT_MAX_BYTES it becomes {"clipped":true,"bytes":n}.
+export function auditJson(v) {
+  if (v == null) return null;
+  const s = JSON.stringify(capLists(v));
+  const bytes = new TextEncoder().encode(s).length;
+  return bytes > AUDIT_MAX_BYTES ? JSON.stringify({ clipped: true, bytes }) : s;
+}
+
+// Writes one audit_log row, after the action it records has succeeded, as its
+// own statement. It never throws (an audit failure must never fail or repeat
+// the action): an unknown action is logged and writes nothing; a zenith-db
+// before migration 0017 is warned about once per isolate. Callers pass ids,
+// labels, statuses and counts, never note, event or title text.
+let auditTableMissing = false;
+export async function audit(db, who, entry) {
+  let action, kind, id;
+  try {
+    ({ action, target_kind: kind, target_id: id = null } = entry || {});
+    if (!AUDIT_ACTIONS.includes(action)) {
+      console.error("audit: unknown action", action);
+      return false;
+    }
+    if (typeof kind !== "string" || !kind) throw new Error("audit: target_kind required");
+    const w = who && typeof who.actor === "string" && who.actor ? who : { actor: "unknown", via: "internal", request_id: null };
+    await db.prepare(
+      "INSERT INTO audit_log (at, actor, via, action, target_kind, target_id, before_json, after_json, request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(nowIso(), w.actor, String(w.via || "internal"), action, kind, id == null ? null : String(id),
+      auditJson(entry.before), auditJson(entry.after), w.request_id == null ? null : String(w.request_id)).run();
+    return true;
+  } catch (e) {
+    if (/no such table/i.test(String(e?.message || e))) {
+      if (!auditTableMissing) { auditTableMissing = true; console.warn("audit_log missing"); }
+    } else {
+      console.error("audit failed", action, kind, id);
+    }
+    return false;
+  }
+}
+
 const clip = (v, n) => (v == null ? null : String(v).replace(/\s+/g, " ").trim().slice(0, n));
 const num = (v) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 const strArray = (v, n = 12, len = 80) =>

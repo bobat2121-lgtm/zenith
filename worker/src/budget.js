@@ -13,7 +13,7 @@
 // wrangler.toml has no [vars]): GATE_BUDGET_TOTAL, GATE_BUDGET_PER_SOURCE,
 // GATE_QUEUE_GUARD, and GATE_FAST_CAP (phase 1, the per-source fast-path cap).
 import COVERED from "./covered.json";
-import { HELD_SQL, universeSql, nowIso, chunk, sightingAgeDays, ARCHIVE_SEED_MIN, LATE_WINDOW_DAYS, RECORD_LOOKBACK_DAYS } from "./lib.js";
+import { HELD_SQL, universeSql, nowIso, chunk, sightingAgeDays, ARCHIVE_SEED_MIN, LATE_WINDOW_DAYS, RECORD_LOOKBACK_DAYS, audit } from "./lib.js";
 import { coverageOwner, OLD_OR_UNDATED_SQL, isOwnLane } from "./ingest.js";
 import { isOfficialRecord } from "./records.js";
 
@@ -247,7 +247,10 @@ async function burstGroups(db, table, keys) {
 }
 
 const COLS = "i.id, i.nm_rowid, i.source_key, i.title, i.url, i.published, i.nm_first_seen, i.skip_reason";
-export async function rescueSkipped(env, body, { now = Date.now() } = {}) {
+// who (phase 1): lib.js whoFor, for the audit row written after a rescue that
+// held at least one row (never on a dry run). Its ids are the rows the guarded
+// UPDATE targeted, split by kind; held is the confirmed count.
+export async function rescueSkipped(env, body, { now = Date.now(), who } = {}) {
   const p = rescueParams(body);
   if (p.error) return { mode: "rescue", error: p.error };
   const db = env.DB;
@@ -318,6 +321,11 @@ export async function rescueSkipped(env, body, { now = Date.now() } = {}) {
         ).bind(...part).run();
         held[kind] += res.meta?.changes || 0;
       }
+    }
+    if (held.coverage + held.aux > 0) {
+      const idsOf = (kind) => take.filter((r) => r.kind === kind).map((r) => r.id);
+      await audit(db, who, { action: "rescue", target_kind: "items", target_id: "rescue",
+        after: { since: p.since, until: p.untilDay, kind: p.kind, fit: p.fit, limit: p.limit, held: { ...held }, ids: { coverage: idsOf("coverage"), aux: idsOf("aux") } } });
     }
   }
   const cfg = budgetSettings(env);
