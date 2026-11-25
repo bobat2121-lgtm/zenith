@@ -278,3 +278,22 @@ test("A1 releaseHeld releases seed_fresh rows before older held rows, still at m
   assert.equal(r.released.aux, 18);
   assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'record_late' AND released_at IS NOT NULL"), 13);
 });
+
+test("muting a source parks its held rows with admit cleared, so a Left out grade after unmuting is claimable at once, not held again", async () => {
+  const env = newEnv();
+  const app = (method, path, body) => request(worker, env, method, path, { role: "app", body });
+  const a = addAux(env, held({ admit: "seed_fresh" }));
+  const c = addItem(env, held({ source_key: "fpds_pl", ticker: "PL" }));
+  const m = await app("POST", "/v1/source-prefs", { source_key: "anduril", action: "mute" });
+  assert.deepEqual(m.body.parked, { coverage: 0, aux: 1 });
+  assert.equal((await app("POST", "/v1/source-prefs", { source_key: "fpds_pl", action: "mute" })).body.parked.coverage, 1);
+  const row = (t, id) => ({ ...env.DB.rows(`SELECT state, skip_reason, admit, released_at FROM ${t} WHERE id = ?`, id)[0] });
+  assert.deepEqual(row("aux_items", a), { state: "skipped", skip_reason: "muted_source", admit: null, released_at: null });
+  assert.deepEqual(row("items", c), { state: "skipped", skip_reason: "muted_source", admit: null, released_at: null });
+  for (const key of ["anduril", "fpds_pl"]) await app("POST", "/v1/source-prefs", { source_key: key, action: "normal" });
+  const ga = await app("POST", "/v1/left-out/grade", { kind: "aux", id: a });
+  assert.equal(ga.body.state, "pending");
+  assert.equal((await app("POST", "/v1/left-out/grade", { kind: "coverage", id: c })).body.state, "pending");
+  assert.deepEqual(ids(await claim(env, "/v1/aux/claim")), [a], "the next grader run grades it, as Left out says");
+  assert.deepEqual(ids(await claim(env)), [c]);
+});

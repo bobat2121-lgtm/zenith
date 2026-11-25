@@ -99,8 +99,10 @@ export async function postSourcePrefs(env, body) {
   ).bind(key, action, note, now)];
   if (action === "mute") {
     for (const table of ["items", "aux_items"]) {
+      // Phase 0 gates: a parked row is no longer an admission (admit NULL, as the archive park),
+      // so a Left out grade after unmuting is claimable at once instead of held again.
       stmts.push(db.prepare(
-        `UPDATE ${table} SET state = 'skipped', skip_reason = 'muted_source', claim_id = NULL, claimed_until = NULL
+        `UPDATE ${table} SET state = 'skipped', skip_reason = 'muted_source', claim_id = NULL, claimed_until = NULL, admit = NULL
           WHERE source_key = ? AND (state = 'pending' OR (state = 'claimed' AND claimed_until < ?))`,
       ).bind(key, now));
     }
