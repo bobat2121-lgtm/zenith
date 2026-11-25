@@ -16,6 +16,7 @@ import { headlinesWaiting } from "./headlines.js";
 import { json, nowIso, universeSql, HELD_SQL, LEASE_MINUTES, audit } from "./lib.js";
 import { budgetSettings, releasedToday, heldCounts, utcDayStart, fastPathCounts } from "./budget.js";
 import { isRecordSource } from "./records.js";
+import { storyKeys, storyDedupOn, STORY_WINDOW_DAYS } from "./story.js";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -176,9 +177,11 @@ export async function sourceYield(env, url) {
 
 // --- Left out (Z9) ------------------------------------------------------------
 const LEFT = {
-  coverage: { table: "items", name: "i.ticker AS ticker", where: `i.ticker IN ${IN_UNIVERSE}`, other: "aux" },
-  aux: { table: "aux_items", name: "i.entity_name AS entity", where: "1", other: "coverage" },
+  coverage: { table: "items", name: "i.ticker AS ticker", where: `i.ticker IN ${IN_UNIVERSE}`, other: "aux", scope: "ticker" },
+  aux: { table: "aux_items", name: "i.entity_name AS entity", where: "1", other: "coverage", scope: "entity_key" },
 };
+// Phase 2: a story_dup copy of a muted source waits like a muted_source row.
+const mutedWait = (it, muted) => (it.skip_reason === "muted_source" || it.skip_reason === "story_dup") && muted.has(it.source_key);
 const leftKind = (kind) => (has(LEFT, kind) ? LEFT[kind] : null);
 // The same news-monitor item's row in the other pipeline when it shows there:
 // any coverage row not skipped, or an aux row not skipped and not graded
@@ -199,7 +202,8 @@ const TWIN_SQL = { coverage: `SELECT t.id, t.state ${TWIN_FROM.coverage("?")}`, 
 // burst of undated pages, Phase 0 gates) only when asked for by name. Each
 // item carries gradeable (false when leftOutGrade would refuse it: its source
 // is still muted, or its twin is shown on the other page) and blocked (why
-// not, else null).
+// not, else null). Phase 2: each item carries copy_of, the item a story_dup
+// copy repeats (its story_of; null otherwise).
 export async function leftOut(env, url) {
   const q = url.searchParams;
   const kind = q.get("kind") || "coverage";
@@ -212,7 +216,7 @@ export async function leftOut(env, url) {
   const since = nowIso(Date.now() - days * DAY);
   const base = `FROM ${k.table} i WHERE i.state = 'skipped' AND i.nm_first_seen >= ? AND ${k.where}`;
   const items = (await env.DB.prepare(
-    `SELECT i.id, '${kind}' AS kind, ${k.name}, i.source_key, i.title, i.url, i.nm_first_seen AS first_seen, i.skip_reason,
+    `SELECT i.id, '${kind}' AS kind, ${k.name}, i.source_key, i.title, i.url, i.nm_first_seen AS first_seen, i.skip_reason, i.story_of AS copy_of,
             (SELECT t.id ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_id,
             (SELECT t.state ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_state
        ${base} AND ${reason ? "i.skip_reason = ?" : "i.skip_reason IS NOT 'archive_seed' AND i.skip_reason IS NOT 'undated_burst'"}
@@ -227,7 +231,7 @@ export async function leftOut(env, url) {
     const { twin_id: twinId, twin_state: twinState } = it;
     delete it.twin_id;
     delete it.twin_state;
-    it.blocked = it.skip_reason === "muted_source" && muted.has(it.source_key) ? `${it.source_key} is still muted: set it back to normal first`
+    it.blocked = mutedWait(it, muted) ? `${it.source_key} is still muted: set it back to normal first`
       : twinId != null ? `already on the ${page} page (${k.other} item ${twinId}, ${twinState}): one item is never on both pages` : null;
     it.gradeable = it.blocked === null;
   }
@@ -239,22 +243,27 @@ export async function leftOut(env, url) {
 // and an item already shown on the other page (rival_no_key_account on
 // Coverage with its aux copy, on_coverage in aux) stays where it is.
 // Phase 1 audit (who: lib.js whoFor): one row when the item moved; refusals write none.
+// Phase 2: a story_dup copy of a muted source waits too. The UPDATE writes the
+// row's story keys (story.js) and keeps story_of, so a forced copy is graded
+// on its own and is never a canonical; a forced stale row becomes one.
 export async function leftOutGrade(env, body, who) {
   const k = leftKind(body?.kind);
   if (!k) return json({ error: "kind must be coverage or aux" }, 400);
   const id = Number(body?.id);
   if (!Number.isInteger(id) || id <= 0) return json({ error: "id must be the item id" }, 400);
-  const item = await env.DB.prepare(`SELECT id, nm_rowid, state, skip_reason, source_key FROM ${k.table} WHERE id = ?`).bind(id).first();
+  const item = await env.DB.prepare(`SELECT id, nm_rowid, state, skip_reason, source_key, title, url, published, ${k.scope} FROM ${k.table} WHERE id = ?`).bind(id).first();
   if (!item) return json({ error: `unknown ${body.kind} item ${id}` }, 404);
   if (item.state !== "skipped") return json({ error: `${body.kind} item ${id} is ${item.state}, not skipped` }, 400);
-  if (item.skip_reason === "muted_source" && (await mutedSources(env.DB)).has(item.source_key)) {
+  if (mutedWait(item, await mutedSources(env.DB))) {
     return json({ error: `${item.source_key} is still muted: set it back to normal first` }, 400);
   }
   const twin = await env.DB.prepare(TWIN_SQL[k.other]).bind(item.nm_rowid).first();
   if (twin) return json({ error: `${body.kind} item ${id} is on the ${k.other} page as ${k.other} item ${twin.id} (${twin.state}): one item is never on both pages` }, 400);
+  const keys = await storyKeys(item, body.kind);
   const r = await env.DB.prepare(
-    `UPDATE ${k.table} SET state = 'pending', skip_reason = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL WHERE id = ? AND state = 'skipped'`,
-  ).bind(id).run();
+    `UPDATE ${k.table} SET state = 'pending', skip_reason = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL,
+            story_key = ?2${body.kind === "aux" ? ", url_key = ?3" : ""} WHERE id = ?1 AND state = 'skipped'`,
+  ).bind(id, keys.story_key, ...(body.kind === "aux" ? [keys.url_key] : [])).run();
   if (r.meta.changes > 0) {
     await audit(env.DB, who, { action: "left_out_grade", target_kind: body.kind === "aux" ? "aux_item" : "coverage_item", target_id: id,
       before: { state: "skipped", skip_reason: item.skip_reason }, after: { state: "pending" } });
@@ -427,6 +436,16 @@ export async function ops(env, { now = Date.now() } = {}) {
     .sort((a, b) => b.n - a.n || String(a.source_key).localeCompare(String(b.source_key))).slice(0, 5);
   const sourceCapHeld = await count(`SELECT (SELECT COUNT(*) FROM items WHERE admit = 'source_cap' AND released_at IS NULL)
       + (SELECT COUNT(*) FROM aux_items WHERE admit = 'source_cap' AND released_at IS NULL) AS n`);
+  // Phase 2: story_dup copies held out of the claim (story.js), today and over
+  // the dedup window, one statement per table on the skipped index.
+  const story = { held_today: { coverage: 0, aux: 0 }, held_14d: { coverage: 0, aux: 0 }, dedup: storyDedupOn(env) ? "on" : "off" };
+  for (const [kind, table] of [["coverage", "items"], ["aux", "aux_items"]]) {
+    const r = await db.prepare(
+      `SELECT COUNT(*) AS n14, TOTAL(nm_first_seen >= ?2) AS today FROM ${table} WHERE state = 'skipped' AND skip_reason = 'story_dup' AND nm_first_seen >= ?1`,
+    ).bind(nowIso(now - STORY_WINDOW_DAYS * DAY), dayStart).first();
+    story.held_14d[kind] = r?.n14 || 0;
+    story.held_today[kind] = Number(r?.today || 0);
+  }
   const grader = {
     last_run_at: last?.last_seen_at || null,
     last_run: last ? { id: last.id, started_at: last.started_at, last_seen_at: last.last_seen_at, claimed: last.claimed, graded: last.graded, rejected: last.rejected } : null,
@@ -463,6 +482,7 @@ export async function ops(env, { now = Date.now() } = {}) {
         .map((r) => ({ ...r, per_source: budget.per_source })),
       fast_path_today: fastToday,
       source_cap_held: sourceCapHeld,
+      story,
     },
   };
   return json({ grader, as_of: nowIso(now) });

@@ -20,6 +20,7 @@ import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCurs
 import { isOfficialRecord } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
 import { WARGOV_HOLD_MINUTES } from "./wargov.js";
+import { storyPlanner, storyDedupOn, hasFeedText, storyOfSql, storyOfArgs, swapStatement } from "./story.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
   HELD_SQL, capUndated, audit } from "./lib.js";
@@ -84,11 +85,13 @@ export async function ingestAux(env) {
   const muted = await mutedSources(db);
   // Phase 1: the per-source fast-path cap, counted across both tables (budget.js).
   const fastCap = budgetSettings(env).fast_cap;
+  // Phase 2: exact-key story dedup (story.js); STORY_DEDUP=off writes keys and holds nothing.
+  const dedupOn = storyDedupOn(env);
   // Phase 0 gates (d): once, before the scan, the waiting aux copies of rows Coverage owns leave the queue.
   const ownerCleanup = await auxOwnerCleanup(db);
-  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted, fastCap });
-  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, fastCap, only: (route) => route.coverage_subject === true });
-  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, fastCap, rivalCatchUp: true });
+  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted, fastCap, dedupOn });
+  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, fastCap, dedupOn, only: (route) => route.coverage_subject === true });
+  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, fastCap, dedupOn, rivalCatchUp: true });
   return { ...main, owner_cleanup: ownerCleanup, coverage_subject_catch_up: subjects, rival_catch_up: rivals };
 }
 
@@ -148,9 +151,9 @@ export function rivalGate(r) {
 // windows, MAX_BATCHES a run, storing every row whose route passes `only`, and
 // keeps the cursor in meta cursorKey with each window. done: the scan reached
 // `end`. rivalCatchUp: rival rows only, as the aux_rv_cursor catch-up above.
-async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false, fastCap = 0 }) {
+async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false, fastCap = 0, dedupOn = true }) {
   const bounded = end !== null;
-  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, held = 0, done = false;
+  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, held = 0, done = false, storyHeld = 0, storySwapped = 0;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare(`SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ?${bounded ? " AND rowid <= ?" : ""} ORDER BY rowid LIMIT ?)`)
@@ -194,45 +197,71 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     // catch-up (bounded) rescans rows the main scan may have stored already;
     // the DB count holds those, so only rows not yet stored add to it.
     const fast = await fastPathCounter(db, rows, fastCap);
-    const stored = bounded && fastCap > 0 && rows.length ? new Set(((await db.prepare(
+    // Phase 2: story dedup also needs the stored rows, so a rescanned row is never evaluated against itself.
+    const stored = bounded && (fastCap > 0 || dedupOn) && rows.length ? new Set(((await db.prepare(
       "SELECT nm_rowid FROM aux_items WHERE nm_rowid > ? AND nm_rowid <= ?",
     ).bind(cursor, win.hi).all()).results || []).map((x) => x.nm_rowid)) : null;
-    for (const { r, route } of routed) {
+    // Only http(s) links are ever shown in the feed. Precedence: bad_url, the
+    // arrival gate, a muted source, then (phase 2) story_dup. The gate's skip
+    // reason never depends on the fast-path cap.
+    const skipOf = (r, gate) => (!isHttpUrl(r.url) ? "bad_url" : gate.reason || (muted.has(r.source_key) ? "muted_source" : null));
+    // Phase 2: exact-key story dedup (story.js), scoped by entity, with the
+    // URL key. Rows skipped on arrival, and rows a catch-up finds already
+    // stored, get no keys and are never held. Only the excerpt is stored here
+    // (no fallback), so only it counts as the row's text.
+    const entries = routed.map(({ r, route }) => {
+      const feed = feedFields(r, { role: null }, now);
+      return { r, route, feed, scope: route.entity_key, has_text: hasFeedText({ status: feed.status, excerpt: feed.status ? feed.excerpt : null }),
+        live: !stored?.has(r.nm_rowid) && !skipOf(r, arrivalGate(r, gateContext(r, "aux", first, park))) };
+    });
+    const story = await storyPlanner(db, "aux", entries, { on: dedupOn });
+    const holds = [], swaps = [];
+    for (const e of entries) {
+      const { r, route, feed } = e;
       // The arrival gate (lib.js arrivalGate) with the Auxiliary rules: no
       // record exception past 21 days (auxiliary.md section 5).
       const gate = arrivalGate(r, gateContext(r, "aux", first, park, { capped: fast.capped(r) }));
-      // Only http(s) links are ever shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : gate.reason || (muted.has(r.source_key) ? "muted_source" : null);
+      let reason = skipOf(r, gate);
+      const d = story.decide(e, reason ? null : gate.admit);
+      if (!reason && d.action === "hold") reason = "story_dup";
       const admit = reason ? null : gate.admit;
       if (reason) skipped++;
       if (admit) held++;
       if (!reason && !admit && !stored?.has(r.nm_rowid)) fast.add(r);
-      const feed = feedFields(r, { role: null }, now);
       if (feed.status) fromFeed++;
       const subject = route.coverage_subject === true;
-      // The rival catch-up also marks a stored row it would have routed this way.
+      if (d.action === "hold") holds.push(stmts.length);
+      // The rival catch-up also marks a stored row it would have routed this way (never its story columns).
       stmts.push(db.prepare(
         `INSERT${rivalCatchUp ? "" : " OR IGNORE"} INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
-           ingested_at, state, skip_reason, excerpt, excerpt_status, coverage_subject, affects, admit)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${rivalCatchUp
+           ingested_at, state, skip_reason, excerpt, excerpt_status, coverage_subject, affects, admit, story_key, url_key, story_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${storyOfSql("aux_items")})${rivalCatchUp
           ? " ON CONFLICT (nm_rowid) DO UPDATE SET coverage_subject = 1, affects = excluded.affects WHERE aux_items.state != 'graded'" : ""}`,
       ).bind(r.nm_rowid, r.source_key, route.entity_key, route.entity_name, route.status, r.url || "", r.title || "(untitled)", r.published ?? null,
         r.category ?? null, r.first_seen, now, reason ? "skipped" : "pending", reason || null, feed.status ? feed.excerpt : null, feed.status,
-        subject ? 1 : 0, subject && route.affects?.length ? route.affects.join(",") : null, admit));
+        subject ? 1 : 0, subject && route.affects?.length ? route.affects.join(",") : null, admit, d.keys.story_key, d.keys.url_key, ...storyOfArgs(d)));
+      if (d.action === "swap") {
+        swaps.push(stmts.length);
+        stmts.push(swapStatement(db, "aux_items", r.nm_rowid, d.canonical.nm_rowid));
+      }
     }
     const n = stmts.length;
     stmts.push(setMeta(db, cursorKey, win.hi));
     stmts.push(setMeta(db, "aux_last_ingest_at", now));
     const res = await db.batch(stmts);
     const changes = (from, to) => res.slice(from, to).reduce((k, x) => k + (x.meta?.changes || 0), 0);
-    inserted += changes(movedTo, n);
+    const swapSet = new Set(swaps);
+    inserted += res.slice(movedTo, n).reduce((k, x, j) => k + (swapSet.has(movedTo + j) ? 0 : x.meta?.changes || 0), 0);
+    storyHeld += holds.reduce((k, j) => k + (res[j]?.meta?.changes || 0), 0);
+    storySwapped += swaps.reduce((k, j) => k + (res[j]?.meta?.changes || 0), 0);
     parkedEarlier += changes(0, updates);
     moved += changes(updates, movedTo);
     scanned += win.n;
     cursor = win.hi;
     if (win.n < BATCH || (bounded && cursor >= end)) { done = bounded; break; }
   }
-  const out = { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held };
+  const out = { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held,
+    story_held: storyHeld, story_swapped: storySwapped };
   if (rivalCatchUp) out.parked_on_coverage = moved;
   return bounded ? { ...out, done } : out;
 }

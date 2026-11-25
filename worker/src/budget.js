@@ -12,10 +12,23 @@
 // Overrides only through Worker secrets (they survive `wrangler deploy`;
 // wrangler.toml has no [vars]): GATE_BUDGET_TOTAL, GATE_BUDGET_PER_SOURCE,
 // GATE_QUEUE_GUARD, and GATE_FAST_CAP (phase 1, the per-source fast-path cap).
+//
+// Phase 2 story dedup (story.js) adds two ways a skipped 'story_dup' copy
+// comes back, both as held admit 'rescue' rows under the same budget:
+//   storyOrphans  once a UTC day (the 00:00-00:04 cron tick): a copy whose
+//                 canonical left the queue (muted, parked, failed grading) or
+//                 is missing; the earliest copy from an unmuted source is
+//                 promoted and the group's other copies point to it
+//   storyRelease  POST /v1/admin/requeue { mode: "story_release" }: the
+//                 owner's rollback, copies first seen since a day
+// The rescue (mode "rescue") drops a pick with a live exact copy (has_live_copy)
+// and writes the keys of every row it re-pends.
 import COVERED from "./covered.json";
 import { HELD_SQL, universeSql, nowIso, chunk, sightingAgeDays, ARCHIVE_SEED_MIN, LATE_WINDOW_DAYS, RECORD_LOOKBACK_DAYS, audit } from "./lib.js";
 import { coverageOwner, OLD_OR_UNDATED_SQL, isOwnLane } from "./ingest.js";
 import { isOfficialRecord } from "./records.js";
+import { mutedSources } from "./tuning.js";
+import { storyKeys, findCanonicals, sharesKey, STORY_WINDOW_DAYS } from "./story.js";
 
 export const GATE_BUDGET_TOTAL = 20;
 export const GATE_BUDGET_PER_SOURCE = 5;
@@ -263,11 +276,12 @@ export async function rescueSkipped(env, body, { now = Date.now(), who } = {}) {
     `SELECT ${COLS},
             EXISTS (SELECT 1 FROM aux_items t LEFT JOIN aux_grades tg ON tg.id = t.grade_id
                      WHERE t.nm_rowid = i.nm_rowid AND t.state != 'skipped' AND (tg.band IS NULL OR tg.band != 'covered')) AS twin_shown,
-            EXISTS (SELECT 1 FROM aux_items t WHERE t.nm_rowid = i.nm_rowid) AS has_aux
+            EXISTS (SELECT 1 FROM aux_items t WHERE t.nm_rowid = i.nm_rowid) AS has_aux, i.ticker
        FROM items i WHERE ${dated} AND i.ticker IN ${IN_UNIVERSE} LIMIT 5000`,
   ).bind(reasonsJson, p.since, p.until).all()).results || []).filter((r) => want(r.source_key));
   const aux = p.kind === "coverage" ? [] : ((await db.prepare(
-    `SELECT ${COLS}, EXISTS (SELECT 1 FROM items t WHERE t.source_key = i.source_key AND t.url = i.url AND t.nm_rowid = i.nm_rowid AND t.state != 'skipped') AS twin_shown
+    `SELECT ${COLS}, EXISTS (SELECT 1 FROM items t WHERE t.source_key = i.source_key AND t.url = i.url AND t.nm_rowid = i.nm_rowid AND t.state != 'skipped') AS twin_shown,
+            i.entity_key
        FROM aux_items i WHERE ${dated} LIMIT 5000`,
   ).bind(reasonsJson, p.since, p.until).all()).results || []).filter((r) => want(r.source_key));
   const picks = [];
@@ -287,6 +301,28 @@ export async function rescueSkipped(env, body, { now = Date.now(), who } = {}) {
       picks.push({ kind: "aux", ...r });
     }
   }
+  // Phase 2 (story.js): a pick with a live exact copy (a row of the same table,
+  // not skipped, sharing its story or URL key, a held row or a forced copy
+  // included) first seen within STORY_WINDOW_DAYS either side is dropped and
+  // counted as has_live_copy: the story is already in the queue. One
+  // findCanonicals statement per table.
+  const hasLiveCopy = { coverage: 0, aux: 0 };
+  const windowMs = STORY_WINDOW_DAYS * 86_400_000;
+  const unique = [];
+  for (const kind of ["coverage", "aux"]) {
+    const mine = picks.filter((r) => r.kind === kind);
+    for (const r of mine) r.keys = await storyKeys(r, kind);
+    const times = mine.map((r) => Date.parse(r.nm_first_seen)).filter(Number.isFinite);
+    const live = times.length ? await findCanonicals(db, kind, { storyKeys: mine.map((r) => r.keys.story_key), urlKeys: mine.map((r) => r.keys.url_key),
+      since: nowIso(Math.min(...times) - windowMs), anyCopy: true }) : [];
+    for (const r of mine) {
+      const t = Date.parse(r.nm_first_seen);
+      const copy = live.some((c) => c.id !== r.id && c.nm_rowid !== r.nm_rowid && sharesKey(r.keys, c) && Math.abs(Date.parse(c.nm_first_seen) - t) <= windowMs);
+      if (copy) hasLiveCopy[kind]++;
+      else unique.push(r);
+    }
+  }
+  picks.splice(0, picks.length, ...unique);
   // Rubric fit (the current rubric's freshness lines, core.md section 8 and auxiliary.md section 5).
   const bursts = {
     coverage: await burstGroups(db, "items", picks.filter((r) => r.kind === "coverage").map((r) => r.source_key)),
@@ -313,13 +349,15 @@ export async function rescueSkipped(env, body, { now = Date.now(), who } = {}) {
   if (p.dryRun) {
     for (const r of take) held[r.kind]++;
   } else {
+    // One statement per row (phase 2), so each re-pended row gets its story keys in the same UPDATE.
     for (const [kind, table] of [["coverage", "items"], ["aux", "aux_items"]]) {
-      for (const part of chunk(take.filter((r) => r.kind === kind).map((r) => r.id))) {
-        const res = await db.prepare(
-          `UPDATE ${table} SET state = 'pending', skip_reason = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL, admit = 'rescue', released_at = NULL
-            WHERE id IN (${part.map(() => "?").join(",")}) AND state = 'skipped'`,
-        ).bind(...part).run();
-        held[kind] += res.meta?.changes || 0;
+      for (const part of chunk(take.filter((r) => r.kind === kind))) {
+        const res = await db.batch(part.map((r) => db.prepare(
+          `UPDATE ${table} SET state = 'pending', skip_reason = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL, admit = 'rescue', released_at = NULL,
+                  story_key = ?2${kind === "aux" ? ", url_key = ?3" : ""}
+            WHERE id = ?1 AND state = 'skipped'`,
+        ).bind(r.id, r.keys.story_key, ...(kind === "aux" ? [r.keys.url_key] : []))));
+        held[kind] += res.reduce((k, x) => k + (x.meta?.changes || 0), 0);
       }
     }
     if (held.coverage + held.aux > 0) {
@@ -332,8 +370,137 @@ export async function rescueSkipped(env, body, { now = Date.now(), who } = {}) {
   const used = [...(await releasedToday(db, now)).values()].reduce((a, b) => a + b, 0);
   return {
     mode: "rescue", since: p.since, until: p.untilDay, reasons: p.reasons, kind: p.kind, fit: p.fit, limit: p.limit,
-    matched: fitting.length, excluded_by_fit: excluded, held, remaining: fitting.length - take.length, no_aux_copy: noAuxCopy,
+    matched: fitting.length, excluded_by_fit: excluded, held, remaining: fitting.length - take.length, no_aux_copy: noAuxCopy, has_live_copy: hasLiveCopy,
     budget_left_today: Math.max(0, cfg.total - used), dry_run: p.dryRun,
     items: take.slice(0, 200).map((r) => ({ kind: r.kind, id: r.id, source_key: r.source_key, published: r.published, title: r.title, was: r.skip_reason, fit: r.fit })),
+  };
+}
+
+// --- Phase 2: story copies back into the queue (story.js) ----------------------
+const STORY_TABLES = [["coverage", "items"], ["aux", "aux_items"]];
+const DAY_MS = 86_400_000;
+// The copy's held re-pend: pending, admit 'rescue' (second tier, oldest first),
+// guarded so a row that moved meanwhile is left alone.
+const REPEND_COPY = `state = 'pending', skip_reason = NULL, admit = 'rescue', released_at = NULL, attempts = 0, claim_id = NULL, claimed_until = NULL`;
+const COPY_GUARD = "state = 'skipped' AND skip_reason = 'story_dup'";
+
+// The cron tick that runs storyOrphans: the */5 tick at 00:00-00:04 UTC, once
+// a day, with no meta read.
+export const isStoryOrphanTick = (scheduledTime) => {
+  const d = new Date(scheduledTime);
+  return Number.isFinite(d.getTime()) && d.getUTCHours() === 0 && d.getUTCMinutes() < 5;
+};
+
+// Copies (first seen in the last STORY_WINDOW_DAYS days) whose canonical left
+// the queue (skipped for any reason but story_dup: muted, parked, failed
+// grading) or does not exist (story_of NULL after an ignored INSERT, or
+// dangling), at most 50 a table, on the skipped index. Per group (one
+// canonical, or one key when story_of is NULL): copies of muted sources are
+// passed over; the earliest other copy becomes a held admit 'rescue' row
+// (story_of NULL, its keys kept), released only by releaseHeld under the
+// budget, and the group's other copies point to it. A group whose copies are
+// all from muted sources does not move. One audit row when anything moved.
+export const ORPHAN_LIMIT = 50;
+export async function storyOrphans(env, { now = Date.now() } = {}) {
+  const db = env.DB;
+  const muted = await mutedSources(db);
+  const since = nowIso(now - STORY_WINDOW_DAYS * DAY_MS);
+  const promoted = { coverage: [], aux: [] };
+  const repointed = { coverage: 0, aux: 0 };
+  const seen = { coverage: 0, aux: 0 };
+  for (const [kind, t] of STORY_TABLES) {
+    const rows = (await db.prepare(
+      `SELECT d.id, d.story_of, d.story_key, d.source_key, d.nm_first_seen FROM ${t} d LEFT JOIN ${t} c ON c.id = d.story_of
+        WHERE d.state = 'skipped' AND d.skip_reason = 'story_dup' AND d.nm_first_seen >= ?1
+          AND (c.id IS NULL OR (c.state = 'skipped' AND c.skip_reason != 'story_dup'))
+        ORDER BY d.nm_first_seen LIMIT ${ORPHAN_LIMIT}`,
+    ).bind(since).all()).results || [];
+    seen[kind] = rows.length;
+    const groups = new Map();
+    for (const r of rows) {
+      const g = r.story_of != null ? `of:${r.story_of}` : r.story_key != null ? `key:${r.story_key}` : `id:${r.id}`;
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(r);
+    }
+    for (const group of groups.values()) {
+      const pick = group.find((r) => !muted.has(r.source_key));
+      if (!pick) continue;
+      const res = await db.prepare(`UPDATE ${t} SET ${REPEND_COPY}, story_of = NULL WHERE id = ?1 AND ${COPY_GUARD}`).bind(pick.id).run();
+      if (!(res.meta?.changes > 0)) continue;
+      promoted[kind].push(pick.id);
+      // A group with a canonical: every copy of it, also past the 50 read here (story_of index).
+      const others = pick.story_of != null
+        ? await db.prepare(`UPDATE ${t} SET story_of = ?1 WHERE story_of = ?2 AND id != ?1 AND ${COPY_GUARD}`).bind(pick.id, pick.story_of).run()
+        : group.length > 1
+          ? await db.prepare(`UPDATE ${t} SET story_of = ?1 WHERE id IN (SELECT value FROM json_each(?2)) AND ${COPY_GUARD}`)
+            .bind(pick.id, JSON.stringify(group.filter((r) => r.id !== pick.id).map((r) => r.id))).run()
+          : null;
+      repointed[kind] += others?.meta?.changes || 0;
+    }
+  }
+  const moved = promoted.coverage.length + promoted.aux.length;
+  if (moved > 0) {
+    await audit(db, { actor: "cron", via: "cron", request_id: null }, { action: "rescue", target_kind: "items", target_id: "story_orphan",
+      after: { mode: "story_orphan", ids: { coverage: promoted.coverage, aux: promoted.aux }, repointed: { ...repointed } } });
+  }
+  return { orphans: seen, promoted: { coverage: promoted.coverage.length, aux: promoted.aux.length }, repointed };
+}
+
+// POST /v1/admin/requeue { mode: "story_release", since, kind, limit, dry_run }:
+// the rollback path. story_dup copies first seen since `since` (YYYY-MM-DD),
+// oldest first, muted sources skipped, become held admit 'rescue' rows,
+// released by releaseHeld under the budget. story_of is kept as history, so a
+// released copy is never a canonical. Coverage copies only of today's
+// universe (the rows releaseHeld can release). At most limit (1-300, default
+// 60) rows a call, Coverage first. One audit row (action rescue, mode
+// story_release) when a row moved; never on a dry run.
+export async function storyRelease(env, body, { now = Date.now(), who } = {}) {
+  const b = body && typeof body === "object" ? body : {};
+  if (!validDay(b.since)) return { mode: "story_release", error: "since is required, as YYYY-MM-DD" };
+  const kind = b.kind == null ? "both" : b.kind;
+  if (!["coverage", "aux", "both"].includes(kind)) return { mode: "story_release", error: "kind must be coverage, aux or both" };
+  const n = Math.trunc(Number(b.limit));
+  const limit = b.limit == null || !Number.isFinite(n) ? RESCUE_DEFAULT_LIMIT : Math.max(1, Math.min(RESCUE_MAX_LIMIT, n));
+  const dryRun = Boolean(b.dry_run);
+  const db = env.DB;
+  const muted = await mutedSources(db);
+  const since = `${b.since}T00:00:00.000Z`;
+  const take = [];
+  let matched = 0, mutedSkipped = 0;
+  for (const [k, t] of STORY_TABLES) {
+    if (kind !== "both" && kind !== k) continue;
+    const rows = (await db.prepare(
+      `SELECT id, source_key, nm_first_seen, story_of FROM ${t} WHERE state = 'skipped' AND skip_reason = 'story_dup' AND nm_first_seen >= ?1
+          ${k === "coverage" ? `AND ticker IN ${IN_UNIVERSE}` : ""}
+        ORDER BY nm_first_seen, id LIMIT 1000`,
+    ).bind(since).all()).results || [];
+    for (const r of rows) {
+      if (muted.has(r.source_key)) { mutedSkipped++; continue; }
+      matched++;
+      if (take.length < limit) take.push({ kind: k, ...r });
+    }
+  }
+  const released = { coverage: 0, aux: 0 };
+  if (dryRun) {
+    for (const r of take) released[r.kind]++;
+  } else {
+    for (const [k, t] of STORY_TABLES) {
+      for (const part of chunk(take.filter((r) => r.kind === k))) {
+        const res = await db.batch(part.map((r) => db.prepare(`UPDATE ${t} SET ${REPEND_COPY} WHERE id = ?1 AND ${COPY_GUARD}`).bind(r.id)));
+        released[k] += res.reduce((a, x) => a + (x.meta?.changes || 0), 0);
+      }
+    }
+    if (released.coverage + released.aux > 0) {
+      const idsOf = (k) => take.filter((r) => r.kind === k).map((r) => r.id);
+      await audit(db, who, { action: "rescue", target_kind: "items", target_id: "story_release",
+        after: { mode: "story_release", since: b.since, kind, limit, held: { ...released }, ids: { coverage: idsOf("coverage"), aux: idsOf("aux") } } });
+    }
+  }
+  const cfg = budgetSettings(env);
+  const used = [...(await releasedToday(db, now)).values()].reduce((a, c) => a + c, 0);
+  return {
+    mode: "story_release", since: b.since, kind, limit, matched, muted_skipped: mutedSkipped, held: released, remaining: matched - take.length,
+    budget_left_today: Math.max(0, cfg.total - used), dry_run: dryRun,
+    items: take.slice(0, 200).map((r) => ({ kind: r.kind, id: r.id, source_key: r.source_key, first_seen: r.nm_first_seen, copy_of: r.story_of })),
   };
 }

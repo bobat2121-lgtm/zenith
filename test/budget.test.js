@@ -432,3 +432,171 @@ test("interleaved releaseHeld runs never release past 20 a UTC day or 5 a source
     assert.equal(again.used_today, 20);
   }
 });
+
+// --- Phase 2: story copies back into the queue (storyOrphans, storyRelease, the rescue's live-copy check) ---
+const { storyOrphans, isStoryOrphanTick, RESCUE_REASONS } = await import("../worker/src/budget.js");
+const { ingestAux } = await import("../worker/src/auxiliary.js");
+const STORY_T = "Acme Robotics signs a fleet deal with Beta Freight";
+function storyEnv(extra = {}) {
+  const env = newEnv(extra);
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('nm_cursor', '0'), ('aux_nm_cursor', '0'), ('aux_cs_cursor', 'done'), ('aux_rv_cursor', 'done')").run();
+  return env;
+}
+let nmSeq = 0;
+function nmRow(env, { source_key, first_seen, title = STORY_T, published, url }) {
+  nmSeq++;
+  return Number(env.NEWS.db.prepare("INSERT INTO items (source_key, url, title, published, category, first_seen, notified) VALUES (?, ?, ?, ?, NULL, ?, 1)")
+    .run(source_key, url ?? `https://news.example.com/st/${source_key}/${nmSeq}`, title, published === undefined ? first_seen : published, first_seen).lastInsertRowid);
+}
+// An earlier poll, 40 days back, so a source's later rows are not its seed (seed_fresh).
+const seedPolls = (env, ...keys) => { for (const k of keys) nmRow(env, { source_key: k, first_seen: iso(40 * DAY), title: `Earlier poll row of ${k} ${nmSeq}` }); };
+const byNm = (env, n, table = "items") => ({ ...env.DB.rows(`SELECT id, state, skip_reason, admit, released_at, story_key, story_of, source_key FROM ${table} WHERE nm_rowid = ?`, n)[0] });
+const mute = (env, key) => request(worker, env, "POST", "/v1/source-prefs", { role: "app", body: { source_key: key, action: "mute" } });
+
+test("B-T28 storyOrphans: a muted canonical's earliest unmuted copy becomes a held rescue row, the others point to it; one cron audit row; released within 20/5; only on the 00:00-00:04 tick", async () => {
+  const env = storyEnv();
+  seedPolls(env, "volvo_autonomous", "volvo", "aur_rel");
+  const c = nmRow(env, { source_key: "volvo_autonomous", first_seen: iso(4 * DAY) });
+  const d1 = nmRow(env, { source_key: "volvo", first_seen: iso(3 * DAY) });       // the earliest copy; its source is muted below
+  const d2 = nmRow(env, { source_key: "aur_rel", first_seen: iso(2 * DAY) });
+  const d3 = nmRow(env, { source_key: "aur_rel", first_seen: iso(DAY) });
+  await ingest(env);
+  for (const n of [d1, d2, d3]) assert.equal(byNm(env, n).story_of, byNm(env, c).id);
+  assert.equal((await mute(env, "volvo_autonomous")).status, 200);
+  assert.equal((await mute(env, "volvo")).status, 200);
+  assert.equal(byNm(env, c).skip_reason, "muted_source");
+  const r = await storyOrphans(env);
+  assert.deepEqual(r.promoted, { coverage: 1, aux: 0 });
+  const p = byNm(env, d2);
+  assert.deepEqual([p.state, p.skip_reason, p.admit, p.released_at, p.story_of], ["pending", null, "rescue", null, null]);
+  assert.ok(p.story_key, "keys kept");
+  assert.deepEqual([byNm(env, d1).state, byNm(env, d1).story_of], ["skipped", p.id], "the muted source's copy is not re-pended, and points to the new canonical");
+  assert.deepEqual([byNm(env, d3).state, byNm(env, d3).story_of], ["skipped", p.id]);
+  const audits = env.DB.rows("SELECT actor, via, action, target_id, after_json FROM audit_log WHERE action = 'rescue'");
+  assert.equal(audits.length, 1);
+  assert.deepEqual([audits[0].actor, audits[0].via, audits[0].target_id], ["cron", "cron", "story_orphan"]);
+  assert.equal(JSON.parse(audits[0].after_json).mode, "story_orphan");
+  assert.deepEqual(JSON.parse(audits[0].after_json).ids, { coverage: [p.id], coverage_total: 1, aux: [], aux_total: 0 });
+  // A second pass finds nothing to do and writes no audit row.
+  assert.deepEqual((await storyOrphans(env)).promoted, { coverage: 0, aux: 0 });
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'rescue'")[0].n, 1);
+  const rel = await releaseHeld(env);
+  assert.ok(rel.released.coverage >= 1 && rel.used_today <= 20);
+  assert.ok(byNm(env, d2).released_at, "released by the budget");
+  // Every copy from a muted source: nothing moves.
+  const e2 = storyEnv();
+  seedPolls(e2, "aur_rel", "volvo");
+  const c2 = nmRow(e2, { source_key: "aur_rel", first_seen: iso(2 * DAY) });
+  const m2 = nmRow(e2, { source_key: "volvo", first_seen: iso(DAY) });
+  await ingest(e2);
+  await mute(e2, "aur_rel");
+  await mute(e2, "volvo");
+  assert.deepEqual((await storyOrphans(e2)).promoted, { coverage: 0, aux: 0 });
+  assert.deepEqual([byNm(e2, m2).state, byNm(e2, m2).story_of], ["skipped", byNm(e2, c2).id]);
+  // The tick: 00:00-00:04 UTC only.
+  for (const [t, want] of [["2026-11-26T00:00:00Z", true], ["2026-11-26T00:04:59Z", true], ["2026-11-26T00:05:00Z", false], ["2026-11-25T23:59:59Z", false], ["2026-11-26T12:02:00Z", false]]) {
+    assert.equal(isStoryOrphanTick(Date.parse(t)), want, t);
+  }
+});
+
+test("B-T28 the 5-minute cron runs storyOrphans on the 00:00 tick and not on others", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("", { status: 404 });
+  try {
+    for (const [t, want] of [["2026-11-26T00:02:00Z", 1], ["2026-11-26T00:07:00Z", 0]]) {
+      const env = storyEnv();
+      const now = Date.parse(t);
+      // A copy whose canonical was never stored (story_of NULL).
+      env.DB.db.prepare(`INSERT INTO items (nm_rowid, source_key, ticker, url, title, nm_first_seen, ingested_at, state, skip_reason, story_key)
+        VALUES (990001, 'aur_rel', 'AUR', 'https://news.example.com/cron/1', ?, ?, ?, 'skipped', 'story_dup', 't:00000000000000aa')`)
+        .run(STORY_T, new Date(now - DAY).toISOString(), iso());
+      const waits = [];
+      await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: now }, env, { waitUntil: (p) => waits.push(p) });
+      await Promise.all(waits);
+      assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'rescue' AND target_id = 'story_orphan'")[0].n, want, t);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("B-T29 rescue drops a pick with a live exact copy and reports has_live_copy; a rescued row gets its keys, and a later copy of it is held", async () => {
+  const env = storyEnv();
+  seedPolls(env, "volvo_autonomous", "aur_rel");
+  // Skipped stale rows (18 days late, inside the rubric's 21 days), and a live copy of the first.
+  const s1 = nmRow(env, { source_key: "volvo_autonomous", first_seen: iso(3 * DAY), published: iso(21 * DAY) });
+  const live = nmRow(env, { source_key: "aur_rel", first_seen: iso(2 * DAY) });
+  const s2 = nmRow(env, { source_key: "volvo_autonomous", first_seen: iso(3 * DAY), published: iso(21 * DAY), title: "Acme Robotics opens a second plant" });
+  await ingest(env);
+  assert.equal(byNm(env, s1).skip_reason, "stale_on_arrival");
+  assert.equal(byNm(env, live).state, "pending");
+  const since = iso(30 * DAY).slice(0, 10);
+  const dry = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "rescue", since, kind: "coverage", dry_run: true } })).body;
+  assert.deepEqual(dry.has_live_copy, { coverage: 1, aux: 0 });
+  assert.deepEqual(dry.items.map((i) => i.id), [byNm(env, s2).id]);
+  const real = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "rescue", since, kind: "coverage" } })).body;
+  assert.deepEqual(real.held, { coverage: 1, aux: 0 });
+  const r2 = byNm(env, s2);
+  assert.deepEqual([r2.state, r2.admit], ["pending", "rescue"]);
+  assert.match(r2.story_key, /^t:/);
+  assert.equal(byNm(env, s1).state, "skipped", "the pick with a live copy stays skipped");
+  await releaseHeld(env);
+  assert.ok(byNm(env, s2).released_at);
+  const later = nmRow(env, { source_key: "aur_rel", first_seen: iso(HOUR), title: "Acme Robotics opens a second plant" });
+  await ingest(env);
+  assert.deepEqual([byNm(env, later).skip_reason, byNm(env, later).story_of], ["story_dup", r2.id]);
+});
+
+test("B-T30 story_release: a dry run reports; a real run turns story_dup rows into held rescue rows (at most limit, muted sources skipped) with one audit row; story_dup is not a rescue reason", async () => {
+  assert.ok(!RESCUE_REASONS.includes("story_dup"));
+  const env = storyEnv();
+  seedPolls(env, "volvo_autonomous", "aur_rel", "volvo", "aevex", "managed_widgetco_news");
+  const c = nmRow(env, { source_key: "volvo_autonomous", first_seen: iso(5 * DAY) });
+  const d = [nmRow(env, { source_key: "aur_rel", first_seen: iso(4 * DAY) }), nmRow(env, { source_key: "aur_rel", first_seen: iso(3 * DAY) }),
+    nmRow(env, { source_key: "volvo", first_seen: iso(2 * DAY) })];
+  nmRow(env, { source_key: "aevex", first_seen: iso(3 * DAY), url: "https://news.example.com/rel/1", title: "AEVEX opens a test range" });
+  const y = nmRow(env, { source_key: "managed_widgetco_news", first_seen: iso(2 * DAY), url: "https://news.example.com/rel/1", title: "Widgetco range story" });
+  await ingest(env);
+  await ingestAux(env);
+  assert.equal(byNm(env, y, "aux_items").skip_reason, "story_dup");
+  await mute(env, "volvo");
+  const since = iso(10 * DAY).slice(0, 10);
+  assert.equal((await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "story_release" } })).status, 400, "since is required");
+  assert.equal((await request(worker, env, "POST", "/v1/admin/requeue", { role: "app", body: { mode: "story_release", since } })).status, 403);
+  const dry = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "story_release", since, dry_run: true } })).body;
+  assert.deepEqual([dry.matched, dry.muted_skipped, dry.held, dry.dry_run], [3, 1, { coverage: 2, aux: 1 }, true]);
+  assert.equal(byNm(env, d[0]).state, "skipped", "a dry run changes nothing");
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'rescue'")[0].n, 0);
+  const real = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "story_release", since, limit: 2 } })).body;
+  assert.deepEqual([real.held, real.remaining], [{ coverage: 2, aux: 0 }, 1]);
+  for (const n of d.slice(0, 2)) {
+    const r = byNm(env, n);
+    assert.deepEqual([r.state, r.skip_reason, r.admit, r.released_at, r.story_of], ["pending", null, "rescue", null, byNm(env, c).id], "story_of kept as history");
+  }
+  assert.equal(byNm(env, d[2]).state, "skipped", "the muted source's copy stays");
+  const audits = env.DB.rows("SELECT target_id, after_json FROM audit_log WHERE action = 'rescue'");
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].target_id, "story_release");
+  assert.equal(JSON.parse(audits[0].after_json).mode, "story_release");
+  const rest = (await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "story_release", since, kind: "aux" } })).body;
+  assert.deepEqual(rest.held, { coverage: 0, aux: 1 });
+  assert.equal(byNm(env, y, "aux_items").admit, "rescue");
+});
+
+test("B-T31 a later copy of an orphan-promoted row is held against it", async () => {
+  const env = storyEnv();
+  seedPolls(env, "volvo_autonomous", "aur_rel", "volvo");
+  const c = nmRow(env, { source_key: "volvo_autonomous", first_seen: iso(3 * DAY) });
+  const d = nmRow(env, { source_key: "aur_rel", first_seen: iso(2 * DAY) });
+  await ingest(env);
+  await mute(env, "volvo_autonomous");
+  await storyOrphans(env);
+  const p = byNm(env, d);
+  assert.equal(p.admit, "rescue");
+  await releaseHeld(env);
+  assert.ok(byNm(env, d).released_at);
+  const later = nmRow(env, { source_key: "volvo", first_seen: iso(HOUR) });
+  await ingest(env);
+  assert.deepEqual([byNm(env, later).skip_reason, byNm(env, later).story_of], ["story_dup", p.id]);
+  assert.equal(byNm(env, c).skip_reason, "muted_source");
+});
