@@ -190,8 +190,13 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
       ).bind(r.nm_rowid, now));
     }
     const movedTo = stmts.length;
-    // Phase 1: the per-source fast-path cap (budget.js fastPathCounter).
+    // Phase 1: the per-source fast-path cap (budget.js fastPathCounter). A
+    // catch-up (bounded) rescans rows the main scan may have stored already;
+    // the DB count holds those, so only rows not yet stored add to it.
     const fast = await fastPathCounter(db, rows, fastCap);
+    const stored = bounded && fastCap > 0 && rows.length ? new Set(((await db.prepare(
+      "SELECT nm_rowid FROM aux_items WHERE nm_rowid > ? AND nm_rowid <= ?",
+    ).bind(cursor, win.hi).all()).results || []).map((x) => x.nm_rowid)) : null;
     for (const { r, route } of routed) {
       // The arrival gate (lib.js arrivalGate) with the Auxiliary rules: no
       // record exception past 21 days (auxiliary.md section 5).
@@ -201,7 +206,7 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
       const admit = reason ? null : gate.admit;
       if (reason) skipped++;
       if (admit) held++;
-      if (!reason && !admit) fast.add(r);
+      if (!reason && !admit && !stored?.has(r.nm_rowid)) fast.add(r);
       const feed = feedFields(r, { role: null }, now);
       if (feed.status) fromFeed++;
       const subject = route.coverage_subject === true;

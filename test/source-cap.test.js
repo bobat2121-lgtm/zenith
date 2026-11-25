@@ -191,6 +191,26 @@ test("aux ingest applies the same cap", async () => {
   assert.deepEqual(admits(e2, "aux_items", "anduril"), [...Array(9).fill(null), "source_cap"]);
 });
 
+test("REGRESSION an aux catch-up counts rows it finds already stored once, from the DB count only", async () => {
+  // An existing zenith-db mid rival catch-up (aux_rv_cursor not done): the main
+  // scan already stored 6 of a rival source's day-A rows; 5 more are not stored.
+  const env = { DB: zenithDb(), NEWS: newsDb(), ...TOKENS };
+  const key = "pixxel";
+  nm(env, { source_key: key, first_seen: EARLIER, title: "Pixxel earlier news" });
+  for (let k = 0; k < 11; k++) nm(env, { source_key: key, first_seen: at(DAY_A, k), title: `Pixxel launches satellite ${k}` });
+  const news = plain(env.NEWS.rows("SELECT rowid AS nm_rowid, url, title, first_seen FROM items WHERE source_key = ? AND first_seen > ? ORDER BY rowid", key, EARLIER));
+  for (const r of news.slice(0, 6)) {
+    env.DB.db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen, ingested_at, state, coverage_subject, affects)
+      VALUES (?, ?, 'pixxel', 'Pixxel', 'private', ?, ?, ?, NULL, ?, ?, 'pending', 1, 'SATL')`).run(r.nm_rowid, key, r.url, r.title, r.first_seen, r.first_seen, r.first_seen);
+  }
+  const last = env.NEWS.rows("SELECT MAX(rowid) AS n FROM items")[0].n;
+  env.DB.db.prepare("INSERT INTO meta (key, value) VALUES ('nm_cursor', '0'), ('aux_nm_cursor', ?), ('aux_cs_cursor', 'done'), ('aux_rv_cursor', '0'), ('aux_owner_cleanup', 'done')").run(String(last));
+  const r = await ingestAux(env);
+  assert.equal(r.rival_catch_up.done, true);
+  // 6 stored + 4 new reach the cap of 10; only the 11th is held.
+  assert.deepEqual(admits(env, "aux_items", key), [...Array(10).fill(null), "source_cap"]);
+});
+
 test("REGRESSION source_cap rows are left out of the brief's waiting list, queue_stale, the claims and the feeds, and are counted in heldCounts and in source_cap_held", async () => {
   const env = newEnv();
   const now = Date.now();
