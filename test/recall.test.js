@@ -40,7 +40,7 @@ test("migration 0015 creates recall_events with status and kind checks", () => {
   const env = newEnv();
   const cols = env.DB.rows("SELECT name FROM pragma_table_info('recall_events')").map((r) => r.name);
   assert.deepEqual(cols, ["id", "ticker", "event", "event_date", "kind", "public_url", "status", "captured_kind", "captured_item_id", "captured_ref",
-    "first_seen", "lag_days", "verdict", "verdict_ref", "notes", "source", "checked_at", "loaded_at"]);
+    "first_seen", "lag_days", "verdict", "verdict_ref", "notes", "source", "checked_at", "loaded_at", "universe_id"]);
   const ins = (kind, status, captured = null, verdict = null) => env.DB.db.prepare(
     `INSERT INTO recall_events (id, ticker, event, kind, status, captured_kind, verdict, source, checked_at, loaded_at)
      VALUES (?, 'SYM', 'Test event', ?, ?, ?, ?, 'test-seed', '2026-01-15', '2026-01-15')`).run(`SYM-${++n}`, kind, status, captured, verdict);
