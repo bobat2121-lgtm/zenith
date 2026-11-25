@@ -1,6 +1,7 @@
 // Reliability and tuning without labels (plans/round4-reliability-tuning.md,
 // Part Z), for the app's Tuning page and grader health strip:
-//   GET  /v1/ops               grader health: last run, gaps, status, heartbeat checks, backlog (Z3)
+//   GET  /v1/ops               grader health: last run, missed runs, status, open gap, claims, grades today,
+//                              heartbeat checks, backlog (Z3, phase 1)
 //   GET  /v1/source-prefs      muted and demoted sources (Z7)
 //   POST /v1/source-prefs      { source_key, action: mute | demote | normal, note? } (Z7)
 //   GET  /v1/source-yield      per-source grade yield with mute / demote suggestions (Z8)
@@ -12,8 +13,8 @@ import AUX from "./aux-sources.json";
 import { auxRoute } from "./aux-route.js";
 import { heartbeatChecks } from "./delivery.js";
 import { headlinesWaiting } from "./headlines.js";
-import { json, nowIso, universeSql, HELD_SQL } from "./lib.js";
-import { budgetSettings, releasedToday, heldCounts } from "./budget.js";
+import { json, nowIso, universeSql, HELD_SQL, LEASE_MINUTES } from "./lib.js";
+import { budgetSettings, releasedToday, heldCounts, utcDayStart } from "./budget.js";
 import { isRecordSource } from "./records.js";
 
 const HOUR = 3_600_000;
@@ -244,30 +245,113 @@ export async function leftOutGrade(env, body) {
 }
 
 // --- Grader health (Z3) -------------------------------------------------------
-export const OPS_OK_MIN = 90;
-export const OPS_LATE_MIN = 180;
-export const GAP_HOURS = 2;
+// Phase 1: grader health. A gap is a missed scheduled run, measured against the
+// grader's own cadence (expected_every_min), not a fixed 2 h. The cadence is
+// the lower median of the recent start-to-start intervals, or the
+// GRADER_EVERY_MIN secret when it is set.
+export const OPS_LATE_MIN = 180;          // older than this is "down"
+export const LATE_SLACK_MIN = 20;         // a run is missed when nothing started within every + 20 min
+export const EVERY_DEFAULT_MIN = 60;      // too little history to tell
+export const EVERY_MIN_CLAMP = [30, 60];
+export const EVERY_WINDOW = 10;           // the last 10 usable intervals
+export const EVERY_MIN_INTERVALS = 3;     // fewer usable intervals than this gives the default
+export const EVERY_IGNORE = [10, 90];     // intervals outside this range (minutes) are not cadence
+export const STUCK_CLAIM_MIN = 15;        // a claim not returned after 15 min (the longest normal run is about 5 min)
 const GAP_DAYS = 7;
+const MIN_MS = 60_000;
 
-// runs: { started_at, last_seen_at } in any order. A gap is the time from one
-// run's last activity to the next run's start, when it is over GAP_HOURS;
-// only gaps ending at or after `since` count.
+const byStart = (runs) => [...runs].sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)));
+// Start-to-start intervals in minutes, for runs sorted by started_at.
+const startIntervals = (sorted) => {
+  const out = [];
+  for (let k = 1; k < sorted.length; k++) out.push((Date.parse(sorted[k].started_at) - Date.parse(sorted[k - 1].started_at)) / MIN_MS);
+  return out;
+};
+// The cadence from start-to-start intervals (minutes, oldest first).
+function cadenceOf(intervals) {
+  const use = intervals.filter((m) => Number.isFinite(m) && m >= EVERY_IGNORE[0] && m <= EVERY_IGNORE[1]).slice(-EVERY_WINDOW);
+  if (use.length < EVERY_MIN_INTERVALS) return EVERY_DEFAULT_MIN;
+  const sorted = [...use].sort((a, b) => a - b);
+  const lower = sorted[Math.floor((sorted.length - 1) / 2)];
+  return Math.max(EVERY_MIN_CLAMP[0], Math.min(EVERY_MIN_CLAMP[1], Math.round(lower)));
+}
+// A whole number of minutes from 15 to 120 in GRADER_EVERY_MIN, else null.
+function everyOverride(env) {
+  const v = String(env?.GRADER_EVERY_MIN ?? "").trim();
+  if (!/^\d+$/.test(v)) return null;
+  const n = Number(v);
+  return n >= 15 && n <= 120 ? n : null;
+}
+
+// runs: { started_at, last_seen_at } in any order. Minutes between scheduled runs.
+export function expectedEvery(runs, env = {}) {
+  return everyOverride(env) ?? cadenceOf(startIntervals(byStart(runs || [])));
+}
+
+// runs: { started_at, last_seen_at } in any order. Interval k is a gap when the
+// time from run k-1's last activity to run k's start is over exp_k + 20 min,
+// where exp_k is the cadence of the intervals before k. Only gaps ending at or
+// after `since` count.
 export function runGaps(runs, since) {
-  const sorted = [...runs].sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)));
+  const sorted = byStart(runs);
+  const intervals = startIntervals(sorted);
   const gaps = [];
   for (let k = 1; k < sorted.length; k++) {
     const from = sorted[k - 1].last_seen_at, to = sorted[k].started_at;
     const ms = Date.parse(to) - Date.parse(from);
-    if (to >= since && Number.isFinite(ms) && ms > GAP_HOURS * HOUR) gaps.push({ from, to, hours: Math.round((ms / HOUR) * 10) / 10 });
+    const every = cadenceOf(intervals.slice(0, k - 1));
+    if (to >= since && Number.isFinite(ms) && ms > (every + LATE_SLACK_MIN) * MIN_MS) {
+      gaps.push({ from, to, hours: Math.round((ms / HOUR) * 10) / 10,
+        missed_runs: Math.max(1, Math.round(intervals[k - 1] / every) - 1), expected_every_min: every });
+    }
   }
   return gaps;
 }
 
-export function graderStatus(lastRunAt, now) {
+export function graderStatus(lastRunAt, now, everyMin = EVERY_DEFAULT_MIN) {
   const ms = Date.parse(lastRunAt || "");
   if (!Number.isFinite(ms)) return "down";
   const age = now - ms;
-  return age < OPS_OK_MIN * 60_000 ? "ok" : age <= OPS_LATE_MIN * 60_000 ? "late" : "down";
+  return age <= (everyMin + LATE_SLACK_MIN) * MIN_MS ? "ok" : age <= OPS_LATE_MIN * MIN_MS ? "late" : "down";
+}
+
+// The gap still open now: null while the grader is ok (or has never run).
+export function openGap(last, now, every) {
+  if (!last?.last_seen_at || graderStatus(last.last_seen_at, now, every) === "ok") return null;
+  const since = Date.parse(last.started_at || last.last_seen_at);
+  return {
+    from: last.last_seen_at,
+    minutes: Math.round((now - Date.parse(last.last_seen_at)) / MIN_MS),
+    missed_runs: Math.max(1, Math.floor((now - since) / (every * MIN_MS)) || 1),
+    expected_every_min: every,
+  };
+}
+
+// Today's grades (since 00:00 UTC) of one pipeline, each classed once:
+// a re-grade (the item has an earlier grade with an earlier graded_at), else
+// budgeted (admitted or released by the daily budget), else the fast path.
+// Same-timestamp grades (one submit, several tickers) are not re-grades.
+// own_lane counts grades of a covered (own-lane) source. Binds 2 parameters.
+const OWN_LANE_JSON = JSON.stringify(Object.keys(COVERED.sources || {}));
+async function gradesToday(db, grades, items, day) {
+  const r = await db.prepare(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(rg), 0) AS regrade, COALESCE(SUM(CASE WHEN rg = 0 AND bud = 1 THEN 1 ELSE 0 END), 0) AS budgeted,
+            COALESCE(SUM(CASE WHEN rg = 0 AND bud = 0 THEN 1 ELSE 0 END), 0) AS fast_path, COALESCE(SUM(own), 0) AS own_lane
+       FROM (SELECT EXISTS (SELECT 1 FROM ${grades} p WHERE p.item_id = g.item_id AND p.graded_at < g.graded_at) AS rg,
+                    (i.admit IS NOT NULL OR i.released_at IS NOT NULL) AS bud,
+                    (i.source_key IN (SELECT value FROM json_each(?2))) AS own
+               FROM ${grades} g JOIN ${items} i ON i.id = g.item_id WHERE g.graded_at >= ?1)`,
+  ).bind(day, OWN_LANE_JSON).first();
+  return { n: r?.n || 0, regrade: r?.regrade || 0, budgeted: r?.budgeted || 0, fast_path: r?.fast_path || 0, own_lane: r?.own_lane || 0 };
+}
+
+// Claims on one table: stuck = claimed over STUCK_CLAIM_MIN ago and not
+// returned (lease expired or not); stale = lease expired.
+async function claimCounts(db, table, now) {
+  const r = await db.prepare(
+    `SELECT COALESCE(SUM(claimed_until < ?1), 0) AS stuck, COALESCE(SUM(claimed_until < ?2), 0) AS stale FROM ${table} WHERE state = 'claimed'`,
+  ).bind(nowIso(now + (LEASE_MINUTES - STUCK_CLAIM_MIN) * MIN_MS), nowIso(now)).first();
+  return { stuck: r?.stuck || 0, stale: r?.stale || 0 };
 }
 
 // News-monitor rows graded in both pipelines, with a grade in either one since
@@ -300,13 +384,42 @@ export async function ops(env, { now = Date.now() } = {}) {
   // are not pending; they are counted on their own.
   const oldestAux = await db.prepare(`SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   const held = await heldCounts(db);
-  const releasedNow = [...(await releasedToday(db, now)).values()].reduce((a, b) => a + b, 0);
+  const released = await releasedToday(db, now);
+  const releasedNow = [...released.values()].reduce((a, b) => a + b, 0);
+  const budget = budgetSettings(env);
+  // Phase 1: grader health. The cadence comes from the last 11 runs whatever
+  // their age, so a long outage cannot empty the window.
+  const recent = (await db.prepare("SELECT started_at, last_seen_at FROM runs ORDER BY started_at DESC LIMIT 11").all()).results || [];
+  const every = expectedEvery(recent, env);
+  const coverageClaims = await claimCounts(db, "items", now);
+  const auxClaims = await claimCounts(db, "aux_items", now);
+  const oldestCoverage = await db.prepare(
+    `SELECT MIN(COALESCE(released_at, ingested_at)) AS t FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND ticker IN ${IN_UNIVERSE}`,
+  ).first();
+  const dayStart = utcDayStart(now);
+  const topSources = (await db.prepare(
+    `SELECT source_key, COUNT(*) AS n FROM (
+       SELECT i.source_key FROM grades g JOIN items i ON i.id = g.item_id WHERE g.graded_at >= ?1
+       UNION ALL SELECT a.source_key FROM aux_grades ag JOIN aux_items a ON a.id = ag.item_id WHERE ag.graded_at >= ?1)
+      GROUP BY source_key ORDER BY n DESC, source_key LIMIT 5`,
+  ).bind(dayStart).all()).results || [];
   const grader = {
     last_run_at: last?.last_seen_at || null,
     last_run: last ? { id: last.id, started_at: last.started_at, last_seen_at: last.last_seen_at, claimed: last.claimed, graded: last.graded, rejected: last.rejected } : null,
     runs_24h: day?.n || 0,
     gaps_7d: runGaps(before ? [before, ...runs] : runs, since),
-    status: graderStatus(last?.last_seen_at, now),
+    status: graderStatus(last?.last_seen_at, now, every),
+    expected_every_min: every,
+    open_gap: openGap(last, now, every),
+    // Coverage claims not returned after STUCK_CLAIM_MIN: a run that claimed
+    // and died. Aux stuck claims are routine (the next claim retakes them) and
+    // do not set it.
+    last_run_unfinished: coverageClaims.stuck > 0,
+    grades_today: {
+      coverage: await gradesToday(db, "grades", "items", dayStart),
+      aux: await gradesToday(db, "aux_grades", "aux_items", dayStart),
+      top_sources: topSources.map((r) => ({ source_key: r.source_key, n: r.n })),
+    },
     checks: await heartbeatChecks(db, now),
     backlog: {
       coverage_pending: await count(`SELECT COUNT(*) AS n FROM items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND ticker IN ${IN_UNIVERSE}`),
@@ -316,8 +429,14 @@ export async function ops(env, { now = Date.now() } = {}) {
       coverage_held: held.coverage,
       aux_held: held.aux,
       released_today: releasedNow,
-      budget: budgetSettings(env),
+      budget,
       double_graded_24h: await doubleGraded(db, nowIso(now - DAY)),
+      stuck_claims: { coverage: coverageClaims.stuck, aux: auxClaims.stuck },
+      stale_claims: { coverage: coverageClaims.stale, aux: auxClaims.stale },
+      oldest_coverage_waiting_at: oldestCoverage?.t || null,
+      released_by_source_today: [...released].map(([source_key, n]) => ({ source_key, n }))
+        .sort((a, b) => b.n - a.n || String(a.source_key).localeCompare(String(b.source_key))).slice(0, 5)
+        .map((r) => ({ ...r, per_source: budget.per_source })),
     },
   };
   return json({ grader, as_of: nowIso(now) });
