@@ -1371,7 +1371,8 @@ PREF_HELP = ("Mute: muted sources are not graded. New items from the source are 
              "newsroom cannot be muted.")
 LEFT_KINDS = {"coverage": "Coverage", "aux": "Auxiliary"}
 SKIP_TEXT = {"archive_seed": "Archive seed", "muted_source": "Muted source", "rival_no_key_account": "Rival, no key account",
-             "grading_failed": "Grading failed", "undated_burst": "Undated burst"}
+             "grading_failed": "Grading failed", "undated_burst": "Undated burst",
+             "story_dup": "Copy of a queued story"}
 VERDICT_TEXT = {"too_high": "graded too high", "too_low": "graded too low"}
 
 
@@ -1732,13 +1733,27 @@ def left_out_counts_html(counts) -> str:
     return out
 
 
+def copy_of_id(it: dict) -> int | None:
+    """The item a story copy points to (the Worker's `copy_of`), as a positive int; None when absent or not an id."""
+    v = it.get("copy_of")
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        n = int(str(v).strip())
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
 def left_out_item_html(it: dict) -> str:
-    """Name · skip reason · source · age, then the title link. Escaped."""
+    """Name · skip reason · source · age (· copy of item N), then the title link. Escaped."""
     name = html.escape(str(it.get("ticker") or it.get("entity") or ""))
     seen = it.get("first_seen")
     age = f'<span class="z-age">{html.escape(ago(seen))}</span>' if seen else ""
+    copy_of = copy_of_id(it)
+    copy = f'<span class="z-age">· copy of item {html.escape(str(copy_of))}</span>' if copy_of else ""
     head = (f'<b class="z-name">{name}</b><span class="z-badge reject">{html.escape(skip_text(it.get("skip_reason")))}</span>'
-            f'<span class="z-badge src">{html.escape(str(it.get("source_key") or ""))}</span>{age}')
+            f'<span class="z-badge src">{html.escape(str(it.get("source_key") or ""))}</span>{age}{copy}')
     text = html.escape(one_line(it.get("title")) or "(no title)")
     title = (f'<a href="{html.escape(str(it["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">{text}</a>'
              if safe_url(it.get("url")) else text)
