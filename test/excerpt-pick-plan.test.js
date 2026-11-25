@@ -96,9 +96,11 @@ test("the new and the old pick return the same ids in the same order", () => {
     }
     assert.ok(ids(enrichPickSql(secOnly), 1, 100).length > 0, `secOnly=${secOnly} picks something`);
   }
-  // The non-SEC arm with a contact address: the five due pending or expired
-  // claimed rows plus the held one, which comes last (unreleased admits sort
-  // after the rest); skipped, read and waiting rows never.
+  // The non-SEC arm with a contact address: five due pending or claimed rows
+  // (the untried waiting row counts as due when a contact address is set; the
+  // pick has no claimed_until term) plus the held one, which comes last
+  // (unreleased admits sort after the rest). Skipped rows, read rows and
+  // retried rows that are still waiting are never picked.
   const picked = db.db.prepare(enrichPickSql(false)).all(NOW, 1, 100);
   assert.equal(picked.length, 6);
   assert.ok(picked.every((r) => !r.url.includes("sec.gov")));
