@@ -1028,10 +1028,10 @@ class TuningFunctions(unittest.TestCase):
 
     def test_gap_lines_and_details(self):
         lines = zf.gap_lines(OPS)
-        self.assertEqual(lines[:3], ["Gaps over 2 h between grader runs, last 7 days: 2.",
+        self.assertEqual(lines[:3], ["Missed grader runs, last 7 days: 2.",
                                      "  Nov 23 08:11 UTC to Nov 23 14:05 UTC (5.9 h)", "  Nov 20 01:00 UTC to Nov 20 04:00 UTC (3 h)"])
-        self.assertIn("usage limit refused the hourly grader run", lines[-1])
-        self.assertEqual(zf.gap_lines({"grader": {"gaps_7d": None}})[0], "No gaps over 2 h between grader runs in the last 7 days.")
+        self.assertIn("usage limit refused a scheduled grader run", lines[-1])
+        self.assertEqual(zf.gap_lines({"grader": {"gaps_7d": None}})[0], "No missed grader runs in the last 7 days.")
         self.assertIn("not available yet", zf.gap_lines({})[0])
         details = zf.grader_details(OPS)
         self.assertTrue(details[0].startswith("Status: ok. Last run "))
@@ -1160,7 +1160,7 @@ class Round4Pages(AppBase):
         self.run_app()
         self.assertIn("Grader: last run 12 min ago · Aux backlog 96 (oldest Nov 9) · Headlines waiting 239", self.page_text())
         self.assertIn("Nov 23 08:11 UTC to Nov 23 14:05 UTC (5.9 h)", [t.strip() for t in self.texts()])
-        self.assertTrue(any("usage limit refused the hourly grader run" in t for t in self.texts()))
+        self.assertTrue(any("usage limit refused a scheduled grader run" in t for t in self.texts()))
         self.assertIn(("/v1/ops", {}), [(g, p) for g, p, _ in self.api.gets])
 
     def test_grader_strip_is_red_when_late(self):
@@ -1500,7 +1500,7 @@ class Round4Pages(AppBase):
     def test_tuning_grader_without_gaps(self):
         self.api.routes["/v1/ops"]["grader"]["gaps_7d"] = []
         self.open_tuning()
-        self.assertIn("No gaps over 2 h between grader runs in the last 7 days.", self.captions())
+        self.assertIn("No missed grader runs in the last 7 days.", self.captions())
 
 
 if __name__ == "__main__":
