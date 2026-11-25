@@ -739,6 +739,17 @@
       "status": "private",
       "lane": "private_adjacent"
     },
+    "fpds_aglt": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AGLT"
+      ],
+      "record": true
+    },
     "fpds_axon": {
       "entity": "fpds",
       "name": "FPDS contracts",
@@ -747,6 +758,50 @@
       "coverage_subject": true,
       "affects": [
         "AXON"
+      ],
+      "record": true
+    },
+    "fpds_dpro": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "DPRO"
+      ],
+      "record": true
+    },
+    "fpds_evlv": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "EVLV"
+      ],
+      "record": true
+    },
+    "fpds_kdk": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "KDK"
+      ],
+      "record": true
+    },
+    "fpds_mrln": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "MRLN"
       ],
       "record": true
     },
@@ -762,6 +817,17 @@
       "record": true
     },
     "fpds_pdyn": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "PDYN"
+      ],
+      "record": true
+    },
+    "fpds_pdyn_sarcos": {
       "entity": "fpds",
       "name": "FPDS contracts",
       "status": "program",
@@ -791,6 +857,17 @@
       "coverage_subject": true,
       "affects": [
         "PUSA"
+      ],
+      "record": true
+    },
+    "fpds_rcat": {
+      "entity": "fpds",
+      "name": "FPDS contracts",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "RCAT"
       ],
       "record": true
     },
