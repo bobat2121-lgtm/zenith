@@ -174,7 +174,8 @@ const TWIN_FROM = {
 const TWIN_SQL = { coverage: `SELECT t.id, t.state ${TWIN_FROM.coverage("?")}`, aux: `SELECT t.id, t.state ${TWIN_FROM.aux("?")}` };
 
 // Skipped items, newest first, with counts per skip reason over the window.
-// archive_seed rows (day-one archive pages) only when asked for by name. Each
+// archive_seed rows (day-one archive pages) and undated_burst rows (a later
+// burst of undated pages, Phase 0 gates) only when asked for by name. Each
 // item carries gradeable (false when leftOutGrade would refuse it: its source
 // is still muted, or its twin is shown on the other page) and blocked (why
 // not, else null).
@@ -193,7 +194,7 @@ export async function leftOut(env, url) {
     `SELECT i.id, '${kind}' AS kind, ${k.name}, i.source_key, i.title, i.url, i.nm_first_seen AS first_seen, i.skip_reason,
             (SELECT t.id ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_id,
             (SELECT t.state ${TWIN_FROM[k.other]("i.nm_rowid")} LIMIT 1) AS twin_state
-       ${base} AND ${reason ? "i.skip_reason = ?" : "i.skip_reason IS NOT 'archive_seed'"}
+       ${base} AND ${reason ? "i.skip_reason = ?" : "i.skip_reason IS NOT 'archive_seed' AND i.skip_reason IS NOT 'undated_burst'"}
       ORDER BY i.nm_first_seen DESC, i.id DESC LIMIT ?`,
   ).bind(since, ...(reason ? [reason] : []), limit).all()).results || [];
   const counts = Object.fromEntries(((await env.DB.prepare(

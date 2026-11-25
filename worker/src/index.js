@@ -250,8 +250,10 @@ async function feed(env, url) {
   // The owner's latest label (lf, joined below) overrides For You placement (Z13, lib.js ownerRank).
   const owner = ownerRank(SCORE, "lf.label");
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
+  // Phase 0 gates (e): an undated card never pins as a fresh Lead, unless the owner marked it High.
   const PINNED = pinHours > 0
-    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
+    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ?
+         AND (i.published IS NOT NULL OR ${owner.high}) THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   if (ticker) { where.push("(i.ticker = ? OR g.id IS NOT NULL)"); binds.push(ticker); }
   where.push(`COALESCE(g.ticker, i.ticker) IN ${IN_UNIVERSE}`);
@@ -285,7 +287,8 @@ async function feed(env, url) {
     where.push("i.state = 'graded'", "g.score IS NOT NULL", "i.nm_first_seen >= ?");
     binds.push(nowIso(Date.now() - TO_LABEL_DAYS * 86_400_000));
   }
-  const sql = `SELECT ${ITEM_COLS}, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score, g.band, g.rung,
+  const sql = `SELECT ${ITEM_COLS}, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet, g.id AS grade_id, g.ticker AS grade_ticker, g.score,
+      CASE WHEN g.band = 'lead' AND i.published IS NULL THEN 'digest' ELSE g.band END AS band, g.band AS stored_band, g.rung,
       g.event_type, g.status_label, g.magnitude_usd, g.magnitude_pct, g.thesis_drivers, g.why, g.note_hook, g.confidence, g.read_source,
       g.flags, g.graded_at, g.rubric_version, g.model, g.dup_of, ${PINNED} AS pinned, (i.source_key IN ${DEMOTED_SQL}) AS demoted,
       (SELECT group_concat(gx.ticker || ':' || COALESCE(gx.score, 'dup'), ',') FROM grades gx

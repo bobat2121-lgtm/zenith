@@ -20,7 +20,7 @@ import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCurs
 import { isOfficialRecord } from "./records.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
-  HELD_SQL } from "./lib.js";
+  HELD_SQL, capUndated } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 import { auxEntitySighting, upsertAfterGrades, relationSightings } from "./expansion.js";
 
@@ -390,7 +390,7 @@ export async function submitAuxGrades(env, body, role) {
   const already = new Set();
   for (const part of chunk(ids)) {
     const ph = part.map(() => "?").join(",");
-    for (const r of (await env.DB.prepare(`SELECT id, state, claim_id, url, title, nm_first_seen FROM aux_items WHERE id IN (${ph})`).bind(...part).all()).results || []) items.set(r.id, r);
+    for (const r of (await env.DB.prepare(`SELECT id, state, claim_id, url, title, published, nm_first_seen FROM aux_items WHERE id IN (${ph})`).bind(...part).all()).results || []) items.set(r.id, r);
     for (const r of (await env.DB.prepare(`SELECT item_id FROM aux_grades WHERE run_id = ? AND item_id IN (${ph})`).bind(runId, ...part).all()).results || []) {
       already.add(r.item_id);
     }
@@ -407,6 +407,13 @@ export async function submitAuxGrades(env, body, role) {
     const g = res.grade;
     const item = items.get(g.item_id);
     if (!item) { rejected.push({ item_id: raw.item_id, error: `unknown item_id ${g.item_id}: not an auxiliary item` }); continue; }
+    // Phase 0 gates (e): an undated item is never a Lead. The grader's band is
+    // accepted as written and stored capped (89, digest) with the flag.
+    if (g.score != null) {
+      const flags = JSON.parse(g.flags);
+      const capped = capUndated(g.score, item.published, flags);
+      if (capped !== g.score) Object.assign(g, { score: capped, band: bandFor(capped), flags: JSON.stringify([...new Set(flags)]) });
+    }
     // Idempotent: a resubmitted file never stores the same grade twice.
     if (already.has(item.id)) { skipped.push({ item_id: raw.item_id, note: "already accepted in this run" }); continue; }
     if (role !== "admin" && !(claimId && item.claim_id === claimId)) {
@@ -566,8 +573,10 @@ export async function auxFeed(env, url) {
   // The owner's latest label (lf, joined below) overrides For You placement (Z13, lib.js ownerRank).
   const owner = ownerRank(SCORE, "lf.label");
   // CASE, not a bare comparison: an ungraded item (g.band NULL) is 0, not NULL.
+  // Phase 0 gates (e): an undated card never pins as a fresh Lead, unless the owner marked it High.
   const PINNED = pinHours > 0
-    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ? THEN 1 ELSE 0 END)` : "0";
+    ? `(CASE WHEN (g.band = 'lead' OR ${owner.high}) AND NOT ${owner.noise} AND ${owner.score} >= 90 AND i.nm_first_seen >= ?
+         AND (i.published IS NOT NULL OR ${owner.high}) THEN 1 ELSE 0 END)` : "0";
   const pinBinds = pinHours > 0 ? [pinSince] : [];
   const entity = squash(q.get("entity") || "").slice(0, 80);
   if (entity) { const m = entityFilter(entity); where.push(m.sql); binds.push(...m.binds); }
@@ -607,7 +616,7 @@ export async function auxFeed(env, url) {
   }
   const sql = `SELECT i.id AS item_id, COALESCE(g.entity, i.entity_name) AS entity, i.entity_key, i.status, i.source_key, i.title, i.url, i.published,
       i.nm_first_seen AS first_seen, i.state, i.skip_reason, i.headline, i.headline_tag, substr(i.excerpt, 1, 420) AS snippet,
-      g.id AS grade_id, g.score, g.band, g.event_type, g.why, g.reads_through, g.confidence, g.read_source, g.flags, g.covered_ticker, g.dup_of,
+      g.id AS grade_id, g.score, CASE WHEN g.band = 'lead' AND i.published IS NULL THEN 'digest' ELSE g.band END AS band, g.band AS stored_band, g.event_type, g.why, g.reads_through, g.confidence, g.read_source, g.flags, g.covered_ticker, g.dup_of,
       g.graded_at, ${PINNED} AS pinned, (i.source_key IN ${DEMOTED_SQL}) AS demoted,
       lf.label AS label, lf.note AS label_note, lf.reason AS my_reason
     FROM aux_items i LEFT JOIN aux_grades g ON g.id = i.grade_id

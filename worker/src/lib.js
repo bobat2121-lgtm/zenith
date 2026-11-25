@@ -72,6 +72,23 @@ export const LEASE_MINUTES = 45;
 export const MAX_ATTEMPTS = 4;
 export const STALE_DAYS = 14;
 
+// Phase 0 gates (e): an item with no published date can never show as a fresh
+// Lead. A score of 90 or more on an undated item is stored as UNDATED_CAP
+// (89, Digest) with the flag undated_capped_from_<score>. It overrides the
+// floors (buyout, lead_order, deal_transformational at 90 included): the
+// event's date is unknown, so the card cannot be shown as new. The owner's
+// High still pins it (ownerRank). Returns the score to store; pushes the flag
+// onto flags.
+export const UNDATED_CAP = 89;
+export function capUndated(score, published, flags) {
+  if (score == null || Number.isFinite(Date.parse(published || ""))) return score;
+  if (score >= 90) {
+    flags.push(`undated_capped_from_${score}`);
+    return UNDATED_CAP;
+  }
+  return score;
+}
+
 export function bandFor(score) {
   for (const b of BANDS) if (score >= b.min) return b.band;
   return "reject";
@@ -273,6 +290,8 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
     if (score > cap) { flags.push(`sec_unread_capped_from_${score}`); score = cap; }
     if (!flags.includes("no_figures")) flags.push("no_figures");
   }
+  // Phase 0 gates (e): an undated item is never a Lead (capUndated, above bandFor).
+  if (!isDuplicate) score = capUndated(score, item.published, flags);
 
   const band = isDuplicate ? "duplicate" : bandFor(score);
   if (rawBand && rawBand !== band) flags.push(`band_corrected_from_${rawBand}`);

@@ -690,7 +690,7 @@ PREF_HELP = ("Mute: muted sources are not graded. New items from the source are 
              "newsroom cannot be muted.")
 LEFT_KINDS = {"coverage": "Coverage", "aux": "Auxiliary"}
 SKIP_TEXT = {"archive_seed": "Archive seed", "muted_source": "Muted source", "rival_no_key_account": "Rival, no key account",
-             "grading_failed": "Grading failed"}
+             "grading_failed": "Grading failed", "undated_burst": "Undated burst"}
 VERDICT_TEXT = {"too_high": "graded too high", "too_low": "graded too low"}
 
 
@@ -1025,12 +1025,17 @@ def widget_slug(value) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "_", str(value))[:80]
 
 
+# Phase 0 gates: archive pages are left out of the main list; undated_burst (a
+# later burst of undated pages) is counted with archive_seed.
+ARCHIVE_REASONS = ("archive_seed", "undated_burst")
+
+
 def left_out_counts(counts) -> tuple[list[tuple[str, int]], int]:
-    """([(skip_reason, n)] most first, without archive_seed; archive_seed's count)."""
+    """([(skip_reason, n)] most first, without archive_seed and undated_burst; their count together)."""
     counts = counts if isinstance(counts, dict) else {}
-    rows = sorted(((str(k), _num(v)) for k, v in counts.items() if k != "archive_seed" and _num(v) > 0),
+    rows = sorted(((str(k), _num(v)) for k, v in counts.items() if k not in ARCHIVE_REASONS and _num(v) > 0),
                   key=lambda r: (-r[1], r[0]))
-    return rows, _num(counts.get("archive_seed"))
+    return rows, sum(_num(counts.get(k)) for k in ARCHIVE_REASONS)
 
 
 def skip_text(reason) -> str:
