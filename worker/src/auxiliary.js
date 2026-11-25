@@ -18,6 +18,7 @@ import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, seedMap, isSeedRow, gateContext, parkGroupStatement,
   coverageOwner } from "./ingest.js";
 import { isOfficialRecord } from "./records.js";
+import { WARGOV_HOLD_MINUTES } from "./wargov.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
   HELD_SQL, capUndated } from "./lib.js";
@@ -243,15 +244,17 @@ export async function auxClaim(env, body) {
   // One statement, so concurrent claims can never share items or reopen a
   // graded one: the outer WHERE re-checks state. The state test is
   // parenthesised: a held row (Phase 0 gates, budget.js) is never claimed,
-  // pending or with an expired lease.
+  // pending or with an expired lease. A war.gov digest without its text waits
+  // WARGOV_HOLD_MINUTES after first sighting for the bulletin (excerpt.js enrichAuxWargov).
   const old = nowIso(Date.now() - AUX_OLD_HOURS * 3_600_000);
   await env.DB.prepare(
     `UPDATE aux_items SET state='claimed', claim_id=?2, claimed_until=?3, attempts=attempts+1
       WHERE id IN (SELECT i.id FROM aux_items i WHERE (i.state='pending' OR (i.state='claimed' AND i.claimed_until < ?4))
                       AND NOT ${HELD_SQL("i.")}
+                      AND NOT (i.source_key = 'wargov_contracts' AND i.excerpt_status IS NULL AND i.nm_first_seen > ?6)
                     ORDER BY ${CLAIM_ORDER} LIMIT ?5)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?4))`,
-  ).bind(old, claimId, until, now, limit).run();
+  ).bind(old, claimId, until, now, limit, nowIso(Date.now() - WARGOV_HOLD_MINUTES * 60_000)).run();
   const items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ?2 ORDER BY ${CLAIM_ORDER}`)
     .bind(old, claimId).all()).results || [];
   // Timeliness is measured from first sighting, never from grading time.

@@ -29,7 +29,7 @@ const CONCURRENCY = 6;            // Workers allows 6 simultaneous outbound conn
 const SEC_CONCURRENCY = 2;        // in flight at once; secPace() sets the request rate
 const MAX_BYTES = 600_000;
 const MAX_TEXT_INPUT = 300_000;   // cap what the HTML-to-text pass ever sees
-const EXCERPT_CHARS = 2500;
+export const EXCERPT_CHARS = 2500;
 const LEAD_CHARS = 700;           // the opening kept verbatim before figure sentences
 const SEC_BODY_CHARS = 800;       // the filing's own item text when an exhibit follows
 const MIN_BODY_CHARS = 200;
@@ -714,7 +714,7 @@ async function fetchSecExcerpt(env, item) {
   return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
 }
 
-const PAGE_UA = "zenith-core/1.0 (research feed)";
+export const PAGE_UA = "zenith-core/1.0 (research feed)";
 
 // ctx.pdfBudget ({ left }) is shared by every fetch of one enrich call.
 // Counterparty items (they carry a role) never have their PDFs read.
