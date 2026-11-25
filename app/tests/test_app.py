@@ -88,6 +88,76 @@ OPS = {
 }
 
 
+# ---- Zenith show (phase 0) fixtures: synthetic names, numbers and dates only ----------
+BRIEF = {
+    "kind": "brief", "generated_at": "2026-11-24T13:05:00Z", "from": "2026-11-23T13:00:00Z", "to": "2026-11-24T13:05:00Z",
+    "today": "2026-11-24", "window": "since",
+    "leads_digests": [{"ticker": "RCAT", "items": [
+        {"grade_id": 1, "item_id": 11, "ticker": "RCAT", "item_ticker": "RCAT", "score": 92, "band": "lead",
+         "why": "Program of record <b>award</b>", "graded_at": iso(1), "title": "Red Cat wins <script>alert(1)</script> order",
+         "url": "https://example.com/rcat", "headline": None, "headline_tag": None, "role": None},
+        {"grade_id": 2, "item_id": 12, "ticker": "RCAT", "item_ticker": "UMAC", "score": 75, "band": "digest",
+         "why": "Joint supply deal", "graded_at": iso(2), "title": "UMAC and Red Cat deal", "url": "javascript:alert(1)",
+         "headline": "Red Cat signs a supply deal", "headline_tag": "Contract", "role": None}]}],
+    "counterparty": [{"grade_id": 3, "item_id": 13, "ticker": "KTOS", "item_ticker": "KTOS", "role": "customer", "score": 78,
+                      "band": "digest", "why": "Testco orders 50 units", "graded_at": iso(3), "title": "Testco orders units",
+                      "url": "https://example.com/cp", "headline": None, "headline_tag": None}],
+    "waiting": {"count": 0, "counterparty_count": 0, "oldest": None, "items": []},
+    "catalysts": [{"ticker": "AXON", "kind": "council_agenda", "start": "2026-11-27", "end": "2026-11-27", "precision": "day",
+                   "confirmed": True, "text": "[AXON] Testville City Council 26-3: Axon contract — In Committee, agenda 2026-11-27",
+                   "url": "https://testville.example.gov/26-3", "item_id": 40}],
+    "health": {"grader_last_run": iso(0.5), "graded_in_window": 12,
+               "news_monitor": {"failing": [{"key": "rcat_press", "ticker": "RCAT", "fail_count": 4, "last_ok": "2026-11-20T10:00:00Z",
+                                             "last_error": "HTTP 403"}]}},
+    "to_label": [{"item_id": 11, "ticker": "RCAT", "title": "Red Cat order", "url": "https://example.com/rcat", "score": 92,
+                  "why": "top grade"}],
+    "text": ["**Zenith brief** (Discord text, never shown in the app)"],
+}
+CALENDAR = {"calendar_version": "c-test", "from": "2026-11-24", "days": 30, "ticker": None, "entries": [
+    {"ticker": "MSTR", "kind": "catalyst", "start": "2026-11-30", "end": "2026-11-30", "precision": "day", "text": "Test index change takes effect"},
+    {"ticker": "RCAT", "kind": "graded_notice", "start": "2026-11-30", "end": "2026-11-30", "precision": "day", "confirmed": True,
+     "text": "Red Cat to report <b>results</b>", "time": "4:30 pm ET", "url": "javascript:alert(1)", "item_id": 7},
+    {"ticker": "AXON", "kind": "council_agenda", "start": "2026-12-08", "end": "2026-12-08", "precision": "day", "confirmed": True,
+     "text": "[AXON] Testville City Council 26-3: Axon contract — In Committee, agenda 2026-12-08", "url": "https://testville.example.gov/26-3"},
+    {"ticker": "MSTR", "kind": "catalyst", "start": "2026-11-30", "end": "2026-11-30", "precision": "day", "recurring": True,
+     "text": "Weekly holdings 8-K"},
+    {"ticker": "MSTR", "kind": "catalyst", "start": "2026-12-07", "end": "2026-12-07", "precision": "day", "recurring": True,
+     "text": "Weekly holdings 8-K"},
+    {"ticker": "KTOS", "kind": "status_event", "start": "2026-11-25", "end": "2026-11-25", "precision": "day", "text": "A status event"},
+    {"ticker": "UMAC", "kind": "open_item_expiry", "start": "2026-12-01", "end": "2026-12-01", "precision": "day", "text": "Review the open item"},
+    {"ticker": "UMAC", "kind": "catalyst", "start": "2026-12-02", "end": "2026-12-02", "precision": "day", "context": True, "text": "A context line"},
+    {"ticker": "RCAT", "kind": "catalyst", "start": "2026-10-01", "end": "2026-12-31", "precision": "quarter", "approx": True,
+     "text": "Expected program award"},
+    {"ticker": "KTOS", "kind": "catalyst", "start": "2026-01-01", "end": "2027-02-04", "precision": "range", "text": "A long range"},
+    {"ticker": "UMAC", "kind": "catalyst", "start": "2026-12-18", "end": "2026-12-18", "precision": "day", "deadline": True,
+     "text": "Filing deadline"},
+]}
+NEWS_OPS = {
+    "alerts": {"open": [
+        {"source_key": "lane:strategic_noncompany", "rule": "lateness", "opened_at": "2026-11-24T01:40:00Z", "last_seen_at": iso(0.2),
+         "acknowledged": False, "snoozed": False, "detail": {"lane": "strategic_noncompany", "p95_ratio": 2.1, "cadence_min": [60, 1440]}},
+        {"source_key": "ticker:RCAT", "rule": "crosscheck_missing_release", "opened_at": "2026-11-23T17:07:00Z", "last_seen_at": iso(0.2),
+         "acknowledged": False, "snoozed": False, "detail": {"ticker": "RCAT", "form": "8-K", "items": ["7.01", "9.01"],
+                                                             "url": "https://www.sec.gov/test-filing"}},
+        {"source_key": "testco_site", "rule": "outage", "opened_at": "2026-11-23T00:11:00Z", "last_seen_at": iso(0.2),
+         "acknowledged": True, "snoozed": False, "detail": {"fail_count": 4, "last_error": "sitemap 429 <b>"}}],
+        "open_count": 2, "bing_open": 1, "resolved_24h": 3},
+    "managed": {"configured": 120, "failing": [
+        {"key": "m_testbot", "name": "Test Robotics <i>", "fail_count": 178, "last_ok": "2026-10-01T00:00:00Z",
+         "last_attempt": iso(0.1), "last_error": "HTTP 404"},
+        {"key": "m_testlog", "name": "Test Logistics", "fail_count": 84, "last_ok": None, "last_attempt": iso(0.1), "last_error": "HTTP 403"}],
+        "failing_count": 2, "last_attempt": iso(0.1), "config_updated_at": "2026-10-05T00:00:00Z"},
+    "as_of": iso(0),
+}
+RECALL = {
+    "total": 7, "by_status": {"on_time": 3, "late": 2, "partial": 1, "missed": 1},
+    "by_kind": [{"kind": "filing", "on_time": 2, "late": 1, "partial": 1, "missed": 0, "total": 4},
+                {"kind": "news", "on_time": 1, "late": 1, "partial": 0, "missed": 1, "total": 3}],
+    "by_ticker": [{"ticker": "RCAT", "on_time": 2, "late": 1, "partial": 1, "missed": 0, "total": 4}],
+    "sources": ["test-seed"], "checked_at": "2026-01-15", "loaded_at": "2026-01-15T10:00:00Z",
+}
+
+
 def summary(n, agree, too_high, too_low):
     scored = agree + too_high + too_low
     return {"n": n, "agree": agree, "too_high": too_high, "too_low": too_low, "unscored": n - scored, "scored": scored,
@@ -215,7 +285,10 @@ class FakeApi:
         self.health = copy.deepcopy(HEALTH)
         self.routes = {"/v1/ops": copy.deepcopy(OPS), "/v1/calibration": copy.deepcopy(CALIBRATION),
                        "/v1/source-yield": copy.deepcopy(SOURCE_YIELD), "/v1/left-out": left_out,
-                       "/v1/expansion/candidates": self.expansion}
+                       "/v1/expansion/candidates": self.expansion,
+                       # Zenith show (phase 0)
+                       "/v1/brief": copy.deepcopy(BRIEF), "/v1/calendar": copy.deepcopy(CALENDAR),
+                       "/v1/news-ops": copy.deepcopy(NEWS_OPS), "/v1/recall": copy.deepcopy(RECALL)}
         self.candidates = copy.deepcopy(EXPANSION)
         self.gets, self.posts = [], []
         self.post_status = 200
@@ -1945,3 +2018,269 @@ class BillLinesCard(AppBase):
         self.run_app()
         self.assertIn("could not be read (http_503)", self.cards()[2])
         self.assertFalse([e for e in self.at.expander if e.label.startswith("Autonomy lines")])
+
+
+# ---- Zenith show (phase 0): Brief page, ops strip, recall --------------------------------
+class ShowFunctions(unittest.TestCase):
+    def test_brief_since_floors_to_the_hour(self):
+        now = datetime(2026, 11, 24, 13, 47, 12, tzinfo=timezone.utc)
+        self.assertEqual(zf.brief_since(24, now), "2026-11-23T13:00:00Z")
+        self.assertEqual(zf.brief_since(12, now), "2026-11-24T01:00:00Z")
+        self.assertEqual(zf.brief_since(72, now), "2026-11-21T13:00:00Z")
+        self.assertEqual(zf.BRIEF_WINDOWS, {"12 h": 12, "24 h": 24, "3 days": 72})
+        self.assertTrue(zf.brief_since(24).endswith(":00:00Z"))
+
+    def test_brief_item_html_escapes_and_links_only_http(self):
+        rows = BRIEF["leads_digests"][0]["items"]
+        out = zf.brief_item_html(rows[0])
+        self.assertIn("&lt;script&gt;", out)
+        self.assertNotIn("<script>", out)
+        self.assertIn("&lt;b&gt;award&lt;/b&gt;", out)
+        self.assertIn('href="https://example.com/rcat"', out)
+        self.assertIn("92 · lead", out)
+        self.assertIn('class="z-card lead"', out)
+        cross = zf.brief_item_html(rows[1])
+        self.assertNotIn("href=", cross)
+        self.assertNotIn("javascript", cross)
+        self.assertIn('<span class="z-badge src">from UMAC</span>', cross)
+        long = zf.brief_item_html({**rows[0], "why": "w" * 400})
+        self.assertIn("w" * 239 + "…", long)
+        self.assertNotIn("w" * 240, long)
+
+    def test_brief_item_uses_headline_then_title(self):
+        rows = BRIEF["leads_digests"][0]["items"]
+        self.assertIn("Red Cat signs a supply deal - Contract", zf.brief_item_html(rows[1]))
+        self.assertIn("Red Cat wins &lt;script&gt;", zf.brief_item_html(rows[0]))
+        cp = zf.brief_counterparty_html(BRIEF["counterparty"][0])
+        self.assertIn("<b>KTOS</b> ← customer · 78 · ", cp)
+        self.assertIn("Testco orders units", cp)
+        label = zf.brief_label_html(BRIEF["to_label"][0])
+        self.assertIn("item 11 · <b>RCAT 92</b>", label)
+        self.assertIn("<i>top grade</i>", label)
+        waiting = zf.brief_waiting_html({"ticker": "SYM", "title": "Testco <x>", "url": "ftp://x", "nm_first_seen": iso(3)})
+        self.assertIn("<b>SYM</b> · 3h · Testco &lt;x&gt;", waiting)
+        self.assertNotIn("href", waiting)
+
+    def test_brief_health_lines(self):
+        lines = zf.brief_health_lines(BRIEF["health"])
+        self.assertTrue(lines[0].startswith("Grader last ran "))
+        self.assertEqual(lines[1], "12 grades in this window.")
+        self.assertEqual(lines[2], "news-monitor: 1 covered source failing.")
+        self.assertEqual(lines[3], "  rcat_press (RCAT): 4 fails, last ok Nov 20 10:00 UTC")
+        self.assertEqual(zf.brief_health_lines({"news_monitor": {"failing": []}})[-1], "news-monitor: all covered sources OK.")
+        self.assertEqual(zf.brief_health_lines({"news_monitor": {"error": "no such table"}})[-1], "news-monitor: unavailable (no such table).")
+        self.assertEqual(zf.brief_health_lines(None)[0], "Grader has never run.")
+
+    def test_calendar_groups_dated_weekly_windows(self):
+        g = zf.calendar_groups(CALENDAR["entries"], "2026-11-24")
+        self.assertEqual([d for d, _ in g["dated"]], ["2026-11-30", "2026-12-08", "2026-12-18"])
+        # Within a day: confirmed first, then ticker.
+        self.assertEqual([e["ticker"] for e in g["dated"][0][1]], ["RCAT", "MSTR"])
+        self.assertEqual([(e["ticker"], e["weekday"]) for e in g["weekly"]], [("MSTR", "Monday")])
+        self.assertEqual([e["text"] for e in g["windows"]], ["Expected program award"])
+        self.assertEqual(g["long"], 1)
+        self.assertEqual(zf.calendar_day_label("2026-11-30"), "Mon Nov 30")
+
+    def test_calendar_hides_status_events_context_and_review_dates_by_default(self):
+        g = zf.calendar_groups(CALENDAR["entries"], "2026-11-24")
+        texts = [e["text"] for _, es in g["dated"] for e in es]
+        for hidden in ("A status event", "A context line", "Review the open item"):
+            self.assertNotIn(hidden, texts)
+        # A day before today is not listed.
+        self.assertEqual(zf.calendar_groups(CALENDAR["entries"], "2026-12-01")["dated"][0][0], "2026-12-08")
+
+    def test_calendar_review_toggle_and_ticker_filter(self):
+        g = zf.calendar_groups(CALENDAR["entries"], "2026-11-24", review=True)
+        self.assertIn("2026-12-01", [d for d, _ in g["dated"]])
+        g = zf.calendar_groups(CALENDAR["entries"], "2026-11-24", ticker="RCAT")
+        self.assertEqual([e["ticker"] for _, es in g["dated"] for e in es], ["RCAT"])
+        self.assertEqual(g["weekly"], [])
+        self.assertEqual(len(g["windows"]), 1)
+        self.assertEqual(g["long"], 0)
+
+    def test_calendar_entry_tags(self):
+        e = CALENDAR["entries"]
+        notice = zf.calendar_entry_html(e[1])
+        self.assertIn("confirmed notice", notice)
+        self.assertIn("(4:30 pm ET)", notice)
+        self.assertIn("&lt;b&gt;results&lt;/b&gt;", notice)
+        self.assertNotIn("href", notice)  # a javascript: url gets no link
+        agenda = zf.calendar_entry_html(e[2])
+        self.assertIn("council agenda (as first seen)", agenda)
+        self.assertNotIn("confirmed notice", agenda)
+        self.assertIn('href="https://testville.example.gov/26-3"', agenda)
+        window = zf.calendar_entry_html(e[8])
+        self.assertIn("estimate", window)
+        self.assertIn("from Oct 1 to Dec 31 (quarter)", window)
+        self.assertIn("deadline", zf.calendar_entry_html(e[10]))
+        weekly = zf.calendar_groups(e, "2026-11-24")["weekly"][0]
+        self.assertIn("weekly on Monday", zf.calendar_entry_html(weekly))
+        self.assertIn("Fri Nov 27", zf.calendar_entry_html(BRIEF["catalysts"][0], show_day=True))
+
+    def test_ops_strip_counts_names_and_more(self):
+        out = zf.ops_strip_html(NEWS_OPS)
+        self.assertIn('News-monitor: <span class="z-bad">2 open alerts</span> (strategic noncompany lane late, '
+                      'RCAT release missing for a filing)', out)
+        self.assertIn('Managed lane: <span class="z-bad">2 of 120 failing</span>', out)
+        many = copy.deepcopy(NEWS_OPS)
+        many["alerts"]["open"] = [{"source_key": f"src_{i}", "rule": "outage"} for i in range(5)]
+        many["alerts"]["open_count"] = 5
+        out = zf.ops_strip_html(many)
+        self.assertIn("5 open alerts</span> (src_0 outage, src_1 outage, src_2 outage, +2 more)", out)
+
+    def test_ops_strip_red_only_when_something_is_open(self):
+        quiet = {"alerts": {"open": [], "open_count": 0, "bing_open": 2, "resolved_24h": 0},
+                 "managed": {"configured": 120, "failing": [], "failing_count": 0}}
+        out = zf.ops_strip_html(quiet)
+        self.assertNotIn("z-bad", out)
+        self.assertIn("News-monitor: no open alerts · Managed lane: 0 of 120 failing", out)
+
+    def test_ops_strip_unavailable_blocks(self):
+        self.assertIn("News-monitor: unavailable · Managed lane: <span", zf.ops_strip_html({**NEWS_OPS, "alerts": None}))
+        self.assertIn("Managed lane: unavailable", zf.ops_strip_html({**NEWS_OPS, "managed": None}))
+        lines = zf.ops_details({"alerts": None, "managed": None})
+        self.assertTrue(lines[0].startswith("News-monitor alerts: unavailable"))
+        self.assertTrue(lines[1].startswith("Managed lane: unavailable"))
+
+    def test_ops_strip_has_no_grader_gaps(self):
+        text = zf.ops_strip_html(NEWS_OPS) + "\n".join(zf.ops_details(NEWS_OPS))
+        self.assertNotIn("Grader", text)
+        self.assertNotIn("Gaps", text)
+
+    def test_ops_details_lines(self):
+        lines = zf.ops_details(NEWS_OPS)
+        self.assertEqual(lines[0], "strategic noncompany lane: late, open since Nov 24 01:40 UTC")
+        self.assertEqual(lines[1], "RCAT: release missing for a filing, open since Nov 23 17:07 UTC, items 7.01, 9.01, "
+                                   "https://www.sec.gov/test-filing")
+        self.assertEqual(lines[2], "testco_site: outage, open since Nov 23 00:11 UTC, 4 fails, sitemap 429 <b> (acknowledged)")
+        self.assertEqual(lines[3], "Bing feed flaps are left out (1 open now): they clear by themselves in about 18 minutes.")
+        self.assertEqual(lines[4], "Managed lane: 2 of 120 sources failing (3 or more fails in a row).")
+        self.assertEqual(lines[5], "  Test Robotics <i> (m_testbot): 178 fails, last ok Oct 1, HTTP 404")
+        self.assertEqual(lines[6], "  Test Logistics (m_testlog): 84 fails, never ok, HTTP 403")
+
+    def test_alert_name_and_rule_text(self):
+        self.assertEqual(zf.alert_name({"source_key": "lane:strategic_noncompany"}), "strategic noncompany lane")
+        self.assertEqual(zf.alert_name({"source_key": "ticker:RCAT"}), "RCAT")
+        self.assertEqual(zf.alert_name({"source_key": "scale:bing"}), "capacity")
+        self.assertEqual(zf.alert_name({"source_key": "testco"}), "testco")
+        self.assertEqual(zf.rule_text("silence"), "silent")
+        self.assertEqual(zf.rule_text("layout_drift"), "page layout changed")
+        self.assertEqual(zf.rule_text("feed_html"), "page, not a feed")
+        self.assertEqual(zf.rule_text("some_new_rule"), "some new rule")
+        self.assertEqual(zf.detail_text(["7.01", "9.01"]), "7.01, 9.01")
+        self.assertEqual(zf.detail_text(50), "50")
+
+    def test_recall_rows_and_summary(self):
+        self.assertEqual(zf.recall_rows(RECALL), [["All", 3, 2, 1, 1, 7], ["Filings", 2, 1, 1, 0, 4], ["Releases and news", 1, 1, 0, 1, 3]])
+        self.assertEqual(zf.recall_summary(RECALL), "7 events · 3 on time (43%) · 2 late · 1 partial · 1 missed · checked Jan 15")
+        self.assertEqual(zf.recall_summary({"total": 0, "by_status": {}}), "0 events · 0 on time · 0 late · 0 partial · 0 missed")
+
+
+class ShowPages(AppBase):
+    def open_page(self, view: str):
+        self.run_app()
+        self.at.switch_page(f"views/{view}.py")
+        return self.run_app()
+
+    def captions(self) -> list[str]:
+        return [c.value for c in self.at.caption]
+
+    def texts(self) -> list[str]:
+        return [t.value for t in self.at.text]
+
+    def test_brief_is_the_second_page(self):
+        text = (APP / "streamlit_app.py").read_text(encoding="utf-8")
+        pages = [text.index(f'"views/{p}.py"') for p in ("coverage", "brief", "auxiliary", "tuning")]
+        self.assertEqual(pages, sorted(pages))
+        self.assertIn('url_path="brief"', text)
+
+    def test_brief_page_sections_and_since_param(self):
+        self.open_page("brief")
+        calls = self.api.feed_calls("/v1/brief")
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0]["since"].endswith(":00:00Z"), calls)
+        md = self.page_text()
+        for heading in ("#### Brief", "##### Leads and Digests (2)", "##### Counterparty items that passed (1)",
+                        "##### Waiting for a grade (0 covered, 0 counterparty)", "##### Next 7 days (1)", "##### Health",
+                        "##### Label these (1)", "##### Calendar · next 30 days"):
+            self.assertIn(heading, md)
+        self.assertLess(md.index("##### Leads and Digests"), md.index("##### Calendar"))
+        self.assertIn("&lt;script&gt;", md)
+        self.assertNotIn("<script>", md.split("</style>")[-1])
+        self.assertNotIn("Discord text", md)
+        self.assertIn("Queue is clear.", self.captions())
+        self.assertIn("council agenda (as first seen)", md)
+        self.assertIn("rcat_press (RCAT): 4 fails, last ok Nov 20 10:00 UTC", [t.strip() for t in self.texts()])
+        self.assertTrue(any(c.startswith("Since Nov 23 13:00 UTC · built Nov 24 13:05 UTC") for c in self.captions()))
+        self.assertNotIn("pandas", sys.modules)
+
+    def test_brief_window_switch_changes_since(self):
+        self.open_page("brief")
+        first = self.api.feed_calls("/v1/brief")[-1]["since"]
+        self.at.segmented_control(key="brief-window").set_value("3 days").run()
+        self.assertFalse(self.at.exception, [e.value for e in self.at.exception])
+        second = self.api.feed_calls("/v1/brief")[-1]["since"]
+        gap = datetime.fromisoformat(first.replace("Z", "+00:00")) - datetime.fromisoformat(second.replace("Z", "+00:00"))
+        self.assertEqual(gap, timedelta(hours=48))
+
+    def test_brief_page_not_available_yet(self):
+        self.api.missing = {"/v1/brief"}
+        self.open_page("brief")
+        self.assertIn("Brief not available yet.", self.captions())
+        md = self.page_text()
+        self.assertIn("##### Calendar · next 30 days", md)
+        self.assertIn("Mon Nov 30", md)
+
+    def test_brief_page_calendar_section_and_company_filter(self):
+        self.open_page("brief")
+        self.assertEqual(self.api.feed_calls("/v1/calendar"), [{"days": 30}])
+        md = self.page_text()
+        for text in ("Mon Nov 30", "Tue Dec 8", "Test index change takes effect", "Weekly holdings 8-K", "confirmed notice"):
+            self.assertIn(text, md)
+        self.assertNotIn("Review the open item", md)
+        self.assertNotIn("A status event", md)
+        self.assertEqual([e.label for e in self.at.expander if e.label.startswith("Windows")], ["Windows open in the next 30 days (1)"])
+        self.assertEqual(self.at.selectbox(key="cal-ticker").options, ["All", "RCAT", "UMAC", "KTOS"])
+        self.at.selectbox(key="cal-ticker").set_value("RCAT").run()
+        md = self.page_text().split("##### Calendar")[-1]
+        self.assertIn("Red Cat to report", md)
+        self.assertNotIn("Test index change", md)
+        self.assertNotIn("Weekly holdings", md)
+        self.at.toggle(key="cal-review").set_value(True)
+        self.at.selectbox(key="cal-ticker").set_value("UMAC").run()
+        self.assertIn("Review the open item", self.page_text())
+
+    def test_coverage_shows_the_ops_strip_after_the_grader_strip(self):
+        self.run_app()
+        md = self.page_text()
+        self.assertIn("News-monitor: <span", md)
+        self.assertLess(md.index("Grader: last run"), md.index("News-monitor:"))
+        self.assertEqual(len(self.api.feed_calls("/v1/news-ops")), 1)
+        self.assertEqual(len(self.api.feed_calls("/v1/ops")), 1)
+        self.assertIn("Bing feed flaps are left out (1 open now): they clear by themselves in about 18 minutes.", self.texts())
+
+    def test_ops_strip_not_available_yet(self):
+        self.api.missing.add("/v1/news-ops")
+        self.run_app()
+        self.assertIn("News-monitor ops not available yet", self.captions())
+        self.assertEqual(len(self.cards()), 3)
+
+    def test_tuning_shows_recall_last(self):
+        self.open_page("tuning")
+        md = self.page_text()
+        self.assertIn("##### Recall", md)
+        self.assertLess(md.index("##### Grader"), md.index("##### Recall"))
+        self.assertIn("7 events · 3 on time (43%) · 2 late · 1 partial · 1 missed · checked Jan 15", md)
+        self.assertIn("<td>Releases and news</td>", md)
+        self.assertNotIn("Test event", md)
+        self.assertEqual(self.api.feed_calls("/v1/recall"), [{}])
+
+    def test_recall_not_loaded_yet(self):
+        self.api.routes["/v1/recall"] = {"total": 0, "by_status": {}, "by_kind": [], "by_ticker": [], "sources": []}
+        self.open_page("tuning")
+        self.assertIn("Recall scoreboard not loaded yet.", [i.value for i in self.at.info])
+
+    def test_recall_not_available_yet(self):
+        self.api.missing.add("/v1/recall")
+        self.open_page("tuning")
+        self.assertIn("Recall not available yet.", self.captions())

@@ -678,6 +678,477 @@ def grader_details(ops) -> list[str]:
     return lines
 
 
+# ---- Zenith show (phase 0) ---------------------------------------------------------
+# The Coverage page's news-monitor ops strip (/v1/news-ops), the Brief page (/v1/brief,
+# /v1/calendar) and the Tuning page's Recall section (/v1/recall). Pure functions are
+# unit tested; every server string is escaped and links must be http(s).
+
+# ---- News-monitor ops strip (/v1/news-ops; unit tested) ----
+OPS_NAMES = 3
+ALERT_TEXT = {"outage": "outage", "break": "break", "crosscheck_missing_release": "release missing for a filing",
+              "crosscheck_missing_filing": "filing missing for a release", "lateness": "late",
+              "never_yielded": "never yielded", "owner_empty": "empty newsroom", "all_excluded": "all items excluded",
+              "redirect_host": "redirected off-host", "feed_html": "page, not a feed", "no_state": "never polled",
+              "scale_trigger": "capacity trigger", "silence": "silent", "layout_drift": "page layout changed"}
+BING_NOTE = "Bing feed flaps are left out ({n} open now): they clear by themselves in about 18 minutes."
+
+
+def rule_text(rule) -> str:
+    rule = str(rule or "")
+    return ALERT_TEXT.get(rule, rule.replace("_", " "))
+
+
+def alert_name(a: dict) -> str:
+    """ "lane:strategic_noncompany" -> "strategic noncompany lane"; "ticker:ONDS" -> "ONDS";
+    "scale:..." -> "capacity"; otherwise the source key."""
+    key = str((a or {}).get("source_key") or "?")
+    if key.startswith("lane:"):
+        return f"{key[5:].replace('_', ' ')} lane"
+    if key.startswith("ticker:"):
+        return key[7:]
+    if key.startswith("scale:"):
+        return "capacity"
+    return key
+
+
+def detail_text(v) -> str:
+    """A detail value as text: a list joined with ", " (items 7.01, 9.01). The caller escapes it."""
+    return ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
+
+
+def _alerts_of(news_ops) -> dict | None:
+    a = news_ops.get("alerts") if isinstance(news_ops, dict) else None
+    return a if isinstance(a, dict) else None
+
+
+def _managed_of(news_ops) -> dict | None:
+    m = news_ops.get("managed") if isinstance(news_ops, dict) else None
+    return m if isinstance(m, dict) else None
+
+
+def _open_alerts(alerts: dict) -> list[dict]:
+    return [a for a in alerts.get("open") or [] if isinstance(a, dict)]
+
+
+def ops_strip_html(news_ops) -> str:
+    """One line: "News-monitor: 3 open alerts (strategic noncompany lane late, ONDS release missing
+    for a filing, pi outage) · Managed lane: 7 of 120 failing". A part is red only when its count is
+    above 0; a missing block reads "unavailable". Every value is escaped."""
+    alerts = _alerts_of(news_ops)
+    if alerts is None:
+        nm = "unavailable"
+    else:
+        counted = [a for a in _open_alerts(alerts) if not a.get("acknowledged") and not a.get("snoozed")]
+        n = _num(alerts.get("open_count"))
+        if n:
+            names = [f"{alert_name(a)} {rule_text(a.get('rule'))}" for a in counted[:OPS_NAMES]]
+            more = f", +{n - OPS_NAMES} more" if n > OPS_NAMES else ""
+            listed = f" ({html.escape(', '.join(names))}{more})" if names else ""
+            nm = f'<span class="z-bad">{n} open alert{"" if n == 1 else "s"}</span>{listed}'
+        else:
+            nm = "no open alerts"
+    managed = _managed_of(news_ops)
+    if managed is None:
+        lane = "unavailable"
+    else:
+        failing = _num(managed.get("failing_count"))
+        text = f"{failing} of {_num(managed.get('configured'))} failing"
+        lane = f'<span class="z-bad">{text}</span>' if failing else text
+    return f'<div class="z-health">News-monitor: {nm} · Managed lane: {lane}</div>'
+
+
+def ops_details(news_ops) -> list[str]:
+    """Plain-text lines for the strip's Alerts popover (st.text, never Markdown): each open alert,
+    the Bing note, then each failing managed source. No grader gaps (the grader strip has them)."""
+    lines = []
+    alerts = _alerts_of(news_ops)
+    if alerts is None:
+        lines.append("News-monitor alerts: unavailable (ops_alerts could not be read).")
+    else:
+        rows = _open_alerts(alerts)
+        if not rows:
+            lines.append("News-monitor: no open alerts.")
+        for a in rows:
+            d = a.get("detail") if isinstance(a.get("detail"), dict) else {}
+            line = f"{alert_name(a)}: {rule_text(a.get('rule'))}, open since {utc_text(a.get('opened_at'))}"
+            if "fail_count" in d:
+                line += f", {_num(d['fail_count'])} fails"
+            if d.get("last_error"):
+                line += f", {one_line(d['last_error'])}"
+            if d.get("items") not in (None, "", []):
+                line += f", items {detail_text(d['items'])}"
+            if d.get("url") and safe_url(d.get("url")):
+                line += f", {d['url']}"
+            if a.get("acknowledged"):
+                line += " (acknowledged)"
+            if a.get("snoozed"):
+                line += " (snoozed)"
+            lines.append(line)
+        lines.append(BING_NOTE.format(n=_num(alerts.get("bing_open"))))
+    managed = _managed_of(news_ops)
+    if managed is None:
+        lines.append("Managed lane: unavailable (its tables could not be read).")
+    else:
+        failing = [f for f in managed.get("failing") or [] if isinstance(f, dict)]
+        lines.append(f"Managed lane: {len(failing)} of {_num(managed.get('configured'))} sources failing (3 or more fails in a row).")
+        for f in failing:
+            last = f"last ok {day_text(f['last_ok'])}" if f.get("last_ok") else "never ok"
+            err = f", {one_line(f['last_error'])}" if f.get("last_error") else ""
+            lines.append(f"  {one_line(f.get('name')) or f.get('key')} ({f.get('key')}): {_num(f.get('fail_count'))} fails, {last}{err}")
+    return lines
+
+
+def ops_strip() -> None:
+    """Coverage page: news-monitor's open alerts and the managed lane, details in a popover.
+    It never calls /v1/ops (the grader strip above it does)."""
+    news_ops, why = optional_json("/v1/news-ops")
+    if news_ops is None:
+        st.caption(f"News-monitor ops {why}")
+        return
+    row = st.container(horizontal=True, gap="small", vertical_alignment="center", key="zops")
+    row.markdown(ops_strip_html(news_ops), unsafe_allow_html=True, width="content")
+    with row.popover("Alerts", width="content"):
+        for line in ops_details(news_ops):
+            st.text(line)
+
+
+# ---- Brief and calendar (/v1/brief, /v1/calendar; unit tested) ----
+BRIEF_WINDOWS = {"12 h": 12, "24 h": 24, "3 days": 72}
+BRIEF_DEFAULT = "24 h"
+BRIEF_CAP = {"graded": 40, "counterparty": 15, "waiting": 20}
+CAL_DAYS = 30
+CAL_WINDOW_MAX_DAYS = 92
+CAL_HIDDEN_KINDS = ("status_event",)
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def _clip(text, n: int) -> str:
+    s = one_line(text)
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def _link(url, text: str) -> str:
+    """Escaped text, linked only when the url is http(s)."""
+    t = html.escape(text)
+    if safe_url(url):
+        return f'<a href="{html.escape(str(url), quote=True)}" target="_blank" rel="noopener noreferrer">{t}</a>'
+    return t
+
+
+def brief_since(hours, now: datetime | None = None) -> str:
+    """now - hours, floored to the UTC hour: a stable ?since= for get_json's 30 s cache."""
+    t = (now or datetime.now(timezone.utc)).astimezone(timezone.utc) - timedelta(hours=float(hours))
+    return t.strftime("%Y-%m-%dT%H:00:00Z")
+
+
+def brief_item_html(r: dict) -> str:
+    """A Lead or Digest row as a compact card: ticker, score · band, age; the link text
+    (headline - tag, else the title); the why line clipped to 240."""
+    ticker, item_ticker = str(r.get("ticker") or ""), str(r.get("item_ticker") or "")
+    src = (f'<span class="z-badge src">from {html.escape(item_ticker)}</span>'
+           if item_ticker and item_ticker != ticker else "")
+    when = r.get("graded_at")
+    age = f'<span class="z-age">{html.escape(ago(when))}</span>' if when else ""
+    why = f'<div class="z-why">{html.escape(_clip(r.get("why"), 240))}</div>' if r.get("why") else ""
+    lead = " lead" if r.get("band") == "lead" else ""
+    return (f'<div class="z-card{lead}"><div class="z-head"><b class="z-name">{html.escape(ticker)}</b>{band_badge(r)}{src}{age}</div>'
+            f'<div class="z-title">{_link(r.get("url"), link_text(r))}</div>{why}</div>')
+
+
+def brief_counterparty_html(r: dict) -> str:
+    """TICKER ← role · score · link text — why (180)."""
+    why = f" — {html.escape(_clip(r.get('why'), 180))}" if r.get("why") else ""
+    return (f'<div class="z-cal"><b>{html.escape(str(r.get("ticker") or ""))}</b> ← {html.escape(str(r.get("role") or ""))}'
+            f' · {html.escape(str(r.get("score") if r.get("score") is not None else "?"))} · {_link(r.get("url"), link_text(r))}{why}</div>')
+
+
+def brief_waiting_html(r: dict) -> str:
+    """TICKER · age since first seen · title link."""
+    seen = r.get("nm_first_seen")
+    age = f" · {html.escape(ago(seen))}" if seen else ""
+    return f'<div class="z-cal"><b>{html.escape(str(r.get("ticker") or ""))}</b>{age} · {_link(r.get("url"), link_text(r))}</div>'
+
+
+def brief_health_lines(h) -> list[str]:
+    """Plain text: the grader's last run, grades in this window, and news-monitor's covered sources."""
+    h = h if isinstance(h, dict) else {}
+    last = h.get("grader_last_run")
+    lines = [f"Grader last ran {utc_text(last)} ({run_ago(last)})." if last else "Grader has never run.",
+             f"{_num(h.get('graded_in_window'))} grades in this window."]
+    nm = h.get("news_monitor")
+    if not isinstance(nm, dict) or nm.get("error"):
+        err = one_line(nm.get("error")) if isinstance(nm, dict) else "no data"
+        lines.append(f"news-monitor: unavailable ({err}).")
+        return lines
+    failing = [f for f in nm.get("failing") or [] if isinstance(f, dict)]
+    if not failing:
+        lines.append("news-monitor: all covered sources OK.")
+        return lines
+    lines.append(f"news-monitor: {len(failing)} covered source{'' if len(failing) == 1 else 's'} failing.")
+    for f in failing:
+        ok = f"last ok {utc_text(f['last_ok'])}" if f.get("last_ok") else "never ok"
+        lines.append(f"  {f.get('key')} ({f.get('ticker')}): {_num(f.get('fail_count'))} fails, {ok}")
+    return lines
+
+
+def brief_label_html(r: dict) -> str:
+    """item N · TICKER score · title link · why it was picked."""
+    return (f'<div class="z-cal">item {html.escape(str(r.get("item_id")))} · <b>{html.escape(str(r.get("ticker") or ""))}'
+            f' {html.escape(str(r.get("score") if r.get("score") is not None else ""))}</b> · {_link(r.get("url"), link_text(r))}'
+            f' · <i>{html.escape(one_line(r.get("why")))}</i></div>')
+
+
+def _day(value) -> datetime | None:
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _span_days(e: dict) -> int:
+    start, end = _day(e.get("start")), _day(e.get("end") or e.get("start"))
+    return (end - start).days + 1 if start and end else 1
+
+
+def calendar_groups(entries, today: str, ticker: str | None = None, review: bool = False) -> dict:
+    """{"dated": [(day, [entries])], "weekly": [entries + weekday], "windows": [entries], "long": n}.
+    Status events and context lines are always left out, review dates unless review."""
+    keep = []
+    for e in entries or []:
+        if not isinstance(e, dict) or e.get("kind") in CAL_HIDDEN_KINDS or e.get("context"):
+            continue
+        if e.get("kind") == "open_item_expiry" and not review:
+            continue
+        if ticker and e.get("ticker") != ticker:
+            continue
+        keep.append(e)
+    dated: dict[str, list] = {}
+    weekly, seen, windows, long = [], set(), [], 0
+    for e in keep:
+        start = str(e.get("start") or "")
+        if e.get("recurring"):
+            key = (e.get("ticker"), e.get("text"))
+            if key in seen:
+                continue
+            seen.add(key)
+            d = _day(start)
+            weekly.append({**e, "weekday": WEEKDAYS[d.weekday()] if d else ""})
+        elif e.get("precision") == "day":
+            if start >= str(today):
+                dated.setdefault(start, []).append(e)
+        elif _span_days(e) <= CAL_WINDOW_MAX_DAYS:
+            windows.append(e)
+        else:
+            long += 1
+    days = [(d, sorted(es, key=lambda e: (not e.get("confirmed"), str(e.get("ticker") or "")))) for d, es in sorted(dated.items())]
+    windows.sort(key=lambda e: (str(e.get("start") or ""), str(e.get("ticker") or "")))
+    return {"dated": days, "weekly": weekly, "windows": windows, "long": long}
+
+
+def calendar_day_label(day) -> str:
+    """ "Mon Nov 30"."""
+    d = _day(day)
+    return f"{d:%a} {d:%b} {d.day}" if d else str(day or "")
+
+
+def calendar_entry_html(e: dict, show_day: bool = False) -> str:
+    """TICKER · text, then its tags (confirmed notice, council agenda (as first seen), estimate,
+    deadline, weekly, the time) and a source link. A window says from when to when. Escaped."""
+    tags = []
+    kind = e.get("kind")
+    if kind == "graded_notice":
+        tags.append("confirmed notice")
+    elif kind == "council_agenda":
+        tags.append("council agenda (as first seen)")
+    if e.get("approx"):
+        tags.append("estimate")
+    if e.get("deadline"):
+        tags.append("deadline")
+    if e.get("recurring"):
+        tags.append(f"weekly{' on ' + e['weekday'] if e.get('weekday') else ''}")
+    if e.get("time"):
+        tags.append(f"({one_line(e['time'])})")
+    when = ""
+    if e.get("precision") != "day" and not e.get("recurring"):
+        when = (f'<span class="z-age">from {html.escape(day_text(e.get("start")))} to {html.escape(day_text(e.get("end") or e.get("start")))}'
+                f' ({html.escape(str(e.get("precision") or ""))})</span> ')
+    elif show_day:
+        when = f'<span class="z-age">{html.escape(calendar_day_label(e.get("start")))}</span> '
+    tag = "".join(f' <span class="z-age">· {html.escape(t)}</span>' for t in tags)
+    src = (f' · <a href="{html.escape(str(e["url"]), quote=True)}" target="_blank" rel="noopener noreferrer">source</a>'
+           if safe_url(e.get("url")) else "")
+    return (f'<div class="z-cal">{when}<b>{html.escape(str(e.get("ticker") or ""))}</b> · '
+            f'{html.escape(one_line(e.get("text")))}{tag}{src}</div>')
+
+
+def _html_rows(rows) -> None:
+    for r in rows:
+        st.markdown(r, unsafe_allow_html=True)
+
+
+def brief_sections(data: dict) -> None:
+    """The brief's sections, in its own order, from GET /v1/brief."""
+    groups = [g for g in data.get("leads_digests") or [] if isinstance(g, dict)]
+    n_graded = sum(len(g.get("items") or []) for g in groups)
+    st.markdown(f"##### Leads and Digests ({n_graded})")
+    if not n_graded:
+        st.caption("None graded in this window.")
+    shown = 0
+    for g in groups:
+        if shown >= BRIEF_CAP["graded"]:
+            break
+        st.markdown(f"**{html.escape(str(g.get('ticker') or ''))}**")
+        for r in g.get("items") or []:
+            if shown >= BRIEF_CAP["graded"]:
+                break
+            if isinstance(r, dict):
+                st.markdown(brief_item_html(r), unsafe_allow_html=True)
+                shown += 1
+    if n_graded > BRIEF_CAP["graded"]:
+        st.caption(f"… and {n_graded - BRIEF_CAP['graded']} more on the Coverage page.")
+
+    cp = [r for r in data.get("counterparty") or [] if isinstance(r, dict)]
+    st.markdown(f"##### Counterparty items that passed ({len(cp)})")
+    if not cp:
+        st.caption("None.")
+    _html_rows(brief_counterparty_html(r) for r in cp[: BRIEF_CAP["counterparty"]])
+    if len(cp) > BRIEF_CAP["counterparty"]:
+        st.caption(f"… and {len(cp) - BRIEF_CAP['counterparty']} more.")
+
+    w = data.get("waiting") if isinstance(data.get("waiting"), dict) else {}
+    items = [r for r in w.get("items") or [] if isinstance(r, dict)]
+    count, cp_count = _num(w.get("count")), _num(w.get("counterparty_count"))
+    oldest = f" · oldest {run_ago(w['oldest'])}" if w.get("oldest") else ""
+    st.markdown(f"##### Waiting for a grade ({count} covered, {cp_count} counterparty){html.escape(oldest)}")
+    if not items:
+        st.caption("Queue is clear.")
+    _html_rows(brief_waiting_html(r) for r in items[: BRIEF_CAP["waiting"]])
+    if count > BRIEF_CAP["waiting"]:
+        st.caption(f"… and {count - BRIEF_CAP['waiting']} more.")
+
+    cats = [e for e in data.get("catalysts") or [] if isinstance(e, dict)]
+    st.markdown(f"##### Next 7 days ({len(cats)})")
+    if not cats:
+        st.caption("Nothing dated.")
+    _html_rows(calendar_entry_html(e, show_day=True) for e in cats)
+
+    st.markdown("##### Health")
+    for line in brief_health_lines(data.get("health")):
+        st.text(line)
+
+    picks = [r for r in data.get("to_label") or [] if isinstance(r, dict)]
+    st.markdown(f"##### Label these ({len(picks)})")
+    if not picks:
+        st.caption("Nothing unlabelled this week.")
+    else:
+        st.caption("Label it on the Coverage page.")
+    _html_rows(brief_label_html(r) for r in picks)
+
+
+def brief_calendar() -> None:
+    """The next 30 days from GET /v1/calendar: dated entries by day, weekly lines, then windows."""
+    st.markdown(f"##### Calendar · next {CAL_DAYS} days")
+    data, why = optional_json("/v1/calendar", (("days", CAL_DAYS),))
+    if data is None:
+        st.caption(f"Calendar {why}.")
+        return
+    entries = [e for e in data.get("entries") or [] if isinstance(e, dict)]
+    today = str(data.get("from") or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    stats, _ = optional_json("/v1/stats")
+    tickers = [str(t) for t in (stats or {}).get("tickers") or [] if t] or sorted({str(e["ticker"]) for e in entries if e.get("ticker")})
+    ctl = st.container(horizontal=True, gap="small", vertical_alignment="center", key="zcal")
+    pick = ctl.selectbox("Company", ["All"] + tickers, key="cal-ticker", persist_state="session", width=180)
+    review = ctl.toggle("Show review dates", key="cal-review")
+    groups = calendar_groups(entries, today, None if pick in (None, "All") else pick, review)
+    if not groups["dated"]:
+        st.caption(f"Nothing dated in the next {CAL_DAYS} days.")
+    for day, es in groups["dated"]:
+        st.markdown(f'<div class="z-cal-day">{html.escape(calendar_day_label(day))}</div>', unsafe_allow_html=True)
+        _html_rows(calendar_entry_html(e) for e in es)
+    if groups["weekly"]:
+        st.markdown('<div class="z-cal-day">Weekly</div>', unsafe_allow_html=True)
+        _html_rows(calendar_entry_html(e) for e in groups["weekly"])
+    with st.expander(f"Windows open in the next {CAL_DAYS} days ({len(groups['windows'])})", expanded=False):
+        if not groups["windows"]:
+            st.caption("No windows.")
+        _html_rows(calendar_entry_html(e) for e in groups["windows"])
+        if groups["long"]:
+            st.caption(f"{groups['long']} longer spans (over {CAL_WINDOW_MAX_DAYS} days) are not listed.")
+    st.caption("Dates come from the company sheets, graded date notices and council agendas.")
+
+
+def render_brief() -> None:
+    """The Brief page: the brief as data (no model, nothing sent anywhere), then the calendar."""
+    with st.sidebar:
+        st.markdown('<div class="z-brand">ZEN<span>I</span>TH</div><div class="z-sub">brief and calendar</div>',
+                    unsafe_allow_html=True)
+        st.write("")
+        if st.button("Refresh", key="brief-refresh"):
+            get_json.clear()
+            st.rerun()
+    _show_flash()
+    st.markdown("#### Brief")
+    window = st.segmented_control("Window", list(BRIEF_WINDOWS), default=BRIEF_DEFAULT, required=True, key="brief-window",
+                                  persist_state="session", label_visibility="collapsed") or BRIEF_DEFAULT
+    data, why = optional_json("/v1/brief", (("since", brief_since(BRIEF_WINDOWS.get(window, 24))),))
+    if data is None:
+        st.caption(f"Brief {why}.")
+    else:
+        st.caption(f"Since {utc_text(data.get('from'))} · built {utc_text(data.get('generated_at'))} from the database, no model")
+        brief_sections(data)
+    brief_calendar()
+
+
+# ---- Recall scoreboard (/v1/recall; unit tested) ----
+RECALL_STATUS = [("on_time", "On time"), ("late", "Late"), ("partial", "Partial"), ("missed", "Missed")]
+RECALL_KIND_TEXT = {"filing": "Filings", "regulator": "Regulators", "local_government": "Local government",
+                    "program_award": "Program awards", "register": "Registers", "trade_press": "Trade press",
+                    "news": "Releases and news"}
+RECALL_CAPTION = ("Material events from the audit miss test. On time: captured and graded promptly. Late: captured 3 or "
+                  "more days after the event. Partial: part of it captured. Missed: not captured.")
+
+
+def recall_rows(data) -> list[list]:
+    """An All row (from by_status and total), then one row per kind: [kind, on time, late, partial, missed, total]."""
+    data = data if isinstance(data, dict) else {}
+    st_ = data.get("by_status") if isinstance(data.get("by_status"), dict) else {}
+    rows = [["All"] + [_num(st_.get(k)) for k, _ in RECALL_STATUS] + [_num(data.get("total"))]]
+    for k in data.get("by_kind") or []:
+        if isinstance(k, dict):
+            kind = str(k.get("kind") or "")
+            rows.append([RECALL_KIND_TEXT.get(kind, kind.replace("_", " "))] + [_num(k.get(s)) for s, _ in RECALL_STATUS]
+                        + [_num(k.get("total"))])
+    return rows
+
+
+def recall_summary(data) -> str:
+    """ "7 events · 3 on time (43%) · 2 late · 1 partial · 1 missed · checked Nov 24" (synthetic numbers)."""
+    data = data if isinstance(data, dict) else {}
+    st_ = data.get("by_status") if isinstance(data.get("by_status"), dict) else {}
+    total = _num(data.get("total"))
+    on_time = _num(st_.get("on_time"))
+    pct = f" ({round(100 * on_time / total)}%)" if total else ""
+    parts = [f"{total} event{'' if total == 1 else 's'}", f"{on_time} on time{pct}", f"{_num(st_.get('late'))} late",
+             f"{_num(st_.get('partial'))} partial", f"{_num(st_.get('missed'))} missed"]
+    if data.get("checked_at"):
+        parts.append(f"checked {day_text(data['checked_at'])}")
+    return " · ".join(parts)
+
+
+def tuning_recall() -> None:
+    """Tuning page: the recall scoreboard. Counts only; no event text reaches the app."""
+    data, why = optional_json("/v1/recall")
+    if data is None:
+        st.caption(f"Recall {why}.")
+        return
+    if not _num(data.get("total")):
+        st.info("Recall scoreboard not loaded yet.")
+        return
+    st.markdown(f'<div class="z-health">{html.escape(recall_summary(data))}</div>', unsafe_allow_html=True)
+    _table(["Kind", "On time", "Late", "Partial", "Missed", "Total"], recall_rows(data))
+    st.caption(RECALL_CAPTION)
+
+
 # ---- Tuning page (unit tested) ------------------------------------------------------
 YIELD_DAYS = 30
 LEFT_DAYS = 14
@@ -1436,6 +1907,8 @@ def render(page: FeedPage) -> None:
     if page.kind == "cov":
         health_strip()
         grader_strip()
+        # Zenith show (phase 0): news-monitor alerts and the managed lane.
+        ops_strip()
 
     with st.sidebar:
         options, counts = filter_options(page, stats)
@@ -1739,3 +2212,6 @@ def render_tuning() -> None:
     tuning_left_out()
     st.markdown("##### Grader")
     tuning_grader()
+    # Zenith show (phase 0): the recall scoreboard, last.
+    st.markdown("##### Recall")
+    tuning_recall()

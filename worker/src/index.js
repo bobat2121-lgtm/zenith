@@ -32,6 +32,9 @@ import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackf
 import { secParties } from "./sec-parties.js";
 import { billLinesPass, BILL_HOLD_SQL, HOLD_MINUTES, blockText, parseStored } from "./bill-lines.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
+// Zenith show (phase 0)
+import { newsOps } from "./source-signals.js";
+import { recallRoute, recallLoad } from "./recall.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -74,6 +77,11 @@ const ALLOW = {
   "GET /v1/expansion/candidates": ["app", "admin"],
   "POST /v1/expansion/decide": ["app", "admin"],
   "POST /v1/expansion/compiled": ["app", "admin"],
+  // Zenith show (phase 0): the Coverage page's ops strip (news-monitor-db, SELECT only).
+  "GET /v1/news-ops": ["app", "admin"],
+  // Zenith show (phase 0): the recall scoreboard (recall.js); the event list is loaded by admin only.
+  "GET /v1/recall": ["app", "admin"],
+  "POST /v1/admin/recall": ["admin"],
 };
 
 async function readJson(request) {
@@ -525,7 +533,7 @@ export default {
       case "POST /v1/feedback": return feedback(env, await readJson(request));
       case "GET /v1/stats": return stats(env);
       case "GET /v1/brief": return briefRoute(env, COVERED, url);
-      case "GET /v1/calendar": return calendarRoute(env, url);
+      case "GET /v1/calendar": return calendarRoute(env, COVERED, url);
       case "GET /v1/calibration": return calibrationRoute(env);
       case "POST /v1/admin/ingest": return json(await ingest(env));
       case "POST /v1/admin/enrich": return json(await enrich(env));
@@ -551,6 +559,10 @@ export default {
       case "GET /v1/expansion/candidates": return expansionCandidates(env, url);
       case "POST /v1/expansion/decide": return expansionDecide(env, await readJson(request), role);
       case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role);
+      // Zenith show (phase 0)
+      case "GET /v1/news-ops": return newsOps(env);
+      case "GET /v1/recall": return recallRoute(env, url, role);
+      case "POST /v1/admin/recall": return recallLoad(env, await readJson(request));
     }
     return json({ error: "not found" }, 404);
   },
