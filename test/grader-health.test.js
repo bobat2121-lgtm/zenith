@@ -421,6 +421,26 @@ test("ops: released_by_source_today lists per-source releases with the per_sourc
   assert.deepEqual((await opsBody(newEnv())).backlog.released_by_source_today, []);
 });
 
+test("ops: a full budget day (20 released, at most 4 per source) adds up to released_today", async () => {
+  const env = newEnv();
+  addRuns(env, endingAt(HALF, NOW - 5 * MIN));
+  const rel = (add, key, n) => { for (let i = 0; i < n; i++) add(env, { source_key: key, admit: "seed_fresh", released_at: ago(HOUR) }); };
+  rel(addItem, "synthetic_a", 4);
+  rel(addItem, "synthetic_b", 3);
+  rel(addAux, "synthetic_b", 1);
+  rel(addItem, "synthetic_c", 4);
+  rel(addAux, "synthetic_d", 4);
+  rel(addItem, "synthetic_e", 2);
+  rel(addAux, "synthetic_e", 2);
+  const b = (await opsBody(env)).backlog;
+  assert.equal(b.released_today, 20);
+  const list = b.released_by_source_today;
+  assert.equal(list.length, 5);
+  assert.equal(Math.max(...list.map((x) => x.n)), 4);
+  assert.ok(list.every((x) => x.n <= x.per_source));
+  assert.equal(list.reduce((s, x) => s + x.n, 0), b.released_today, "with 5 sources the per-source counts add up to released_today");
+});
+
 test("ops: the oldest waiting coverage row is dated by its release, else its ingest", async () => {
   const env = newEnv();
   addRuns(env, endingAt(HALF, NOW - 5 * MIN));
