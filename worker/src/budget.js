@@ -1,5 +1,6 @@
 // Phase 0 gates: the daily grading budget. Rows the arrival gate admits past
-// the fast path (lib.js arrivalGate: record_late, seed_window, seed_fresh) and
+// the fast path (lib.js arrivalGate: record_late, seed_window, seed_fresh, and
+// from phase 1 vote, record_fresh and source_cap) and
 // rows an admin rescue turns back into work (admit 'rescue') are stored
 // pending but held (admit set, released_at NULL): the claims never return
 // them. releaseHeld, on every 5-minute cron, releases at most TOTAL a UTC day
@@ -10,15 +11,19 @@
 //
 // Overrides only through Worker secrets (they survive `wrangler deploy`;
 // wrangler.toml has no [vars]): GATE_BUDGET_TOTAL, GATE_BUDGET_PER_SOURCE,
-// GATE_QUEUE_GUARD.
+// GATE_QUEUE_GUARD, and GATE_FAST_CAP (phase 1, the per-source fast-path cap).
 import COVERED from "./covered.json";
 import { HELD_SQL, universeSql, nowIso, chunk, sightingAgeDays, ARCHIVE_SEED_MIN, LATE_WINDOW_DAYS, RECORD_LOOKBACK_DAYS } from "./lib.js";
-import { coverageOwner, OLD_OR_UNDATED_SQL } from "./ingest.js";
+import { coverageOwner, OLD_OR_UNDATED_SQL, isOwnLane } from "./ingest.js";
 import { isOfficialRecord } from "./records.js";
 
 export const GATE_BUDGET_TOTAL = 20;
 export const GATE_BUDGET_PER_SOURCE = 5;
 export const GATE_QUEUE_GUARD = 60;
+// Phase 1: the most fast-path rows (admit NULL, not skipped) one source that is
+// neither own-lane nor SEC may add per first-seen UTC day, across both
+// pipelines; later fresh rows are held 'source_cap'. Secret GATE_FAST_CAP; 0 is off.
+export const GATE_FAST_CAP = 10;
 const IN_UNIVERSE = universeSql(COVERED.tickers);
 
 // A whole non-negative number from a secret, else the default.
@@ -32,6 +37,7 @@ export function budgetSettings(env = {}) {
     total: setting(env.GATE_BUDGET_TOTAL, GATE_BUDGET_TOTAL),
     per_source: setting(env.GATE_BUDGET_PER_SOURCE, GATE_BUDGET_PER_SOURCE),
     guard: setting(env.GATE_QUEUE_GUARD, GATE_QUEUE_GUARD),
+    fast_cap: setting(env.GATE_FAST_CAP, GATE_FAST_CAP),
   };
 }
 
@@ -55,6 +61,52 @@ export async function releasedToday(db, now = Date.now()) {
     `SELECT source_key, COUNT(*) AS n FROM (${RELEASED_SINCE}) GROUP BY source_key`,
   ).bind(day).all()).results || [];
   return new Map(rows.map((r) => [r.source_key, r.n]));
+}
+
+// --- Phase 1: the per-source fast-path cap ------------------------------------
+// Fast-path rows (admit NULL, not skipped) per source first seen on one UTC
+// day (YYYY-MM-DD), across items and aux_items. Binds only the two day bounds
+// (both arms share ?1 and ?2), never a key list, so the D1 limit of 100 bound
+// parameters cannot be reached. Own-lane (covered.json sources) and edgar_*
+// keys are uncapped and dropped here, in code. A non-edgar_ row on a sec.gov
+// URL counts toward its source (conservative: it is never held itself).
+const nextDay = (day) => new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+export async function fastPathCounts(db, day, ownLane = isOwnLane) {
+  const d = String(day).slice(0, 10);
+  const arm = (table) => `SELECT source_key, COUNT(*) AS n FROM ${table}
+      WHERE nm_first_seen >= ?1 AND nm_first_seen < ?2 AND admit IS NULL AND state != 'skipped' GROUP BY source_key`;
+  const rows = (await db.prepare(
+    `SELECT source_key, SUM(n) AS n FROM (${arm("items")} UNION ALL ${arm("aux_items")}) GROUP BY source_key`,
+  ).bind(d, nextDay(d)).all()).results || [];
+  const out = new Map();
+  for (const r of rows) {
+    const k = String(r.source_key ?? "");
+    if (ownLane(k) || k.startsWith("edgar_")) continue;
+    out.set(k, r.n);
+  }
+  return out;
+}
+
+// One ingest batch's cap state: the day's stored fast-path counts (one
+// fastPathCounts call per distinct first-seen day among the batch's rows that
+// can be capped) plus an in-memory count of this batch's own fast-path rows.
+// capped(r): the row's source is at the cap for the row's first-seen day.
+// add(r): count a row that ended plain pending (no skip reason, admit NULL).
+// A cap of 0 (or less) is off and sends no query.
+const cappable = (r, ownLane) => !ownLane(String(r.source_key ?? "")) && !String(r.source_key ?? "").startsWith("edgar_");
+const fastKey = (r) => `${r.source_key}\u0000${String(r.first_seen ?? "").slice(0, 10)}`;
+export async function fastPathCounter(db, rows, cap, ownLane = isOwnLane) {
+  const counts = new Map();
+  if (cap > 0) {
+    const days = [...new Set(rows.filter((r) => cappable(r, ownLane) && r.first_seen).map((r) => String(r.first_seen).slice(0, 10)))];
+    for (const day of days) {
+      for (const [k, n] of await fastPathCounts(db, day, ownLane)) counts.set(`${k}\u0000${day}`, n);
+    }
+  }
+  return {
+    capped: (r) => cap > 0 && cappable(r, ownLane) && (counts.get(fastKey(r)) || 0) >= cap,
+    add: (r) => { if (cap > 0 && cappable(r, ownLane)) counts.set(fastKey(r), (counts.get(fastKey(r)) || 0) + 1); },
+  };
 }
 
 // Held rows per pipeline (pending, admitted, not yet released).
@@ -81,14 +133,17 @@ export async function releaseHeld(env, { now = Date.now() } = {}) {
     let room = cfg.guard - queued;
     if (room <= 0) continue;
     // At most PER_SOURCE candidates per source in SQL, so one big seed never
-    // hides every other source. A new source's fresh first-poll rows
-    // (seed_fresh) come first: they are time-sensitive; then oldest first.
+    // hides every other source. Fresh rows come first, they are
+    // time-sensitive: a new source's first-poll rows (seed_fresh), Legistar
+    // decision rows (vote), an FPDS source's undated rows after its first poll
+    // (record_fresh) and fast-path rows over the source cap (source_cap), all
+    // equal; then oldest first. rescue and record_late rows come after.
     const cands = (await db.prepare(
       `SELECT id, source_key, admit, nm_first_seen, rn FROM (
          SELECT id, source_key, admit, nm_first_seen,
-                ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY (admit = 'seed_fresh') DESC, nm_first_seen, id) AS rn
+                ROW_NUMBER() OVER (PARTITION BY source_key ORDER BY (admit IN ('seed_fresh','vote','record_fresh','source_cap')) DESC, nm_first_seen, id) AS rn
            FROM ${t.table} WHERE state = 'pending' AND ${HELD_SQL()} ${t.scope})
-        WHERE rn <= ?1 ORDER BY (admit = 'seed_fresh') DESC, nm_first_seen, id LIMIT 500`,
+        WHERE rn <= ?1 ORDER BY (admit IN ('seed_fresh','vote','record_fresh','source_cap')) DESC, nm_first_seen, id LIMIT 500`,
     ).bind(cfg.per_source).all()).results || [];
     const pick = [];
     for (const c of cands) {

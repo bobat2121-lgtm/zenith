@@ -142,10 +142,11 @@ test("excess stays pending (never skipped) and is released on the next UTC day",
   assert.equal(utcDayStart(Date.parse("2026-11-25T00:05:00Z")), "2026-11-25T00:00:00.000Z");
 });
 
-test("env GATE_BUDGET_TOTAL / GATE_BUDGET_PER_SOURCE / GATE_QUEUE_GUARD override the defaults", async () => {
-  assert.deepEqual(budgetSettings({}), { total: 20, per_source: 5, guard: 60 });
-  assert.deepEqual(budgetSettings({ GATE_BUDGET_TOTAL: "3", GATE_BUDGET_PER_SOURCE: "2", GATE_QUEUE_GUARD: "10" }), { total: 3, per_source: 2, guard: 10 });
-  assert.deepEqual(budgetSettings({ GATE_BUDGET_TOTAL: "0", GATE_BUDGET_PER_SOURCE: "x", GATE_QUEUE_GUARD: "-1" }), { total: 0, per_source: 5, guard: 60 });
+test("env GATE_BUDGET_TOTAL / GATE_BUDGET_PER_SOURCE / GATE_QUEUE_GUARD / GATE_FAST_CAP override the defaults", async () => {
+  assert.deepEqual(budgetSettings({}), { total: 20, per_source: 5, guard: 60, fast_cap: 10 });
+  assert.deepEqual(budgetSettings({ GATE_BUDGET_TOTAL: "3", GATE_BUDGET_PER_SOURCE: "2", GATE_QUEUE_GUARD: "10", GATE_FAST_CAP: "5" }), { total: 3, per_source: 2, guard: 10, fast_cap: 5 });
+  assert.deepEqual(budgetSettings({ GATE_BUDGET_TOTAL: "0", GATE_BUDGET_PER_SOURCE: "x", GATE_QUEUE_GUARD: "-1", GATE_FAST_CAP: "y" }), { total: 0, per_source: 5, guard: 60, fast_cap: 10 });
+  assert.equal(budgetSettings({ GATE_FAST_CAP: "0" }).fast_cap, 0, "0 turns the cap off");
   const env = newEnv({ GATE_BUDGET_TOTAL: "3", GATE_BUDGET_PER_SOURCE: "2" });
   for (let k = 0; k < 4; k++) addAux(env, held({ source_key: "s1" }));
   for (let k = 0; k < 4; k++) addAux(env, held({ source_key: "s2" }));
@@ -155,7 +156,7 @@ test("env GATE_BUDGET_TOTAL / GATE_BUDGET_PER_SOURCE / GATE_QUEUE_GUARD override
   addAux(g, held());
   assert.equal((await releaseHeld(g)).released.aux, 0);
   const ops = (await request(worker, newEnv({ GATE_BUDGET_TOTAL: "7" }), "GET", "/v1/ops", { role: "app" })).body;
-  assert.deepEqual(ops.grader.backlog.budget, { total: 7, per_source: 5, guard: 60 });
+  assert.deepEqual(ops.grader.backlog.budget, { total: 7, per_source: 5, guard: 60, fast_cap: 10 });
 });
 
 test("held rows are not waiting: ops backlog, stats by_state, oldestPending and heartbeat queue_stale exclude them; ops reports coverage_held, aux_held, released_today, double_graded_24h", async () => {
@@ -185,7 +186,7 @@ test("held rows are not waiting: ops backlog, stats by_state, oldestPending and 
   assert.equal(b.released_today, 1);
   assert.equal(b.double_graded_24h, 1);
   assert.equal(b.oldest_aux_pending_at, env.DB.rows("SELECT nm_first_seen AS t FROM aux_items WHERE released_at IS NOT NULL")[0].t, "the held 9-hour row is not the oldest pending");
-  assert.deepEqual(b.budget, { total: 20, per_source: 5, guard: 60 });
+  assert.deepEqual(b.budget, { total: 20, per_source: 5, guard: 60, fast_cap: 10 });
 
   const s = (await request(worker, env, "GET", "/v1/stats", { role: "app" })).body;
   const st = Object.fromEntries(s.by_state.map((x) => [x.state, x.n]));
@@ -277,6 +278,55 @@ test("A1 releaseHeld releases seed_fresh rows before older held rows, still at m
   assert.equal(r.released.coverage, 2);
   assert.equal(r.released.aux, 18);
   assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'record_late' AND released_at IS NOT NULL"), 13);
+});
+
+// Phase 1 (Part B PR-G3): rows held over the per-source fast-path cap are fresh, like seeds.
+test("releaseHeld releases source_cap and seed_fresh rows before record_late, still at most 5 per source and 20 a day", async () => {
+  const env = newEnv();
+  // 25 older record_late rows across five sources, then 7 newer source_cap rows of one source and 3 seed_fresh rows of another.
+  for (const s of ["r1", "r2", "r3", "r4", "r5"]) for (let k = 0; k < 5; k++) addAux(env, held({ source_key: s, nm_first_seen: iso((40 + k) * HOUR) }));
+  for (let k = 0; k < 7; k++) addAux(env, held({ source_key: "capped_src", admit: "source_cap", nm_first_seen: iso(HOUR + k * MIN) }));
+  for (let k = 0; k < 3; k++) addAux(env, held({ source_key: "seed_src", admit: "seed_fresh", nm_first_seen: iso(2 * HOUR) }));
+  const r = await releaseHeld(env, { now: Date.now() });
+  assert.equal(r.released.aux, 20);
+  const rel = (sql) => env.DB.rows(sql)[0].n;
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'source_cap' AND released_at IS NOT NULL"), 5, "capped first, at most 5 for its source");
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'seed_fresh' AND released_at IS NOT NULL"), 3);
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'record_late' AND released_at IS NOT NULL"), 12);
+  // The capped source's oldest rows went first.
+  const capRel = env.DB.rows("SELECT nm_first_seen FROM aux_items WHERE admit = 'source_cap' AND released_at IS NULL ORDER BY nm_first_seen").map((x) => x.nm_first_seen);
+  assert.equal(capRel.length, 2);
+  assert.ok(env.DB.rows("SELECT MAX(nm_first_seen) AS t FROM aux_items WHERE admit = 'source_cap' AND released_at IS NOT NULL")[0].t < capRel[0]);
+});
+
+// Phase 1 (Part C §6.3): an FPDS row held record_fresh goes ahead of older held rows.
+test("releaseHeld releases a record_fresh row ahead of older held rows and inside 20/5", async () => {
+  const env = newEnv();
+  const srcs = ["o1", "o2", "o3", "o4", "o5", "o6"];
+  for (let k = 0; k < 25; k++) {
+    addItem(env, held({ source_key: srcs[k % 6], admit: k % 2 ? "rescue" : "record_late", nm_first_seen: iso((100 + k) * HOUR) }));
+  }
+  const fresh = addItem(env, held({ source_key: "fpds_testco", admit: "record_fresh", nm_first_seen: iso(HOUR) }));
+  const r = await releaseHeld(env, { now: Date.now() });
+  assert.ok(env.DB.rows("SELECT released_at FROM items WHERE id = ?", fresh)[0].released_at, "released in the first run");
+  assert.equal(r.released.coverage, 20);
+  const per = env.DB.rows("SELECT source_key, COUNT(*) AS n FROM items WHERE released_at IS NOT NULL GROUP BY source_key");
+  assert.equal(per.reduce((a, x) => a + x.n, 0), 20);
+  for (const x of per) assert.ok(x.n <= 5, `${x.source_key} released ${x.n}`);
+});
+
+// Phase 1 (Part D §5.2): council outcomes are time-sensitive, as seeds are.
+test("vote rows are released before older held rows, still at most 5 per source and 20 a day", async () => {
+  const env = newEnv();
+  for (const s of ["r1", "r2", "r3", "r4", "r5"]) for (let k = 0; k < 5; k++) addAux(env, held({ source_key: s, nm_first_seen: iso((40 + k) * HOUR) }));
+  for (let k = 0; k < 7; k++) addAux(env, held({ source_key: "legistar_testville", admit: "vote", url: `https://testville.legistar.com/L.aspx?ID=${k}#vote-${k}`, nm_first_seen: iso(HOUR) }));
+  addAux(env, held({ source_key: "r6", admit: "rescue", nm_first_seen: iso(60 * HOUR) }));
+  const r = await releaseHeld(env, { now: Date.now() });
+  assert.equal(r.released.aux, 20);
+  const rel = (sql) => env.DB.rows(sql)[0].n;
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'vote' AND released_at IS NOT NULL"), 5, "votes first, capped at 5 for their source");
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit IN ('record_late','rescue') AND released_at IS NOT NULL"), 15);
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'rescue' AND released_at IS NOT NULL"), 1, "the oldest held row (a rescue) still goes before newer record_late rows");
 });
 
 test("muting a source parks its held rows with admit cleared, so a Left out grade after unmuting is claimable at once, not held again", async () => {

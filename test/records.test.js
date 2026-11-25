@@ -11,7 +11,7 @@ import { hookJsonImports } from "./helpers/worker-env.js";
 import { isRecordSource as ruleIsRecord } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
-const { isRecordSource, isOfficialRecord } = await import("../worker/src/records.js");
+const { isRecordSource, isOfficialRecord, isFpdsSource } = await import("../worker/src/records.js");
 const { default: AUX } = await import("../worker/src/aux-sources.json");
 const { default: COVERED } = await import("../worker/src/covered.json");
 
@@ -67,4 +67,21 @@ test("records: any sec.gov item is a record whatever its key; edgar_* is a recor
   assert.equal(isOfficialRecord({ source_key: "testco_news", url: "https://www.sec.gov/Archives/edgar/data/1/x.htm" }), true);
   assert.equal(isOfficialRecord({ source_key: "testco_news", url: "https://testco.example.com/news/1" }), false);
   assert.equal(isOfficialRecord({ source_key: "nga", url: "https://www.nga.mil/news/1" }), true);
+});
+
+// Phase 1 (Part C, PR-GATE commit 2): the record_fresh hold applies to FPDS sources only.
+test("isFpdsSource is true only for aux entity fpds", () => {
+  const synthetic = { sources: { fpds_x: { entity: "fpds", record: true }, legistar_x: { entity: "legistar_x", record: true } } };
+  assert.equal(isFpdsSource("fpds_x", synthetic), true);
+  assert.equal(isFpdsSource("legistar_x", synthetic), false, "a record entry of another entity");
+  assert.equal(isFpdsSource("fpds_missing", synthetic), false, "a key not in the map");
+  assert.equal(isFpdsSource("toString", synthetic), false, "no prototype keys");
+  // The real generated map (default parameter).
+  assert.equal(isFpdsSource("fpds_pl"), true);
+  for (const k of ["legistar_oakland_axon", "fedreg_av_trucking"]) {
+    assert.equal(AUX.sources[k]?.record, true, `${k} is a record`);
+    assert.equal(isFpdsSource(k), false, `${k} is not FPDS`);
+  }
+  assert.equal(isFpdsSource("fpds_not_a_known_key"), false);
+  assert.equal(isFpdsSource(undefined), false);
 });

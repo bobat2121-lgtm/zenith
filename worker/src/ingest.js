@@ -17,7 +17,8 @@ import { MATCH } from "./rubric.generated.js";
 import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, arrivalGate, isSecItem } from "./lib.js";
 import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
 import { mutedSources } from "./tuning.js";
-import { isOfficialRecord } from "./records.js";
+import { isOfficialRecord, isFpdsSource } from "./records.js";
+import { budgetSettings, fastPathCounter } from "./budget.js";
 
 // Windowing, shared with the auxiliary ingest (auxiliary.js).
 export const BATCH = 400;
@@ -140,10 +141,17 @@ export const isOwnLane = (key) => Object.prototype.hasOwnProperty.call(COVERED.s
 const needsSeed = (r) => isArchiveCandidate(r) || !(isOwnLane(r.source_key) || isSecItem(r));
 export const seedMap = (news, rows) => sourceFirstSeen(news, rows.filter(needsSeed).map((r) => r.source_key));
 
-// The gate's context for one row (lib.js arrivalGate).
-export function gateContext(r, pipeline, first, park) {
+// Phase 1: a Legistar decision row, news-monitor's second item for a matter
+// (its URL plus a fragment): a vote result '#vote-<event id>' or a decisive
+// status '#<status>'. The base row (no fragment) is not one.
+export const isDecisionRow = (r) => String(r?.source_key ?? "").startsWith("legistar_") && /#[a-z0-9-]+$/i.test(String(r?.url ?? ""));
+
+// The gate's context for one row (lib.js arrivalGate). fpds: an FPDS source
+// (records.js isFpdsSource). decision: a Legistar decision row. capped: the
+// row's source is at the day's fast-path cap (budget.js fastPathCounter).
+export function gateContext(r, pipeline, first, park, { capped = false } = {}) {
   return { pipeline, record: isOfficialRecord(r), seed: isSeedRow(r, first), burst: park.has(archiveGroupKey(r.source_key, r.first_seen)),
-    ownLane: isOwnLane(r.source_key), sec: isSecItem(r) };
+    ownLane: isOwnLane(r.source_key), sec: isSecItem(r), fpds: isFpdsSource(r.source_key), decision: isDecisionRow(r), capped };
 }
 
 // The park UPDATE for a group that is a burst in this window: parks what the
@@ -194,6 +202,7 @@ export async function ingest(env) {
   let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, held = 0;
   // A muted source's rows are stored skipped (source prefs, tuning.js).
   const muted = await mutedSources(db);
+  const fastCap = budgetSettings(env).fast_cap;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
@@ -214,10 +223,13 @@ export async function ingest(env) {
       stmts.push(parkGroupStatement(db, "items", { sourceKey: g.source_key, firstSeen: g.first_seen, cursor, seed: isSeedRow(g, first) }));
     }
     const updates = stmts.length;
+    // Phase 1: the per-source fast-path cap (budget.js fastPathCounter): the
+    // day's stored fast-path rows, both tables, plus this batch's own.
+    const fast = await fastPathCounter(db, routed.map((x) => x.r), fastCap);
     for (const { r, route } of routed) {
       // The arrival gate (lib.js arrivalGate): the stale gate, archive bursts,
       // and the admissions held for the daily grading budget (budget.js).
-      const gate = arrivalGate(r, gateContext(r, "coverage", first, park));
+      const gate = arrivalGate(r, gateContext(r, "coverage", first, park, { capped: fast.capped(r) }));
       // Only http(s) links are ever fetched or shown in the feed. Precedence:
       // bad_url, then the key-account gate (a rival row it drops is labelled
       // rival_no_key_account whatever its age, so its Auxiliary copy is the
@@ -226,6 +238,7 @@ export async function ingest(env) {
       const admit = reason ? null : gate.admit;
       if (reason) skipped++;
       if (admit) held++;
+      if (!reason && !admit) fast.add(r);
       const feed = feedFields(r, route, now);
       if (feed.status) fromFeed++;
       stmts.push(db.prepare(

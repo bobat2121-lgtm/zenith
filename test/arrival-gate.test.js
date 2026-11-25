@@ -14,7 +14,7 @@ import { serveWorker, runGrader } from "./helpers/aux-e2e.js";
 hookJsonImports();
 const { default: worker } = await import("../worker/src/index.js");
 const { arrivalGate, LATE_WINDOW_DAYS, RECORD_LOOKBACK_DAYS, STALE_DAYS } = await import("../worker/src/lib.js");
-const { ingest, sourceFirstSeen, isSeedRow } = await import("../worker/src/ingest.js");
+const { ingest, sourceFirstSeen, isSeedRow, gateContext, isDecisionRow } = await import("../worker/src/ingest.js");
 const { ingestAux } = await import("../worker/src/auxiliary.js");
 const { releaseHeld } = await import("../worker/src/budget.js");
 
@@ -101,6 +101,121 @@ test("REGRESSION A1 seed batch of a covered own-lane source and of an edgar_* so
 test("A1 a non-seed fresh row of a counterparty source stays plain pending (the fast path is unchanged after the seed)", () => {
   assert.deepEqual(gate(3, { pipeline: "coverage", seed: false, ownLane: false, sec: false }), plain);
   assert.deepEqual(gate(null, { pipeline: "aux", seed: false, ownLane: false, sec: false }), plain);
+});
+
+// Phase 1 (Part B PR-G3): the per-source fast-path cap.
+test("arrivalGate: a capped, fresh, non-seed row of a counterparty or aux source gives source_cap; own-lane rows, edgar_* rows and sec.gov-URL rows are never capped; a seed row stays seed_fresh; skip reasons are unchanged", () => {
+  for (const pipeline of ["coverage", "aux"]) {
+    const capped = { pipeline, record: false, seed: false, burst: false, ownLane: false, sec: false, capped: true };
+    assert.deepEqual(gate(3, capped), { reason: null, admit: "source_cap" }, pipeline);
+    assert.deepEqual(gate(null, capped), { reason: null, admit: "source_cap" }, `${pipeline}: undated`);
+    assert.deepEqual(gate(3, { ...capped, capped: false }), plain, `${pipeline}: under the cap`);
+    // Never capped: the covered own lane, edgar_* (own lane and SEC) and a sec.gov URL (SEC).
+    assert.deepEqual(gate(3, { ...capped, ownLane: true }), plain);
+    assert.deepEqual(gate(3, { ...capped, ownLane: true, sec: true }), plain);
+    assert.deepEqual(gate(3, { ...capped, sec: true }), plain);
+    // A seed row stays seed_fresh.
+    assert.deepEqual(gate(3, { ...capped, seed: true }), { reason: null, admit: "seed_fresh" });
+    // Skip reasons and late admissions are unchanged.
+    assert.deepEqual(gate(40, capped), { reason: "stale_on_arrival", admit: null });
+    assert.deepEqual(gate(null, { ...capped, burst: true }), { reason: "undated_burst", admit: null });
+    assert.deepEqual(gate(18, { ...capped, record: true }), { reason: null, admit: "record_late" });
+    assert.deepEqual(gate(18, { ...capped, seed: true }), { reason: null, admit: "seed_window" });
+  }
+});
+
+// Phase 1 (Part C §6.3): undated FPDS rows after the source's first poll are budgeted.
+test("record_fresh: an undated FPDS row after its source's first poll is held", () => {
+  const ctx = { pipeline: "coverage", record: true, fpds: true, seed: false, burst: false };
+  assert.deepEqual(gate(null, ctx), { reason: null, admit: "record_fresh" });
+  // Dated FPDS rows are unchanged: fresh ones keep the fast path.
+  assert.deepEqual(gate(3, ctx), plain);
+});
+
+test("an undated non-FPDS record row keeps today's fast path", () => {
+  assert.deepEqual(gate(null, { pipeline: "coverage", record: true, fpds: false, seed: false, burst: false }), plain);
+  assert.deepEqual(gate(null, { pipeline: "aux", record: true, fpds: false, seed: false, burst: false }), plain);
+});
+
+test("an undated FPDS row in a burst is undated_burst, a seed undated row is seed_fresh", () => {
+  const ctx = { pipeline: "coverage", record: true, fpds: true, seed: false, burst: true };
+  assert.deepEqual(gate(null, ctx), { reason: "undated_burst", admit: null });
+  assert.deepEqual(gate(null, { ...ctx, burst: false, seed: true }), { reason: null, admit: "seed_fresh" });
+  assert.deepEqual(gate(null, { ...ctx, seed: true }), { reason: "archive_seed", admit: null });
+});
+
+test("an FPDS seed 102 days late is record_late; 125 days is stale_on_arrival; day 120 is exclusive", () => {
+  const ctx = { pipeline: "coverage", record: true, fpds: true, seed: true, burst: false };
+  const fpds = (published, first_seen) => arrivalGate({ source_key: "fpds_testco", published, first_seen }, ctx);
+  // A synthetic pair seen on one first poll: signed 102 and 125 days before.
+  assert.deepEqual(fpds("2026-08-21T00:00:00Z", "2026-12-01T06:00:00Z"), { reason: null, admit: "record_late" });
+  assert.deepEqual(fpds("2026-07-29T00:00:00Z", "2026-12-01T06:00:00Z"), { reason: "stale_on_arrival", admit: null });
+  // Signed at 00:00Z: any time on day 120 after signing is over 120 days.
+  assert.deepEqual(fpds("2026-08-14T00:00:00Z", "2026-12-11T23:00:00Z"), { reason: null, admit: "record_late" });
+  assert.deepEqual(fpds("2026-08-14T00:00:00Z", "2026-12-12T03:00:00Z"), { reason: "stale_on_arrival", admit: null });
+  // No record exception past 21 days on Auxiliary.
+  assert.deepEqual(arrivalGate({ source_key: "fpds_testco", published: "2026-08-21T00:00:00Z", first_seen: "2026-12-01T06:00:00Z" }, { ...ctx, pipeline: "aux" }),
+    { reason: "stale_on_arrival", admit: null });
+});
+
+// Phase 1 (Part D §5.2): Legistar decision rows ('#vote-<event>' and '#<status>') are budgeted.
+const legistar = (url, days = 0, over = {}) => ({ source_key: "legistar_testville", url, published: days == null ? null : ago(days), first_seen: SEEN, ...over });
+const ctxOf = (r, { seed = false, capped = false, pipeline = "coverage" } = {}) =>
+  gateContext(r, pipeline, new Map([[r.source_key, seed ? r.first_seen : "2026-09-01T00:00:00.000Z"]]), new Set(), { capped });
+const BASE = "https://testville.legistar.com/LegislationDetail.aspx?ID=1001&GUID=00000000-0000-0000-0000-000000000001";
+
+test("a fresh legistar '#vote-123' row and a fresh '#passed' row are admitted 'vote' (held)", () => {
+  for (const url of [`${BASE}#vote-123`, `${BASE}#passed`]) {
+    const r = legistar(url, 1);
+    assert.equal(isDecisionRow(r), true, url);
+    assert.deepEqual(arrivalGate(r, ctxOf(r)), { reason: null, admit: "vote" }, url);
+    assert.deepEqual(arrivalGate(r, ctxOf(r, { pipeline: "aux" })), { reason: null, admit: "vote" }, `${url} on Auxiliary`);
+  }
+});
+
+test("a legistar base row (no fragment) stays on the fast path; a non-legistar '#vote-' URL is unaffected", () => {
+  const base = legistar(BASE, 1);
+  assert.equal(isDecisionRow(base), false);
+  assert.deepEqual(arrivalGate(base, ctxOf(base)), plain);
+  const other = { source_key: "testco_news", url: "https://news.example.com/council#vote-123", published: ago(1), first_seen: SEEN };
+  assert.equal(isDecisionRow(other), false);
+  assert.deepEqual(arrivalGate(other, ctxOf(other)), plain);
+  assert.equal(isDecisionRow({ source_key: "legistar_testville", url: `${BASE}#` }), false, "an empty fragment is not a decision");
+});
+
+test("a legistar decision row 16 days late keeps record_late; one in a seed batch keeps seed_fresh", () => {
+  const late = legistar(`${BASE}#vote-77`, 16);
+  assert.deepEqual(arrivalGate(late, { ...ctxOf(late), record: true }), { reason: null, admit: "record_late" });
+  const seed = legistar(`${BASE}#vote-78`, 1);
+  assert.deepEqual(arrivalGate(seed, ctxOf(seed, { seed: true })), { reason: null, admit: "seed_fresh" });
+  // Over 120 days late it is still stale.
+  const old = legistar(`${BASE}#approved`, 130);
+  assert.deepEqual(arrivalGate(old, { ...ctxOf(old), record: true }), { reason: "stale_on_arrival", admit: null });
+});
+
+// Integration (plans/phase1-build-spec.md §I2): the four phase 0/1 admissions in one order.
+test("gate precedence: seed_fresh, then vote, then record_fresh, then source_cap, then the fast path", () => {
+  const all = { pipeline: "coverage", record: true, burst: false, ownLane: false, sec: false };
+  // A seed row that is also a capped Legistar decision: seed_fresh.
+  assert.deepEqual(gate(1, { ...all, seed: true, decision: true, capped: true }), { reason: null, admit: "seed_fresh" });
+  // A capped Legistar decision row, also undated and of a source marked fpds: vote.
+  assert.deepEqual(gate(null, { ...all, seed: false, decision: true, fpds: true, capped: true }), { reason: null, admit: "vote" });
+  // A capped undated FPDS post-seed row: record_fresh.
+  assert.deepEqual(gate(null, { ...all, seed: false, fpds: true, capped: true }), { reason: null, admit: "record_fresh" });
+  // A capped dated row (FPDS or not): source_cap.
+  assert.deepEqual(gate(2, { ...all, seed: false, fpds: true, capped: true }), { reason: null, admit: "source_cap" });
+  assert.deepEqual(gate(2, { ...all, record: false, seed: false, capped: true }), { reason: null, admit: "source_cap" });
+  // None of them: the fast path.
+  assert.deepEqual(gate(2, { ...all, seed: false }), plain);
+  // Through gateContext with real rows: a capped Legistar decision row and a capped undated FPDS post-seed row.
+  const vote = legistar(`${BASE}#vote-9`, 1);
+  assert.deepEqual(arrivalGate(vote, ctxOf(vote, { capped: true })), { reason: null, admit: "vote" });
+  const fpds = { source_key: "fpds_pl", url: "https://www.fpds.gov/ezsearch/search.do?q=SYNTH#9700-SYNTH-0", published: null, first_seen: SEEN };
+  assert.deepEqual(arrivalGate(fpds, ctxOf(fpds, { capped: true })), { reason: null, admit: "record_fresh" });
+  const fpdsDated = { ...fpds, published: ago(1) };
+  assert.deepEqual(arrivalGate(fpdsDated, ctxOf(fpdsDated, { capped: true })), { reason: null, admit: "source_cap" });
+  // Skips still win over every admission.
+  assert.deepEqual(gate(null, { ...all, seed: false, decision: true, fpds: true, capped: true, burst: true }), { reason: "undated_burst", admit: null });
 });
 
 // --- Through the ingests -------------------------------------------------------
