@@ -598,21 +598,31 @@ export const RECORD_LOOKBACK_DAYS = 120;
 //             archive candidates (archiveSeedGroups)
 //   ownLane   its source is a covered company's own source (covered.json sources)
 //   sec       it is an SEC item (isSecItem)
+//   capped    its source already has the day's fast_cap fast-path rows
+//             (budget.js fastPathCounts; phase 1)
 // -> { reason: a skip reason or null, admit: null | 'record_late' |
-//      'seed_window' | 'seed_fresh' }. An admitted row is stored pending and
-// held until the daily grading budget releases it (budget.js).
+//      'seed_window' | 'seed_fresh' | 'source_cap' }. An admitted row is
+// stored pending and held until the daily grading budget releases it (budget.js).
 // seed_fresh (integration ruling A1): a fresh row of a new source's first poll
 // is budgeted too, unless its source is a covered own-lane source or it is an
 // SEC item; those keep the fast path.
+// source_cap (phase 1): a fresh row past its source's fast_cap fast-path rows
+// of one first-seen UTC day is budgeted, unless its source is a covered
+// own-lane source or it is an SEC item.
 export function arrivalGate(row, ctx = {}) {
   const pub = Date.parse(row.published || ""), seen = Date.parse(row.first_seen || "");
   const age = Number.isFinite(pub) && Number.isFinite(seen) ? (seen - pub) / 86_400_000 : null;
-  const plain = ctx.seed && !ctx.ownLane && !ctx.sec ? { reason: null, admit: "seed_fresh" } : { reason: null, admit: null };
+  // The decision for a row that is neither skipped nor late.
+  const plain = () => {
+    if (ctx.seed && !ctx.ownLane && !ctx.sec) return { reason: null, admit: "seed_fresh" };
+    if (ctx.capped && !ctx.ownLane && !ctx.sec) return { reason: null, admit: "source_cap" };
+    return { reason: null, admit: null };
+  };
   if (age == null) {                                              // undated: today's rule
-    if (!ctx.burst) return plain;
+    if (!ctx.burst) return plain();
     return { reason: ctx.seed ? "archive_seed" : "undated_burst", admit: null };
   }
-  if (age <= STALE_DAYS) return plain;                            // the fast path (seeds of new sources aside)
+  if (age <= STALE_DAYS) return plain();                          // the fast path (seeds and capped sources aside)
   if ((ctx.seed || ctx.record) && age <= LATE_WINDOW_DAYS) return { reason: null, admit: ctx.record ? "record_late" : "seed_window" };
   if (ctx.pipeline === "coverage" && ctx.record && !ctx.burst && age <= RECORD_LOOKBACK_DAYS) return { reason: null, admit: "record_late" };
   return { reason: ctx.seed && ctx.burst ? "archive_seed" : "stale_on_arrival", admit: null };

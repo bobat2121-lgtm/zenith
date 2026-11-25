@@ -18,6 +18,7 @@ import { auxRoute } from "./aux-route.js";
 import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, seedMap, isSeedRow, gateContext, parkGroupStatement,
   coverageOwner } from "./ingest.js";
 import { isOfficialRecord } from "./records.js";
+import { budgetSettings, fastPathCounter } from "./budget.js";
 import { WARGOV_HOLD_MINUTES } from "./wargov.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
@@ -81,11 +82,13 @@ export async function ingestAux(env) {
     await db.batch([setMeta(db, "aux_nm_cursor", cursor), setMeta(db, "aux_cs_cursor", AUX_CS_DONE), setMeta(db, "aux_rv_cursor", AUX_CS_DONE)]);
   }
   const muted = await mutedSources(db);
+  // Phase 1: the per-source fast-path cap, counted across both tables (budget.js).
+  const fastCap = budgetSettings(env).fast_cap;
   // Phase 0 gates (d): once, before the scan, the waiting aux copies of rows Coverage owns leave the queue.
   const ownerCleanup = await auxOwnerCleanup(db);
-  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted });
-  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, only: (route) => route.coverage_subject === true });
-  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, rivalCatchUp: true });
+  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted, fastCap });
+  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, fastCap, only: (route) => route.coverage_subject === true });
+  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, fastCap, rivalCatchUp: true });
   return { ...main, owner_cleanup: ownerCleanup, coverage_subject_catch_up: subjects, rival_catch_up: rivals };
 }
 
@@ -145,7 +148,7 @@ export function rivalGate(r) {
 // windows, MAX_BATCHES a run, storing every row whose route passes `only`, and
 // keeps the cursor in meta cursorKey with each window. done: the scan reached
 // `end`. rivalCatchUp: rival rows only, as the aux_rv_cursor catch-up above.
-async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false }) {
+async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false, fastCap = 0 }) {
   const bounded = end !== null;
   let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, held = 0, done = false;
   for (let b = 0; b < MAX_BATCHES; b++) {
@@ -187,15 +190,18 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
       ).bind(r.nm_rowid, now));
     }
     const movedTo = stmts.length;
+    // Phase 1: the per-source fast-path cap (budget.js fastPathCounter).
+    const fast = await fastPathCounter(db, rows, fastCap);
     for (const { r, route } of routed) {
       // The arrival gate (lib.js arrivalGate) with the Auxiliary rules: no
       // record exception past 21 days (auxiliary.md section 5).
-      const gate = arrivalGate(r, gateContext(r, "aux", first, park));
+      const gate = arrivalGate(r, gateContext(r, "aux", first, park, { capped: fast.capped(r) }));
       // Only http(s) links are ever shown in the feed.
       const reason = !isHttpUrl(r.url) ? "bad_url" : gate.reason || (muted.has(r.source_key) ? "muted_source" : null);
       const admit = reason ? null : gate.admit;
       if (reason) skipped++;
       if (admit) held++;
+      if (!reason && !admit) fast.add(r);
       const feed = feedFields(r, { role: null }, now);
       if (feed.status) fromFeed++;
       const subject = route.coverage_subject === true;

@@ -14,7 +14,7 @@ import { auxRoute } from "./aux-route.js";
 import { heartbeatChecks } from "./delivery.js";
 import { headlinesWaiting } from "./headlines.js";
 import { json, nowIso, universeSql, HELD_SQL, LEASE_MINUTES } from "./lib.js";
-import { budgetSettings, releasedToday, heldCounts, utcDayStart } from "./budget.js";
+import { budgetSettings, releasedToday, heldCounts, utcDayStart, fastPathCounts } from "./budget.js";
 import { isRecordSource } from "./records.js";
 
 const HOUR = 3_600_000;
@@ -403,6 +403,12 @@ export async function ops(env, { now = Date.now() } = {}) {
        UNION ALL SELECT a.source_key FROM aux_grades ag JOIN aux_items a ON a.id = ag.item_id WHERE ag.graded_at >= ?1)
       GROUP BY source_key ORDER BY n DESC, source_key LIMIT 5`,
   ).bind(dayStart).all()).results || [];
+  // Phase 1: the per-source fast-path cap. Today's fast-path rows per capped
+  // source (own lane and edgar_* dropped), and the rows held over the cap.
+  const fastToday = [...(await fastPathCounts(db, dayStart))].map(([source_key, n]) => ({ source_key, n }))
+    .sort((a, b) => b.n - a.n || String(a.source_key).localeCompare(String(b.source_key))).slice(0, 5);
+  const sourceCapHeld = await count(`SELECT (SELECT COUNT(*) FROM items WHERE admit = 'source_cap' AND released_at IS NULL)
+      + (SELECT COUNT(*) FROM aux_items WHERE admit = 'source_cap' AND released_at IS NULL) AS n`);
   const grader = {
     last_run_at: last?.last_seen_at || null,
     last_run: last ? { id: last.id, started_at: last.started_at, last_seen_at: last.last_seen_at, claimed: last.claimed, graded: last.graded, rejected: last.rejected } : null,
@@ -437,6 +443,8 @@ export async function ops(env, { now = Date.now() } = {}) {
       released_by_source_today: [...released].map(([source_key, n]) => ({ source_key, n }))
         .sort((a, b) => b.n - a.n || String(a.source_key).localeCompare(String(b.source_key))).slice(0, 5)
         .map((r) => ({ ...r, per_source: budget.per_source })),
+      fast_path_today: fastToday,
+      source_cap_held: sourceCapHeld,
     },
   };
   return json({ grader, as_of: nowIso(now) });

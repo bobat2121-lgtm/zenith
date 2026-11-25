@@ -103,6 +103,27 @@ test("A1 a non-seed fresh row of a counterparty source stays plain pending (the 
   assert.deepEqual(gate(null, { pipeline: "aux", seed: false, ownLane: false, sec: false }), plain);
 });
 
+// Phase 1 (Part B PR-G3): the per-source fast-path cap.
+test("arrivalGate: a capped, fresh, non-seed row of a counterparty or aux source gives source_cap; own-lane rows, edgar_* rows and sec.gov-URL rows are never capped; a seed row stays seed_fresh; skip reasons are unchanged", () => {
+  for (const pipeline of ["coverage", "aux"]) {
+    const capped = { pipeline, record: false, seed: false, burst: false, ownLane: false, sec: false, capped: true };
+    assert.deepEqual(gate(3, capped), { reason: null, admit: "source_cap" }, pipeline);
+    assert.deepEqual(gate(null, capped), { reason: null, admit: "source_cap" }, `${pipeline}: undated`);
+    assert.deepEqual(gate(3, { ...capped, capped: false }), plain, `${pipeline}: under the cap`);
+    // Never capped: the covered own lane, edgar_* (own lane and SEC) and a sec.gov URL (SEC).
+    assert.deepEqual(gate(3, { ...capped, ownLane: true }), plain);
+    assert.deepEqual(gate(3, { ...capped, ownLane: true, sec: true }), plain);
+    assert.deepEqual(gate(3, { ...capped, sec: true }), plain);
+    // A seed row stays seed_fresh.
+    assert.deepEqual(gate(3, { ...capped, seed: true }), { reason: null, admit: "seed_fresh" });
+    // Skip reasons and late admissions are unchanged.
+    assert.deepEqual(gate(40, capped), { reason: "stale_on_arrival", admit: null });
+    assert.deepEqual(gate(null, { ...capped, burst: true }), { reason: "undated_burst", admit: null });
+    assert.deepEqual(gate(18, { ...capped, record: true }), { reason: null, admit: "record_late" });
+    assert.deepEqual(gate(18, { ...capped, seed: true }), { reason: null, admit: "seed_window" });
+  }
+});
+
 // --- Through the ingests -------------------------------------------------------
 const newEnv = (extra = {}) => {
   const env = { DB: zenithDb(), NEWS: newsDb(), ...TOKENS, ...extra };
