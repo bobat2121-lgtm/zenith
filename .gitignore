@@ -10,3 +10,5 @@ app/.venv/
 __pycache__/
 .zenith/
 .streamlit/secrets.toml
+# recall seeds (owner research) live outside this public repo: never commit one
+recall-seed*.json

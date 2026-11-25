@@ -30,6 +30,7 @@ import { billLinesPass, BILL_HOLD_SQL, HOLD_MINUTES, blockText, parseStored } fr
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 // Zenith show (phase 0)
 import { newsOps } from "./source-signals.js";
+import { recallRoute, recallLoad } from "./recall.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -74,6 +75,9 @@ const ALLOW = {
   "POST /v1/expansion/compiled": ["app", "admin"],
   // Zenith show (phase 0): the Coverage page's ops strip (news-monitor-db, SELECT only).
   "GET /v1/news-ops": ["app", "admin"],
+  // Zenith show (phase 0): the recall scoreboard (recall.js); the event list is loaded by admin only.
+  "GET /v1/recall": ["app", "admin"],
+  "POST /v1/admin/recall": ["admin"],
 };
 
 async function readJson(request) {
@@ -537,6 +541,8 @@ export default {
       case "POST /v1/expansion/compiled": return expansionCompiled(env, await readJson(request), role);
       // Zenith show (phase 0)
       case "GET /v1/news-ops": return newsOps(env);
+      case "GET /v1/recall": return recallRoute(env, url, role);
+      case "POST /v1/admin/recall": return recallLoad(env, await readJson(request));
     }
     return json({ error: "not found" }, 404);
   },
