@@ -438,7 +438,9 @@ export async function councilAgendas(db, { sinceIso }) {
       text: clipText(title, 200), item_id: r.item_id, url: r.url });
   }
   if (!out.length) return out;
-  const decisions = await councilDecisions(db, { sinceIso });
+  // A failed decision query leaves the agendas undecided rather than dropping them.
+  const decisions = await councilDecisions(db, { sinceIso })
+    .catch((err) => { console.error("council decisions failed", err?.message || err); return new Map(); });
   for (const e of out) {
     const hit = (decisions.get(e.url) || []).find((x) => x.day >= e.start);
     if (!hit) continue;

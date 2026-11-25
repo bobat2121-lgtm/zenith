@@ -176,6 +176,25 @@ test("news-monitor's deferral wordings (Refer to Committee, Table, Hold, Withdra
   }
 });
 
+test("a failed decision query leaves the agendas undecided instead of dropping them", async () => {
+  const env = newEnv();
+  await addAgenda(env, "2026-12-03");
+  await addVote(env, 530, "2026-12-03", "APPROVED (carried 6-1)");
+  // Only the decision-row SELECT (the one with instr(url, '#')) throws.
+  const db = { prepare: (sql) => {
+    if (sql.includes("instr(url, '#')")) throw new Error("synthetic D1 failure");
+    return env.DB.prepare(sql);
+  } };
+  const errors = [];
+  const orig = console.error;
+  console.error = (...a) => errors.push(a.join(" "));
+  let out;
+  try { out = await councilAgendas(db, { sinceIso: SINCE }); } finally { console.error = orig; }
+  assert.equal(out.length, 1);
+  for (const k of ["closed", "deferred", "outcome"]) assert.equal(out[0][k], undefined, k);
+  assert.ok(errors.some((m) => /council decisions failed/.test(m)), "the error is logged");
+});
+
 test("a vote dated before the agenda day (committee) does not close the entry", async () => {
   const env = newEnv();
   await addAgenda(env, "2026-11-19");
