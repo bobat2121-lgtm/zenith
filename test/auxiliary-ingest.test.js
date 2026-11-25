@@ -382,3 +382,21 @@ test("one pipeline: the deploy cleanup parks waiting aux copies of coverage-owne
   assert.equal(await auxOwnerCleanup(db), null);
   assert.equal(db.rows("SELECT state FROM aux_items WHERE nm_rowid = 7")[0].state, "pending");
 });
+
+test("one pipeline: the deploy cleanup pages by id, so more than one bound of waiting rows Coverage does not own never hides a later coverage-owned copy", async () => {
+  const { auxOwnerCleanup, AUX_OWNER_CLEANUP_BATCH } = await import("../worker/src/auxiliary.js");
+  const db = zenithDb();
+  const add = db.db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, nm_first_seen, ingested_at, state)
+      VALUES (?, ?, ?, ?, 'private', ?, ?, ?, ?, 'pending')`);
+  for (let i = 1; i <= AUX_OWNER_CLEANUP_BATCH; i++) add.run(i, "anduril", "anduril", "Anduril", `https://x.example/${i}`, `Plain aux ${i}`, iso(DAY), iso(DAY));
+  add.run(AUX_OWNER_CLEANUP_BATCH + 1, "fpds_pl", "fpds_pl", "fpds_pl", "https://x.example/owned", "Contract notice: Planet Labs PBC imagery", iso(DAY), iso(DAY));
+  const first = await auxOwnerCleanup(db);
+  assert.deepEqual(first, { scanned: AUX_OWNER_CLEANUP_BATCH, parked: 0, done: false });
+  assert.notEqual(meta(db, "aux_owner_cleanup"), AUX_CS_DONE, "a full page is not the end");
+  const second = await auxOwnerCleanup(db);
+  assert.deepEqual(second, { scanned: 1, parked: 1, done: true }, "the next run starts after the last id the first one scanned");
+  assert.equal(meta(db, "aux_owner_cleanup"), AUX_CS_DONE);
+  assert.deepEqual({ ...db.rows("SELECT state, skip_reason FROM aux_items WHERE nm_rowid = ?", AUX_OWNER_CLEANUP_BATCH + 1)[0] }, { state: "skipped", skip_reason: "on_coverage" });
+  assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'anduril' AND state = 'pending'")[0].n, AUX_OWNER_CLEANUP_BATCH, "rows Coverage does not own stay pending");
+  assert.equal(await auxOwnerCleanup(db), null, "then done for good");
+});

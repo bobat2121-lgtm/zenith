@@ -93,13 +93,18 @@ export async function ingestAux(env) {
 // waiting aux row (pending, or claimed with an expired lease) whose
 // news-monitor row Coverage owns (coverageOwner), as 'on_coverage'. Never the
 // aux copy of a rival row the key-account gate drops, whatever its Coverage
-// stub's label. Bounded per run; done once a run finds fewer than the bound.
+// stub's label. Bounded per run, paged by id: until done the meta value is the
+// last id scanned, so rows Coverage does not own (which stay waiting) never
+// hide later ones; done once a page finds fewer than the bound.
 export const AUX_OWNER_CLEANUP_BATCH = 1000;
 export async function auxOwnerCleanup(db, now = nowIso()) {
-  if ((await getMeta(db, "aux_owner_cleanup")) === AUX_CS_DONE) return null;
+  const stored = await getMeta(db, "aux_owner_cleanup");
+  if (stored === AUX_CS_DONE) return null;
+  const after = Number(stored) > 0 ? Number(stored) : 0;
   const rows = (await db.prepare(
-    `SELECT id, nm_rowid, source_key, title FROM aux_items WHERE state = 'pending' OR (state = 'claimed' AND claimed_until < ?) ORDER BY id LIMIT ?`,
-  ).bind(now, AUX_OWNER_CLEANUP_BATCH).all()).results || [];
+    `SELECT id, nm_rowid, source_key, title FROM aux_items
+      WHERE id > ? AND (state = 'pending' OR (state = 'claimed' AND claimed_until < ?)) ORDER BY id LIMIT ?`,
+  ).bind(after, now, AUX_OWNER_CLEANUP_BATCH).all()).results || [];
   const ids = rows.filter((r) => coverageOwner(r).owns).map((r) => r.id);
   let parked = 0;
   for (const part of chunk(ids)) {
@@ -110,7 +115,7 @@ export async function auxOwnerCleanup(db, now = nowIso()) {
     parked += r.meta?.changes || 0;
   }
   const done = rows.length < AUX_OWNER_CLEANUP_BATCH;
-  if (done) await setMeta(db, "aux_owner_cleanup", AUX_CS_DONE).run();
+  await setMeta(db, "aux_owner_cleanup", done ? AUX_CS_DONE : String(rows[rows.length - 1].id)).run();
   return { scanned: rows.length, parked, done };
 }
 
