@@ -20,6 +20,10 @@
 // set by ingest), a page that redirects to a PDF, or a deck page that links its
 // PDF. Downloads are bounded (the head of the file and, past the bound, its
 // tail), at most PDF_PER_TICK a tick, parsed one at a time.
+//
+// A bot check served as a page (status 'blocked') is never an excerpt; it is
+// retried once like a 403. Federal Register documents are read from the
+// federalregister.gov API and GPO's govinfo text, not the bot-checked page.
 import { nowIso, isHttpUrl } from "./lib.js";
 import { pdfText } from "./pdf-text.js";
 
@@ -93,10 +97,26 @@ function decodeEntity(m, name) {
   return ENTITIES[name.toLowerCase()] ?? m;
 }
 
+// Replaces "<...>" tags with sep, as s.replace(/<[^>]*>/g, sep) would, or with
+// lineTag only the tags that end a line (/<(br|\/p|...)\b[^>]*>/gi), in linear
+// time: those regexes rescan to the end for each "<" when no ">" follows.
+const LINE_TAG = /^<(?:br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/table)\b/i;
+function stripTags(s, sep, lineTag = false) {
+  let res = "", pos = 0, from = 0;
+  for (;;) {
+    const i = s.indexOf("<", from);
+    if (i === -1) return res + s.slice(pos);
+    if (lineTag && !LINE_TAG.test(s.slice(i, i + 8))) { from = i + 1; continue; }
+    const j = s.indexOf(">", i + 1);
+    if (j === -1) return res + s.slice(pos);
+    res += s.slice(pos, i) + sep;
+    pos = from = j + 1;
+  }
+}
+
 export function htmlToText(html) {
-  return dropBlocks(dropComments(String(html || "").slice(0, MAX_TEXT_INPUT)), DROP_BLOCKS)
-    .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/table)\b[^>]*>/gi, "\n")
-    .replace(/<[^>]*>/g, " ")
+  const body = dropBlocks(dropComments(String(html || "").slice(0, MAX_TEXT_INPUT)), DROP_BLOCKS);
+  return stripTags(stripTags(body, "\n", true), " ")
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
     .replace(/[ \t\f\v\r\u00a0]+/g, " ")
     .replace(/ ?\n ?/g, "\n")
@@ -476,6 +496,126 @@ export function secExcerpt(bodyText, exhibitText) {
   return `${head}\n${label}${pickText(ex, EXCERPT_CHARS - head.length - label.length - 1)}`.trim();
 }
 
+// --- Block pages -----------------------------------------------------------------
+// A bot check served with a 200 is a refusal, not the item's text:
+// federalregister.gov's "Request Access" page, Cloudflare's challenge and
+// block pages, Incapsula, Akamai and Distil denials. fetchPage reports one as
+// 'blocked', which is retried like a 403. A marker is searched for in the raw
+// page first (cheap), then must be in its text (not a script, a template or
+// an attribute), and only a short page counts, so an article that mentions
+// CAPTCHAs is still read.
+const BLOCK_RE = [
+  /has been flagged as potentially automated/i,
+  /programmatic access to these sites is limited/i,
+  /please complete the CAPTCHA/i,
+  /\bverify (?:that )?you are (?:a )?human\b/i,
+  /Enable JavaScript and cookies to continue/i,
+  /Sorry, you have been blocked/i,
+  /Attention Required! \| Cloudflare/i,
+  /Request unsuccessful\. Incapsula incident ID/i,
+  /Pardon Our Interruption/i,
+  /You don't have permission to access [^\n<]{0,300} on this server/i,
+];
+const BLOCK_PAGE_CHARS = 4000;
+export function isBlockPage(html) {
+  const h = String(html || "").slice(0, MAX_TEXT_INPUT);
+  if (!BLOCK_RE.some((re) => re.test(h))) return false;
+  if (htmlToText(h).length > BLOCK_PAGE_CHARS) return false;
+  // The page's text without scripts, styles and templates but with its title,
+  // noscript and iframe text: Cloudflare's JS challenge says "Enable JavaScript
+  // and cookies to continue" only in <noscript>, Incapsula's denial sits in an
+  // <iframe>.
+  const shown = stripTags(dropBlocks(dropComments(h), ["script", "style", "svg", "template"]), " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity).replace(/\s+/g, " ");
+  return BLOCK_RE.some((re) => re.test(shown));
+}
+
+// --- Federal Register ------------------------------------------------------------
+// federalregister.gov answers automated page requests with a bot check that
+// points clients at its API. A document page is read from the API's record
+// (type, action, agency, dates, abstract), then the document's own text from
+// GPO's govinfo copy adds its SUPPLEMENTARY INFORMATION (names and figures),
+// up to the procedural sections. Without the text the record alone is the
+// excerpt.
+const FR_HOST = /^(www\.)?federalregister\.gov$/i;
+const FR_DOC_PATH = /^\/(?:documents|d)\/(?:\d{4}\/\d{2}\/\d{2}\/)?([A-Za-z0-9]{1,4}-\d{3,6}(?:-\d{1,6})?)(?:[/.]|$)/;
+export function fedregDocNumber(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (!FR_HOST.test(u.hostname)) return null;
+  const m = FR_DOC_PATH.exec(u.pathname);
+  return m ? m[1] : null;
+}
+const FR_FIELDS = ["document_number", "type", "action", "agencies", "dates", "abstract", "publication_date"];
+export const fedregApiUrl = (num) =>
+  `https://www.federalregister.gov/api/v1/documents/${encodeURIComponent(num)}.json?${FR_FIELDS.map((f) => `fields%5B%5D=${f}`).join("&")}`;
+export function govinfoUrl(rec) {
+  const day = String(rec?.publication_date || "");
+  const num = String(rec?.document_number || "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) && /^[A-Za-z0-9-]{3,20}$/.test(num) ? `https://www.govinfo.gov/content/pkg/FR-${day}/html/${num}.htm` : null;
+}
+
+// Paragraphs of a GPO plain-text rendition (lines hard-wrapped at 72
+// columns; a blank line between paragraphs), tags dropped, entities decoded.
+function gpoParagraphs(html) {
+  const s = String(html || "").slice(0, MAX_TEXT_INPUT);
+  const lower = s.toLowerCase();
+  let open = lower.indexOf("<pre");
+  while (open !== -1 && /[a-z0-9-]/.test(lower[open + 4] || "")) open = lower.indexOf("<pre", open + 1);
+  const gt = open === -1 ? -1 : s.indexOf(">", open);
+  const close = gt === -1 ? -1 : lower.indexOf("</pre>", gt);
+  const body = gt === -1 ? s : s.slice(gt + 1, close === -1 ? s.length : close);
+  return stripTags(body, "").replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
+    .replace(/\r/g, "").replace(/\n?\[\[Page \d+\]\]\n?/g, "\n").split(/\n[ \t]*\n/).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+const FR_SUPP_START = /^SUPPLEMENTARY INFORMATION:\s*/;
+const FR_SUPP_END = /^(?:List of Subjects\b|Regulatory Flexibility\b|Final Regulatory Flexibility\b|Initial Regulatory Flexibility\b|Paperwork Reduction Act\b|Congressional Review Act\b|Rulemaking Requirements\b|Regulatory (?:Analyses|Analysis|Requirements|Notices)\b|Procedural Matters\b|Ordering Clauses\b|Executive Orders? \d|Statutory Authority\b|Authority:|\[FR Doc\.)/;
+// Subsections every rule of a kind repeats (BIS's description of the Entity
+// List, its savings clause, its statutory authority; DOT's comment
+// instructions, public participation and Privacy Act notes, which open its
+// notices before the Background): skipped to the next heading.
+const FR_BOILERPLATE = /^(?:(?:The Entity List|Savings Clause|Export Control Reform Act(?: of 2018)?|Legal Authority|Statutory Authority|Instructions)$|Public Participation\b|Privacy Act\b)/i;
+const isHeading = (p) => p.length <= 80 && !/[.:;,]$/.test(p);
+export function fedregSupplementary(html) {
+  const paras = gpoParagraphs(html);
+  const start = paras.findIndex((p) => FR_SUPP_START.test(p));
+  if (start === -1) return "";
+  const out = [paras[start].replace(FR_SUPP_START, "")];
+  let skipping = false;
+  for (const p of paras.slice(start + 1)) {
+    if (FR_SUPP_END.test(p)) break;
+    // The signature, "[FR Doc. ...]" and billing code share a paragraph that
+    // opens with the signer's name: nothing from it on is kept.
+    if (p.includes("[FR Doc.")) break;
+    if (isHeading(p)) skipping = FR_BOILERPLATE.test(p);
+    if (!skipping) out.push(p);
+  }
+  return out.filter(Boolean).join("\n");
+}
+export function fedregExcerpt(rec, supplementary = "") {
+  const one = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const agencies = [...new Set((Array.isArray(rec?.agencies) ? rec.agencies : []).map((a) => one(a?.name || a?.raw_name)).filter(Boolean))].join("; ");
+  const head = [[one(rec?.type), one(rec?.action)].filter(Boolean).join(": "), agencies && `Agency: ${agencies}`, one(rec?.dates) && `Dates: ${one(rec.dates)}`]
+    .filter(Boolean).join("\n");
+  let out = [head, one(rec?.abstract)].filter(Boolean).join("\n");
+  const room = EXCERPT_CHARS - out.length - 1;
+  if (supplementary && room >= 300) out += `\n${pickText(supplementary, room, Math.min(LEAD_CHARS, room))}`;
+  return out.slice(0, EXCERPT_CHARS).trim();
+}
+
+async function fetchFedreg(num) {
+  const api = await fetchPage(fedregApiUrl(num), PAGE_UA, { accept: "application/json" });
+  if (api.status !== "ok") return { status: api.status };
+  let rec;
+  try { rec = JSON.parse(api.html); } catch { return { status: "skipped_empty" }; }
+  if (!rec || typeof rec !== "object") return { status: "skipped_empty" };
+  const textUrl = govinfoUrl(rec);
+  const doc = textUrl ? await fetchPage(textUrl, PAGE_UA) : null;
+  const excerpt = fedregExcerpt(rec, doc?.status === "ok" ? fedregSupplementary(doc.html) : "");
+  // Not read from any PDF the feed named: excerpt_source is cleared (the item's URL).
+  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt, source: null, replaceSource: true } : { status: "skipped_empty" };
+}
+
 // --- Fetching ----------------------------------------------------------------
 // Pages that load their release body from another URL with JavaScript.
 export function excerptUrl(raw) {
@@ -501,6 +641,8 @@ function decode(buf, label) {
   try { return new TextDecoder(label).decode(buf); } catch { return new TextDecoder("utf-8").decode(buf); }
 }
 
+// A refusal (a 403, or a bot check served as a page): one later retry.
+const REFUSED = (status) => status === "http_403" || status === "blocked";
 const RETRYABLE = (status) => status === "skipped_sec_needs_contact" || status === "http_429" || /^http_5\d\d$/.test(status) || status.startsWith("error");
 const isSecUrl = (u) => /(^|\.)sec\.gov$/i.test(u.hostname);
 
@@ -584,7 +726,7 @@ export async function fetchPage(url, ua, opts = {}) {
   // starts when this fetch starts
   const timer = setTimeout(() => ctl.abort("timeout"), opts.pdf ? PDF_TIMEOUT_MS : 9000);
   try {
-    const accept = opts.pdf ? "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8" : "text/html,application/xhtml+xml,*/*";
+    const accept = opts.accept || (opts.pdf ? "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8" : "text/html,application/xhtml+xml,*/*");
     const r = await fetch(url, { headers: { "user-agent": ua, accept }, redirect: "follow", signal: ctl.signal });
     if (!r.ok) return { status: `http_${r.status}` };
     const type = r.headers.get("content-type") || "";
@@ -604,10 +746,14 @@ export async function fetchPage(url, ua, opts = {}) {
       const tail = more ? await fetchTail(finalUrl, ua, ctl.signal) : null;
       return { status: "ok", pdf: tail ? [buf, tail] : [buf], finalUrl };
     }
-    if (!/html|xml|text/i.test(type)) { try { await r.body?.cancel(); } catch {} return { status: "skipped_content_type" }; }
+    // JSON only when asked for (an API record); the body is returned as html.
+    const json = /json/i.test(opts.accept || "") && /json/i.test(type);
+    if (!json && !/html|xml|text/i.test(type)) { try { await r.body?.cancel(); } catch {} return { status: "skipped_content_type" }; }
     const { buf } = await readBody(r.body, MAX_BYTES);
     const head = new TextDecoder("latin1").decode(buf.subarray(0, 4096));
-    return { status: "ok", html: decode(buf, charsetOf(type, head)), finalUrl };
+    const html = decode(buf, charsetOf(type, head));
+    if (!json && isBlockPage(html)) return { status: "blocked" };
+    return { status: "ok", html, finalUrl };
   } catch (e) {
     return { status: String(e).includes("timeout") ? "error_timeout" : "error" };
   } finally {
@@ -725,6 +871,8 @@ export async function fetchExcerpt(env, item, ctx = {}) {
     if (!env.CONTACT_EMAIL) return { status: "skipped_sec_needs_contact" };
     return fetchSecExcerpt(env, item);
   }
+  const frDoc = fedregDocNumber(item.url);
+  if (frDoc) return fetchFedreg(frDoc);
   const covered = !item.role;
   const budget = ctx.pdfBudget || { left: PDF_PER_TICK };
   // A PDF the item's feed named (a Q4 presentations feed links the deck). When
@@ -747,7 +895,7 @@ export async function fetchExcerpt(env, item, ctx = {}) {
   if (page.status === "ok" || page.status === "pdf") return { ...page, source: page.source ?? null, replaceSource: true };
   if (page.status === "deferred_pdf") return page;
   // Both failed: the result that gets another try, else the PDF's.
-  const again = (s) => (RETRYABLE(s) ? 2 : s === "http_403" ? 1 : 0);
+  const again = (s) => (RETRYABLE(s) ? 2 : REFUSED(s) ? 1 : 0);
   return again(page.status) > again(feedPdf.status) ? page : feedPdf;
 }
 
@@ -806,9 +954,9 @@ function resultStatement(env, { item, status, excerpt, source, replaceSource }, 
   // A PDF's text, or one with none: final. excerpt_source names the PDF when
   // it is not the item's own URL.
   if (status === "pdf" || status === "pdf_unreadable") return final();
-  // A 403 gets one later retry: CDN bot checks in front of IR sites (Q4's
-  // Cloudflare, seen on SRFM, PL and ASST) refuse a request now and then.
-  if ((RETRYABLE(status) && tries < MAX_TRIES) || (status === "http_403" && tries < FORBIDDEN_TRIES)) {
+  // A 403 or a block page gets one later retry: CDN bot checks in front of IR
+  // sites (Q4's Cloudflare, seen on SRFM, PL and ASST) refuse a request now and then.
+  if ((RETRYABLE(status) && tries < MAX_TRIES) || (REFUSED(status) && tries < FORBIDDEN_TRIES)) {
     const wait = RETRY_MINUTES[Math.min(tries - 1, RETRY_MINUTES.length - 1)];
     return env.DB.prepare("UPDATE items SET excerpt_tries = ?, excerpt_next_at = ? WHERE id = ?")
       .bind(tries, nowIso(Date.now() + wait * 60_000), item.id);
@@ -859,12 +1007,12 @@ export async function enrich(env) {
   if (stmts.length) await env.DB.batch(stmts);
   const count = (status) => results.filter((r) => r.status === status).length;
   return { tried: results.length, ok: count("ok"), pdf: count("pdf"), pdf_unreadable: count("pdf_unreadable"), pdf_deferred: count("deferred_pdf"),
-    retry: results.filter((r) => RETRYABLE(r.status)).length, sec_deferred: secBusy, at: now };
+    retry: results.filter((r) => RETRYABLE(r.status)).length, blocked: count("blocked"), sec_deferred: secBusy, at: now };
 }
 
 // Last reads that ended in a refusal or an outage, worth one more pass.
 const TRANSIENT_FINAL_SQL = (p = "") =>
-  `(${p}excerpt_status IN ('http_403','http_429') OR ${p}excerpt_status LIKE 'http_5%' OR ${p}excerpt_status LIKE 'error%')`;
+  `(${p}excerpt_status IN ('http_403','http_429','blocked') OR ${p}excerpt_status LIKE 'http_5%' OR ${p}excerpt_status LIKE 'error%')`;
 
 // Admin (POST /v1/admin/requeue {mode:"sec_excerpts"}): re-reads sec.gov items
 // of the given (covered) tickers that were never read with this reader
