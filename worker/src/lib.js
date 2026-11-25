@@ -692,10 +692,13 @@ export const RECORD_LOOKBACK_DAYS = 120;
 //   sec       it is an SEC item (isSecItem)
 //   fpds      its source is an FPDS source (records.js isFpdsSource; phase 1)
 //   decision  it is a Legistar decision row (ingest.js isDecisionRow; phase 1)
+//   register  its source is a register source (records.js isRegisterSource;
+//             phase 2)
 //   capped    its source already has the day's fast_cap fast-path rows
 //             (budget.js fastPathCounts; phase 1)
 // -> { reason: a skip reason or null, admit: null | 'record_late' |
-//      'seed_window' | 'seed_fresh' | 'vote' | 'record_fresh' | 'source_cap' }.
+//      'seed_window' | 'seed_fresh' | 'vote' | 'register' | 'record_fresh' |
+//      'source_cap' }.
 // An admitted row is stored pending and held until the daily grading budget
 // releases it (budget.js).
 // A row that is neither skipped nor late (undated outside a burst, or dated
@@ -705,6 +708,10 @@ export const RECORD_LOOKBACK_DAYS = 120;
 //     item; those keep the fast path.
 //   vote (phase 1): a Legistar decision row ('#vote-<event>' or '#<status>'),
 //     so each council outcome is graded inside the budget.
+//   register (phase 2): a fresh or undated row of a register source after
+//     its first poll (aux-sources.json register: true), so a register change
+//     is graded inside the budget, never on the fast path. Register sources
+//     are records, so a late row follows record_late like any record.
 //   record_fresh (phase 1): an undated row of an FPDS source after its first
 //     poll; FPDS posts DoD actions ~90 days late and the adapter leaves later
 //     rows undated, so they are budgeted like a seed.
@@ -712,8 +719,8 @@ export const RECORD_LOOKBACK_DAYS = 120;
 //     rows of one first-seen UTC day, unless its source is a covered own-lane
 //     source or it is an SEC item.
 //   otherwise the fast path (admit null).
-// A vote or record_fresh row is decided before the cap, so it never counts
-// toward it (fastPathCounts counts admit IS NULL rows only).
+// A vote, register or record_fresh row is decided before the cap, so it never
+// counts toward it (fastPathCounts counts admit IS NULL rows only).
 export function arrivalGate(row, ctx = {}) {
   const pub = Date.parse(row.published || ""), seen = Date.parse(row.first_seen || "");
   const age = Number.isFinite(pub) && Number.isFinite(seen) ? (seen - pub) / 86_400_000 : null;
@@ -721,6 +728,7 @@ export function arrivalGate(row, ctx = {}) {
   const plain = (undated) => {
     if (ctx.seed && !ctx.ownLane && !ctx.sec) return { reason: null, admit: "seed_fresh" };
     if (ctx.decision) return { reason: null, admit: "vote" };
+    if (ctx.register) return { reason: null, admit: "register" };
     if (undated && ctx.fpds && !ctx.seed) return { reason: null, admit: "record_fresh" };
     if (ctx.capped && !ctx.ownLane && !ctx.sec) return { reason: null, admit: "source_cap" };
     return { reason: null, admit: null };

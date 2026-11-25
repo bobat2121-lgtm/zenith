@@ -17,7 +17,7 @@ import { MATCH } from "./rubric.generated.js";
 import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, arrivalGate, isSecItem } from "./lib.js";
 import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
 import { mutedSources } from "./tuning.js";
-import { isOfficialRecord, isFpdsSource } from "./records.js";
+import { isOfficialRecord, isFpdsSource, isRegisterSource } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
 
 // Windowing, shared with the auxiliary ingest (auxiliary.js).
@@ -147,11 +147,13 @@ export const seedMap = (news, rows) => sourceFirstSeen(news, rows.filter(needsSe
 export const isDecisionRow = (r) => String(r?.source_key ?? "").startsWith("legistar_") && /#[a-z0-9-]+$/i.test(String(r?.url ?? ""));
 
 // The gate's context for one row (lib.js arrivalGate). fpds: an FPDS source
-// (records.js isFpdsSource). decision: a Legistar decision row. capped: the
-// row's source is at the day's fast-path cap (budget.js fastPathCounter).
+// (records.js isFpdsSource). decision: a Legistar decision row. register: a
+// register source (records.js isRegisterSource; phase 2). capped: the row's
+// source is at the day's fast-path cap (budget.js fastPathCounter).
 export function gateContext(r, pipeline, first, park, { capped = false } = {}) {
   return { pipeline, record: isOfficialRecord(r), seed: isSeedRow(r, first), burst: park.has(archiveGroupKey(r.source_key, r.first_seen)),
-    ownLane: isOwnLane(r.source_key), sec: isSecItem(r), fpds: isFpdsSource(r.source_key), decision: isDecisionRow(r), capped };
+    ownLane: isOwnLane(r.source_key), sec: isSecItem(r), fpds: isFpdsSource(r.source_key), decision: isDecisionRow(r),
+    register: isRegisterSource(r.source_key), capped };
 }
 
 // The park UPDATE for a group that is a burst in this window: parks what the

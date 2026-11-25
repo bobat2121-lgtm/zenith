@@ -11,7 +11,7 @@ import { hookJsonImports } from "./helpers/worker-env.js";
 import { isRecordSource as ruleIsRecord } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
-const { isRecordSource, isOfficialRecord, isFpdsSource } = await import("../worker/src/records.js");
+const { isRecordSource, isOfficialRecord, isFpdsSource, isRegisterSource } = await import("../worker/src/records.js");
 const { default: AUX } = await import("../worker/src/aux-sources.json");
 const { default: COVERED } = await import("../worker/src/covered.json");
 
@@ -84,4 +84,20 @@ test("isFpdsSource is true only for aux entity fpds", () => {
   }
   assert.equal(isFpdsSource("fpds_not_a_known_key"), false);
   assert.equal(isFpdsSource(undefined), false);
+});
+
+// Phase 2 (Part E §5.1, PR-EG): register sources are held 'register' when fresh.
+test("Z4 isRegisterSource is true only for an aux entry marked register: true", () => {
+  const synthetic = { sources: { reg_x: { entity: "reg", record: true, register: true }, rec_x: { entity: "rec", record: true },
+    str_x: { entity: "reg", record: true, register: "true" } } };
+  assert.equal(isRegisterSource("reg_x", synthetic), true);
+  assert.equal(isRegisterSource("rec_x", synthetic), false, "a record entry alone");
+  assert.equal(isRegisterSource("str_x", synthetic), false, "only the boolean true");
+  assert.equal(isRegisterSource("reg_missing", synthetic), false, "a key not in the map");
+  assert.equal(isRegisterSource("toString", synthetic), false, "no prototype keys");
+  assert.equal(isRegisterSource(undefined, synthetic), false);
+  // The real generated map (default parameter): an unknown key and a record key that is not a register.
+  assert.equal(isRegisterSource("not_a_known_key"), false);
+  assert.equal(AUX.sources.fpds_pl?.record, true);
+  assert.equal(isRegisterSource("fpds_pl"), false);
 });

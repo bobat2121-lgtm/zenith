@@ -32,3 +32,12 @@ export const isFpdsSource = (key, aux = AUX) => {
   const k = String(key ?? "");
   return own(aux?.sources, k) && aux.sources[k]?.entity === "fpds";
 };
+
+// Phase 2: a register source (aux-sources.json register: true, set by
+// scripts/sync-covered.mjs for register adapters). Its fresh rows after the
+// first poll are held 'register' (lib.js arrivalGate). `aux` is for tests;
+// production passes only the key.
+export const isRegisterSource = (key, aux = AUX) => {
+  const k = String(key ?? "");
+  return own(aux?.sources, k) && aux.sources[k]?.register === true;
+};

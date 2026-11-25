@@ -218,6 +218,50 @@ test("gate precedence: seed_fresh, then vote, then record_fresh, then source_cap
   assert.deepEqual(gate(null, { ...all, seed: false, decision: true, fpds: true, capped: true, burst: true }), { reason: "undated_burst", admit: null });
 });
 
+// Phase 2 (Part E §5.1, PR-EG): a register source's fresh rows are held 'register'.
+test("Z1 fresh register rows are held: undated, 0 and 10 days register; 18 and 60 days record_late; 400 days stale_on_arrival; seed, vote and burst unchanged", () => {
+  const reg = { pipeline: "coverage", record: true, register: true, seed: false };
+  for (const d of [null, 0, 10]) assert.deepEqual(gate(d, reg), { reason: null, admit: "register" }, `${d} days`);
+  assert.deepEqual(gate(14, reg), { reason: null, admit: "register" }, "the last fast-path day");
+  for (const d of [18, 60]) assert.deepEqual(gate(d, reg), { reason: null, admit: "record_late" }, `${d} days`);
+  assert.deepEqual(gate(120, reg), { reason: null, admit: "record_late" });
+  assert.deepEqual(gate(400, reg), { reason: "stale_on_arrival", admit: null });
+  // A register source's first poll stays seed_fresh; a decision row stays vote.
+  for (const d of [null, 3]) assert.deepEqual(gate(d, { ...reg, seed: true }), { reason: null, admit: "seed_fresh" }, `seed ${d}`);
+  assert.deepEqual(gate(3, { ...reg, decision: true }), { reason: null, admit: "vote" });
+  // Undated burst parking still applies.
+  assert.deepEqual(gate(null, { ...reg, burst: true }), { reason: "undated_burst", admit: null });
+  assert.deepEqual(gate(null, { ...reg, seed: true, burst: true }), { reason: "archive_seed", admit: null });
+  // On Auxiliary: fresh rows held the same way; no record exception past 21 days.
+  assert.deepEqual(gate(3, { ...reg, pipeline: "aux" }), { reason: null, admit: "register" });
+  assert.deepEqual(gate(30, { ...reg, pipeline: "aux" }), { reason: "stale_on_arrival", admit: null });
+  // register: false leaves every case as before.
+  const off = { ...reg, register: false };
+  for (const d of [null, 0, 10]) assert.deepEqual(gate(d, off), plain, `register false, ${d} days`);
+  assert.deepEqual(gate(18, off), { reason: null, admit: "record_late" });
+  assert.deepEqual(gate(400, off), { reason: "stale_on_arrival", admit: null });
+  assert.deepEqual(gate(3, { ...off, seed: true }), { reason: null, admit: "seed_fresh" });
+  assert.deepEqual(gate(null, { ...off, burst: true }), { reason: "undated_burst", admit: null });
+  assert.deepEqual(gate(null, { ...off, fpds: true }), { reason: null, admit: "record_fresh" });
+  assert.deepEqual(gate(3, { ...off, capped: true }), { reason: null, admit: "source_cap" });
+});
+
+test("Z2 gate precedence after phase 2: seed_fresh, vote, register, record_fresh, source_cap, then the fast path", () => {
+  const all = { pipeline: "coverage", record: true, burst: false, ownLane: false, sec: false, seed: false, register: true };
+  // A fresh register row that is also capped: register, never source_cap.
+  assert.deepEqual(gate(2, { ...all, capped: true }), { reason: null, admit: "register" });
+  assert.deepEqual(gate(null, { ...all, capped: true }), { reason: null, admit: "register" });
+  // Before record_fresh: an undated register row also marked fpds.
+  assert.deepEqual(gate(null, { ...all, fpds: true, capped: true }), { reason: null, admit: "register" });
+  // After seed_fresh and vote.
+  assert.deepEqual(gate(2, { ...all, seed: true, decision: true, capped: true }), { reason: null, admit: "seed_fresh" });
+  assert.deepEqual(gate(2, { ...all, decision: true, capped: true }), { reason: null, admit: "vote" });
+  // Through gateContext: no generated source carries register yet (inert until the catalog marks one).
+  const r = { source_key: "fpds_pl", url: "https://www.fpds.gov/ezsearch/search.do?q=SYNTH#9700-SYNTH-1", published: ago(1), first_seen: SEEN };
+  assert.equal(ctxOf(r).register, false);
+  assert.deepEqual(arrivalGate(r, ctxOf(r)), plain);
+});
+
 // --- Through the ingests -------------------------------------------------------
 const newEnv = (extra = {}) => {
   const env = { DB: zenithDb(), NEWS: newsDb(), ...TOKENS, ...extra };
