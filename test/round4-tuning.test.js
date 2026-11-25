@@ -136,7 +136,8 @@ test("Z3 runGaps and graderStatus", () => {
   assert.equal(gaps[0].from, runs[2].last_seen_at);
   assert.equal(gaps[0].to, runs[1].started_at);
   assert.equal(graderStatus(iso(30 * MIN), now), "ok");
-  assert.equal(graderStatus(iso(89 * MIN), now), "ok");
+  // Phase 1: the default cadence is 60 min with 20 min of slack, so 89 min is late.
+  assert.equal(graderStatus(iso(89 * MIN), now), "late");
   assert.equal(graderStatus(iso(2 * HOUR), now), "late");
   assert.equal(graderStatus(iso(4 * HOUR), now), "down");
   assert.equal(graderStatus(null, now), "down");
@@ -178,7 +179,11 @@ test("Z3 GET /v1/ops: last run, 24 h count, gaps over 2 h in 7 days, status, hea
   assert.deepEqual(g.checks.map((c) => c.key), ["grader_stale", "queue_stale"]);
   // Phase 0 gates added the held counts, the day's releases, the budget and the double-graded count.
   assert.deepEqual(g.backlog, { coverage_pending: 2, aux_pending: 2, headlines_waiting: 2, oldest_aux_pending_at: env.DB.rows("SELECT MIN(nm_first_seen) AS t FROM aux_items WHERE state='pending'")[0].t,
-    coverage_held: 0, aux_held: 0, released_today: 0, budget: { total: 20, per_source: 5, guard: 60 }, double_graded_24h: 0 });
+    coverage_held: 0, aux_held: 0, released_today: 0, budget: { total: 20, per_source: 5, guard: 60 }, double_graded_24h: 0,
+    // Phase 1 grader health: claims not returned, the oldest waiting coverage row, releases per source.
+    stuck_claims: { coverage: 0, aux: 0 }, stale_claims: { coverage: 0, aux: 0 },
+    oldest_coverage_waiting_at: env.DB.rows("SELECT MIN(ingested_at) AS t FROM items WHERE state IN ('pending','claimed') AND ticker = 'RCAT'")[0].t,
+    released_by_source_today: [] });
 
   addRun(env, "r7", 20 * MIN, 10 * MIN);
   assert.equal((await get(env, "/v1/ops", "admin")).body.grader.status, "ok");
