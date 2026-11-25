@@ -171,7 +171,9 @@ export const storyTable = (kind) => TABLES[kind] || null;
 // URL key, first seen since `since`, in ONE statement binding 2 (coverage) or
 // 3 (aux) parameters, whatever the number of keys (D1 allows 100). anyCopy:
 // copies (story_of set) count too (the rescue's live-copy check). Each row
-// carries held (admitted, not yet released) and has_text.
+// carries held (admitted, not yet released) and has_text: on coverage the
+// excerpt or the feed summary kept as excerpt_fallback (before enrich copies
+// it into the excerpt), the same text hasFeedText counts for a row in a batch.
 export async function findCanonicals(db, kind, { storyKeys: sk = [], urlKeys: uk = [], since, anyCopy = false }) {
   const t = TABLES[kind];
   const s = [...new Set(sk.filter(Boolean))], u = kind === "aux" ? [...new Set(uk.filter(Boolean))] : [];
@@ -184,7 +186,7 @@ export async function findCanonicals(db, kind, { storyKeys: sk = [], urlKeys: uk
           AND (story_key IN (SELECT value FROM json_each(?1)) OR url_key IN (SELECT value FROM json_each(?2)))`,
     ).bind(JSON.stringify(s), JSON.stringify(u), since).all()).results || []
     : (await db.prepare(
-      `SELECT id, nm_rowid, source_key, url, ticker, admit, released_at, nm_first_seen, (excerpt IS NOT NULL) AS has_text, story_key
+      `SELECT id, nm_rowid, source_key, url, ticker, admit, released_at, nm_first_seen, (excerpt IS NOT NULL OR excerpt_fallback IS NOT NULL) AS has_text, story_key
          FROM items WHERE nm_first_seen >= ?2 AND state != 'skipped'${copies}
           AND story_key IN (SELECT value FROM json_each(?1))`,
     ).bind(JSON.stringify(s), since).all()).results || [];

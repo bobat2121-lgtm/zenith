@@ -71,6 +71,25 @@ test("B-T15 two copies in one ingest batch: the second points to the first throu
   assert.equal(cov(env, b).story_of, cov(env, a).id);
 });
 
+test("B-T15 text guard across batches: a stored canonical with only a feed summary (excerpt_fallback, before enrich) holds a later copy that carries a summary", async () => {
+  const env = newEnv();
+  env.NEWS.db.exec("ALTER TABLE items ADD COLUMN body TEXT");
+  const summary = (who) => `${who} said on Tuesday that Acme Robotics signed a multi-year fleet agreement with Beta Freight covering routes in three states, with deliveries planned to start next spring and more lanes possible later in the year after a review.`;
+  const withBody = (n, who) => env.NEWS.db.prepare("UPDATE items SET body = ? WHERE rowid = ?").run(summary(who), n);
+  seed(env, "volvo_autonomous", "aur_rel");
+  const a = nm(env, { source_key: "volvo_autonomous", first_seen: ago(2 * DAY) });
+  withBody(a, "The company");
+  await ingest(env);
+  const stored = env.DB.rows("SELECT state, excerpt, excerpt_fallback FROM items WHERE nm_rowid = ?", a)[0];
+  assert.deepEqual([stored.state, stored.excerpt], ["pending", null]);
+  assert.ok(stored.excerpt_fallback, "only the summary is stored");
+  const b = nm(env, { source_key: "aur_rel", first_seen: ago(DAY) });
+  withBody(b, "A partner");
+  const r = await ingest(env);
+  assert.equal(r.story_held, 1);
+  assert.deepEqual([cov(env, b).skip_reason, cov(env, b).story_of], ["story_dup", cov(env, a).id]);
+});
+
 test("B-T16 aux: a managed-lane and a code-lane copy of one URL under two entity keys merge; coverage keeps one URL, and one accession, under two tickers", async () => {
   const env = newEnv();
   seed(env, "aevex", "managed_widgetco_news", "volvo_autonomous", "rcat_rel");
