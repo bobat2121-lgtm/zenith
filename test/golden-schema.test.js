@@ -192,8 +192,18 @@ test("replay grades never land in the live grade tables", () => {
 
 test("the migration holds no golden content", () => {
   // Public repo: comments describe shapes only; no codes, ranges, item ids or tickers from the private seed.
-  const comments = [...SQL.matchAll(/--([^\n]*)/g)].map((m) => m[1]).join("\n");
-  assert.doesNotMatch(comments, /\[\s*\d+\s*,\s*(\d+|null)\s*\]/, "no expected range");
-  assert.doesNotMatch(comments, /item:\d/, "no live item id");
-  assert.doesNotMatch(comments, /'[A-Z]{1,2}-?[A-Z0-9]*\d+'/, "no golden code");
+  // Scans the whole file, comments and statements alike.
+  const RANGE = /\[\s*(\d+|null)\s*,\s*(\d+|null)\s*\]/; // either bound may be open (null)
+  const CODE = /'(?=[A-Z0-9-]*\d)[A-Z]{1,2}(?:-?[A-Z0-9]+)*'/; // quoted, any number of hyphenated parts, holds a digit
+  const REFS = [/item:\d/, /recall:[A-Za-z0-9]/];
+  // The guards themselves catch every shape they claim to (synthetic samples).
+  for (const s of ["[1,2]", "[null,9]", "[ 9 , null ]"]) assert.match(s, RANGE, s);
+  for (const s of ["'Z9'", "'Z-SYN9'", "'Z-SYN-9'", "'ZZ-SYN-ABC0'"]) assert.match(s, CODE, s);
+  for (const s of ["'anchor'", "'Z'", "'SYN'"]) assert.doesNotMatch(s, CODE, s);
+  assert.match("item:7", REFS[0]);
+  assert.match("recall:abc", REFS[1]);
+  assert.doesNotMatch("'recall:<event id>'", REFS[1], "a shape placeholder is not a ref");
+  assert.doesNotMatch(SQL, RANGE, "no expected range");
+  assert.doesNotMatch(SQL, CODE, "no golden code");
+  for (const r of REFS) assert.doesNotMatch(SQL, r, "no live item or recall ref");
 });
