@@ -57,7 +57,12 @@ test("GET /v1/brief: waiting, counts and items to label leave out tickers droppe
   await addGrade(env.DB, gr, { score: 99, graded_at: iso(4 * HOUR) });
   const gs = await addItem(env.DB, { ticker: "SYM", source_key: "symbotic", title: "Testco graded", nm_first_seen: iso(5 * HOUR) });
   await addGrade(env.DB, gs, { score: 60, graded_at: iso(4 * HOUR) });
+  // A graded date notice for the dropped name, inside the next 7 days: not a catalyst.
+  const notice = await addItem(env.DB, { ticker: "REKR", source_key: "rekor", title: `Dropco to announce results on ${addDays(etParts(Date.now()).date, 3)}`,
+    nm_first_seen: iso(DAY), published: iso(DAY) });
+  await addGrade(env.DB, notice, { score: 75, flags: JSON.stringify(["reason:calendar_card"]) });
   const r = await brief(env);
+  assert.ok(!r.body.catalysts.some((e) => e.ticker === "REKR"), JSON.stringify(r.body.catalysts.map((e) => e.ticker)));
   assert.deepEqual(r.body.waiting.items.map((i) => i.ticker), ["SYM"]);
   assert.deepEqual([r.body.waiting.count, r.body.waiting.counterparty_count], [1, 0]);
   assert.deepEqual(r.body.to_label.map((i) => i.ticker), ["SYM"]);
