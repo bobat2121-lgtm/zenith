@@ -11,7 +11,7 @@ import { json, nowIso } from "./lib.js";
 import { etParts, etToUtc, addDays, fmtEt, fmtAge, fmtDay, DAY_MS } from "./et.js";
 import { discordSendAll, escapeMd, clip, link, figures, bandName, splitMessages } from "./discord.js";
 import { CALENDAR, CALENDAR_VERSION } from "./calendar.generated.js";
-import { briefCatalysts, gradedNotices, upcoming } from "./calendar.js";
+import { briefCatalysts, runtimeEntries, upcoming } from "./calendar.js";
 
 // Cloudflare numbers weekdays 1 = Sunday to 7 = Saturday, so the Monday cron uses
 // the day name, which means Monday in every cron dialect.
@@ -82,13 +82,15 @@ async function newsHealth(env, covered) {
 
 // Three unlabelled items worth the analyst's time: the top grade, the one
 // nearest the Digest line, and one graded with little evidence.
-export async function pickToLabel(db, now, n = 3) {
+// tickers: the covered universe (a dropped name never reaches the brief); null keeps all.
+export async function pickToLabel(db, now, n = 3, tickers = null) {
   const rows = (await db.prepare(
     `SELECT i.id AS item_id, i.ticker, i.title, i.url, g.score, g.band, g.confidence, g.read_source
        FROM items i JOIN grades g ON g.id = i.grade_id
       WHERE i.nm_first_seen >= ? AND g.score IS NOT NULL AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.item_id = i.id)
+        ${tickers ? "AND i.ticker IN (SELECT value FROM json_each(?))" : ""}
       ORDER BY g.score DESC, i.id DESC LIMIT 300`,
-  ).bind(nowIso(now - 7 * DAY_MS)).all()).results || [];
+  ).bind(nowIso(now - 7 * DAY_MS), ...(tickers ? [JSON.stringify(tickers)] : [])).all()).results || [];
   const out = [];
   const take = (row, why) => { if (row && !out.some((o) => o.item_id === row.item_id)) out.push({ ...row, why }); };
   const left = () => rows.filter((r) => !out.some((o) => o.item_id === r.item_id));
@@ -104,7 +106,7 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
   const graded = ((await db.prepare(
     `SELECT g.id AS grade_id, g.item_id, g.ticker, g.score, g.band, g.event_type, g.why, g.note_hook, g.magnitude_usd,
             g.magnitude_pct, g.read_source, g.graded_at, i.title, i.url, i.role, i.affects, i.ticker AS item_ticker,
-            i.source_key, i.nm_first_seen
+            i.source_key, i.nm_first_seen, i.headline, i.headline_tag
        FROM grades g JOIN items i ON i.id = g.item_id LEFT JOIN grades p ON p.id = i.grade_id
       WHERE g.graded_at >= ?1 AND g.graded_at < ?2 AND g.score >= 70 AND ${CURRENT_GRADE}
       ORDER BY g.score DESC, g.id DESC LIMIT 400`,
@@ -117,20 +119,25 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
   const byTicker = [...groups.entries()].map(([ticker, items]) => ({ ticker, items }))
     .sort((a, b) => b.items[0].score - a.items[0].score || a.ticker.localeCompare(b.ticker));
 
+  // Dropped names (covered.json no longer lists them) never reach the waiting list or counts.
+  const tickers = covered?.tickers || null;
+  const inUniverse = tickers ? " AND ticker IN (SELECT value FROM json_each(?))" : "";
+  const tickerBind = tickers ? [JSON.stringify(tickers)] : [];
   const waitingRows = (await db.prepare(
     `SELECT id AS item_id, ticker, title, url, source_key, state, nm_first_seen, ingested_at
-       FROM items WHERE state IN ('pending','claimed') AND role IS NULL ORDER BY nm_first_seen DESC LIMIT 60`,
-  ).all()).results || [];
+       FROM items WHERE state IN ('pending','claimed') AND role IS NULL${inUniverse} ORDER BY nm_first_seen DESC LIMIT 60`,
+  ).bind(...tickerBind).all()).results || [];
   const counts = await db.prepare(
     `SELECT SUM(CASE WHEN role IS NULL THEN 1 ELSE 0 END) AS own, SUM(CASE WHEN role IS NOT NULL THEN 1 ELSE 0 END) AS cp,
             MIN(CASE WHEN role IS NULL THEN MAX(nm_first_seen, ingested_at) END) AS oldest
-       FROM items WHERE state IN ('pending','claimed')`,
-  ).first();
+       FROM items WHERE state IN ('pending','claimed')${inUniverse}`,
+  ).bind(...tickerBind).first();
 
+  // Sheet entries, graded notices and council agendas (runtimeEntries logs and
+  // drops a failing part), covered tickers only.
   const today = etParts(now).date;
-  let notices = [];
-  try { notices = await gradedNotices(db, { sinceIso: nowIso(now - 120 * DAY_MS) }); } catch (e) { console.error("notices", e?.message || e); }
-  const catalysts = briefCatalysts([...CALENDAR, ...notices], today, 7);
+  const runtime = await runtimeEntries(db, { sinceIso: nowIso(now - 120 * DAY_MS) });
+  const catalysts = briefCatalysts([...CALENDAR, ...runtime], today, 7).filter((e) => !tickers || tickers.includes(e.ticker));
 
   const lastRun = await db.prepare("SELECT id, last_seen_at, graded, rejected FROM runs ORDER BY last_seen_at DESC LIMIT 1").first();
   const gradedInWindow = await db.prepare("SELECT COUNT(*) AS n FROM grades WHERE graded_at >= ? AND graded_at < ?").bind(from, to).first();
@@ -145,7 +152,7 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
       graded_in_window: gradedInWindow?.n || 0,
       news_monitor: await newsHealth(env, covered),
     },
-    to_label: await pickToLabel(db, now),
+    to_label: await pickToLabel(db, now, 3, tickers),
   };
 }
 
@@ -199,7 +206,7 @@ export function renderBrief(b, { publicUrl = "", now = Date.parse(b.generated_at
 
   const cats = b.catalysts.slice(0, SECTION_CAP.catalysts).map((e) => {
     const when = e.precision === "day" ? fmtDay(e.start) : `from ${fmtDay(e.start)} (${e.precision === "part" || e.precision === "month" ? "window" : e.precision})`;
-    const tag = e.confirmed ? " · confirmed notice" : e.recurring ? " · weekly" : e.approx ? " · estimate" : e.deadline ? " · deadline" : "";
+    const tag = e.kind === "council_agenda" ? " · council agenda" : e.confirmed ? " · confirmed notice" : e.recurring ? " · weekly" : e.approx ? " · estimate" : e.deadline ? " · deadline" : "";
     return `• ${when} · **${e.ticker}** · ${escapeMd(clip(e.text, 170))}${e.time ? ` (${escapeMd(e.time)})` : ""}${tag}`;
   });
   if (b.catalysts.length > SECTION_CAP.catalysts) cats.push(`… and ${b.catalysts.length - SECTION_CAP.catalysts} more at /v1/calendar.`);
@@ -427,16 +434,18 @@ export async function briefRoute(env, covered, url) {
   let from = isIso(since) ? new Date(Date.parse(since)).toISOString() : await lastBriefEnd(env.DB, now);
   if (Date.parse(from) < now - 7 * DAY_MS) from = nowIso(now - 7 * DAY_MS);
   const brief = await buildBrief(env, covered, { from, to: nowIso(now), now, kind: "brief" });
-  return json({ ...brief, text: renderBrief(brief, { publicUrl: env.ZENITH_PUBLIC_URL || "", now }) });
+  // window: whether from came from ?since or from the last brief slot.
+  return json({ ...brief, window: isIso(since) ? "since" : "last_brief", text: renderBrief(brief, { publicUrl: env.ZENITH_PUBLIC_URL || "", now }) });
 }
 
-export async function calendarRoute(env, url) {
+// Covered tickers only: a dropped name's graded notice stays out.
+export async function calendarRoute(env, covered, url) {
   const q = url.searchParams;
   const now = Date.now();
   const days = Math.max(1, Math.min(400, Number(q.get("days")) || 30));
   const from = /^\d{4}-\d{2}-\d{2}$/.test(q.get("from") || "") ? q.get("from") : etParts(now).date;
   const ticker = (q.get("ticker") || "").toUpperCase() || null;
-  const entries = await upcoming(env.DB, CALENDAR, { from, days, ticker, noticesSince: nowIso(now - 120 * DAY_MS) });
+  const entries = await upcoming(env.DB, CALENDAR, { from, days, ticker, tickers: covered?.tickers || null, noticesSince: nowIso(now - 120 * DAY_MS) });
   return json({ calendar_version: CALENDAR_VERSION, from, days, ticker, entries });
 }
 

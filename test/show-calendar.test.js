@@ -1,0 +1,114 @@
+// Zenith show (phase 0), part (b): council agendas from legistar_* coverage items
+// become confirmed day entries (only for the routed company's own matters, never
+// for rival-marked or product-only titles), and GET /v1/calendar serves covered
+// tickers only. Synthetic towns, files and titles throughout.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { hookJsonImports, zenithDb, newsDb, TOKENS, request } from "./helpers/worker-env.js";
+import { addItem, addGrade } from "./helpers/d1.js";
+
+hookJsonImports();
+const { default: worker } = await import("../worker/src/index.js");
+const { councilAgendas } = await import("../worker/src/calendar.js");
+const { CALENDAR } = await import("../worker/src/calendar.generated.js");
+const { etParts, addDays } = await import("../worker/src/et.js");
+
+const DAY = 86_400_000;
+const iso = (msAgo = 0) => new Date(Date.now() - msAgo).toISOString();
+const SINCE = iso(120 * DAY);
+const today = () => etParts(Date.now()).date;
+const newEnv = () => ({ DB: zenithDb(), NEWS: newsDb(), ...TOKENS });
+
+const agendaTitle = (file, body, day) => `[AXON] Testville City Council ${file}: ${body} — In Committee, agenda ${day}`;
+
+test("council agendas: a legistar_* item titled \", agenda YYYY-MM-DD\" becomes a confirmed day entry for its ticker", async () => {
+  const env = newEnv();
+  const title = agendaTitle("26-3", "Axon Enterprise contract", "2026-12-08");
+  const id = await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title, url: "https://testville.example.gov/26-3",
+    state: "skipped", skip_reason: "stale_on_arrival" });
+  // Called directly (no try/catch around it): an SQL error fails this test.
+  const out = await councilAgendas(env.DB, { sinceIso: SINCE });
+  assert.deepEqual(out, [{ ticker: "AXON", kind: "council_agenda", start: "2026-12-08", end: "2026-12-08", precision: "day", confirmed: true,
+    text: title, item_id: id, url: "https://testville.example.gov/26-3" }]);
+});
+
+test("council agendas: other sources, decisive-status titles without an agenda, muted sources, old items, rival-marked and product-only titles give no entry", async () => {
+  const env = newEnv();
+  const day = "2026-12-08";
+  const own = agendaTitle("26-9", "Axon Enterprise contract", day);
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistarx_testcity", title: own });
+  await addItem(env.DB, { ticker: "AXON", source_key: "xlegistar_testcity", title: own });
+  await addItem(env.DB, { ticker: "AXON", source_key: "testcity_axon", title: own });
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: "[AXON] Testville City Council 26-4: Axon Enterprise contract — Adopted" });
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: own, state: "skipped", skip_reason: "muted_source" });
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: own, nm_first_seen: iso(200 * DAY) });
+  // A4: the rival marker, and a matter that names only a product, never the company.
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon",
+    title: `[AXON] (Flock/ALPR, rival) Testville City Council 26-1: license plate reader renewal — In Committee, agenda ${day}` });
+  await addItem(env.DB, { ticker: "SERV", source_key: "legistar_testcity_serv",
+    title: `[SERV] Testville City Council 26-2: personal delivery device rules — In Committee, agenda ${day}` });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), []);
+  // The routed company's own matter still gives its entry.
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: agendaTitle("26-3", "Axon Enterprise contract", day) });
+  assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.start]), [["AXON", day]]);
+});
+
+test("A4: a rival-marked title gives no entry, a product-only title gives no entry, the company's own contract gives one", async () => {
+  const env = newEnv();
+  const day = "2026-12-08";
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] (Flock/ALPR, rival) Testville City Council 26-1: Flock Safety ALPR agreement — In Committee, agenda ${day}` });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "rival-marked");
+  await addItem(env.DB, { ticker: "SERV", source_key: "legistar_testville_serv",
+    title: `[SERV] Testville City Council 26-2: personal delivery device rules — In Committee, agenda ${day}` });
+  assert.deepEqual(await councilAgendas(env.DB, { sinceIso: SINCE }), [], "product-only");
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testville_axon",
+    title: `[AXON] Testville City Council 26-3: Axon Enterprise contract — In Committee, agenda ${day}` });
+  assert.deepEqual((await councilAgendas(env.DB, { sinceIso: SINCE })).map((e) => [e.ticker, e.kind, e.start]), [["AXON", "council_agenda", day]]);
+});
+
+async function seedCalendar(env) {
+  const day = addDays(today(), 10);
+  await addItem(env.DB, { ticker: "AXON", source_key: "legistar_testcity_axon", title: agendaTitle("26-3", "Axon Enterprise contract", day),
+    url: "https://testville.example.gov/26-3" });
+  const sym = await addItem(env.DB, { ticker: "SYM", source_key: "symbotic", title: `Testco to announce results on ${addDays(today(), 5)}`,
+    nm_first_seen: iso(DAY), published: iso(DAY) });
+  await addGrade(env.DB, sym, { score: 75, flags: JSON.stringify(["reason:calendar_card"]) });
+  // A graded notice for a name dropped from coverage: never on the calendar.
+  const rekr = await addItem(env.DB, { ticker: "REKR", source_key: "rekor", title: `Dropco to announce results on ${addDays(today(), 6)}`,
+    nm_first_seen: iso(DAY), published: iso(DAY) });
+  await addGrade(env.DB, rekr, { score: 75, flags: JSON.stringify(["reason:calendar_card"]) });
+  return { day };
+}
+
+test("GET /v1/calendar: 30 days of sheet entries, notices and council agendas, covered tickers only", async () => {
+  const env = newEnv();
+  const { day } = await seedCalendar(env);
+  const r = await request(worker, env, "GET", "/v1/calendar?days=30", { role: "app" });
+  assert.equal(r.status, 200);
+  const kinds = new Set(r.body.entries.map((e) => e.kind));
+  assert.ok(kinds.has("graded_notice") && kinds.has("council_agenda"), [...kinds].join(","));
+  assert.ok(r.body.entries.some((e) => !e.item_id), "sheet entries are still there");
+  const agenda = r.body.entries.find((e) => e.kind === "council_agenda");
+  assert.deepEqual([agenda.ticker, agenda.start, agenda.confirmed], ["AXON", day, true]);
+  assert.ok(r.body.entries.some((e) => e.kind === "graded_notice" && e.ticker === "SYM"));
+  assert.ok(!r.body.entries.some((e) => e.ticker === "REKR"), "REKR is no longer covered");
+  // The ticker filter still works on top of the covered filter.
+  const one = await request(worker, env, "GET", "/v1/calendar?days=30&ticker=AXON", { role: "app" });
+  assert.ok(one.body.entries.length && one.body.entries.every((e) => e.ticker === "AXON"));
+});
+
+test("GET /v1/calendar: the grader token still gets 200 with entries after the covered-ticker filter", async () => {
+  const env = newEnv();
+  await seedCalendar(env);
+  const r = await request(worker, env, "GET", "/v1/calendar?days=30", { role: "grader" });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.entries.length > 0);
+  assert.ok(r.body.entries.some((e) => e.kind === "council_agenda"));
+});
+
+test("the generated calendar keeps MSTR 2026-11-30 (MSCI) and MBAI 2026-12-22 (AGM)", () => {
+  const has = (t, d, re) => CALENDAR.some((e) => e.ticker === t && e.start === d && e.precision === "day" && re.test(e.text));
+  assert.ok(has("MSTR", "2026-11-30", /MSCI/), "MSTR MSCI");
+  assert.ok(has("MBAI", "2026-12-22", /AGM/), "MBAI AGM");
+});

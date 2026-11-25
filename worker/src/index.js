@@ -505,7 +505,7 @@ export default {
       case "POST /v1/feedback": return feedback(env, await readJson(request));
       case "GET /v1/stats": return stats(env);
       case "GET /v1/brief": return briefRoute(env, COVERED, url);
-      case "GET /v1/calendar": return calendarRoute(env, url);
+      case "GET /v1/calendar": return calendarRoute(env, COVERED, url);
       case "GET /v1/calibration": return calibrationRoute(env);
       case "POST /v1/admin/ingest": return json(await ingest(env));
       case "POST /v1/admin/enrich": return json(await enrich(env));

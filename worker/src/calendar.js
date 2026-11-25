@@ -3,11 +3,14 @@
 //   company sheet's open_items (target / expires_at), status_events, dated
 //   thesis_drivers and the "Catalyst calendar" section into dated entries.
 //   Run time: upcoming() merges those entries with graded date notices
-//   (calendar_card grades, dated from the title) for GET /v1/calendar and the brief.
+//   (calendar_card grades, dated from the title) and council agendas (legistar_*
+//   items, councilAgendas) for GET /v1/calendar and the brief.
 // Entry: { ticker, kind, start, end, precision, text, approx?, deadline?,
 //          context?, recur?: { weekday }, id?, item_id?, url?, time?, confirmed? }
 //   precision: day | part (early/mid/late month) | month | quarter | half | season | year | range
 import { addDays, weekdayOf } from "./et.js";
+import { MATCH } from "./rubric.generated.js";
+import { phraseRegex } from "./lib.js";
 
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
 const MONTH_RE = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
@@ -379,10 +382,50 @@ export async function gradedNotices(db, { sinceIso }) {
   return out;
 }
 
-// Sheet entries plus graded notices overlapping [from, from + days].
-export async function upcoming(db, sheetEntries, { from, days = 30, ticker = null, noticesSince }) {
-  let all = [...sheetEntries];
-  try { all = all.concat(await gradedNotices(db, { sinceIso: noticesSince })); } catch (e) { console.error("graded notices failed", e?.message || e); }
+// Council agendas (Zenith show, phase 0): news-monitor's legistar_matters adapter
+// writes "… — <status>, agenda YYYY-MM-DD" into a matter's title, so any coverage
+// item from a legistar_* source with that tail becomes a confirmed day entry for
+// its ticker. Any item state counts (a stale-skipped agenda still shows); muted
+// sources do not. Kept only when the title names the routed company's own terms
+// and carries no rival marker ("[AXON] (Flock/ALPR, rival) …"), so rival and
+// product-only matters stay graded but off the calendar. The date is the agenda
+// date as first seen: news-monitor does not re-store a matter when it moves.
+const AGENDA_RE = /, agenda (20\d\d-\d\d-\d\d)\b/;
+const RIVAL_MARK_RE = /^\[[^\]]+\]\s*\([^)]*\brival\)/;
+export async function councilAgendas(db, { sinceIso }) {
+  // substr, not LIKE 'legistar\_%' ESCAPE: the backslashes would not survive a JS string.
+  const rows = (await db.prepare(
+    "SELECT i.id AS item_id, i.ticker, i.title, i.url, i.source_key, i.nm_first_seen FROM items i WHERE substr(i.source_key, 1, 9) = 'legistar_' AND i.title LIKE '%, agenda 20%' AND i.nm_first_seen >= ? AND COALESCE(i.skip_reason,'') != 'muted_source' ORDER BY i.id DESC LIMIT 200",
+  ).bind(sinceIso).all()).results || [];
+  const out = [];
+  for (const r of rows) {
+    const title = String(r.title || "");
+    const m = AGENDA_RE.exec(title);
+    if (!m || RIVAL_MARK_RE.test(title)) continue;
+    const own = phraseRegex(MATCH[r.ticker]?.terms || []);
+    if (!own || !own.test(title)) continue;
+    const d = m[1];
+    out.push({ ticker: r.ticker, kind: "council_agenda", start: d, end: d, precision: "day", confirmed: true,
+      text: clipText(title, 200), item_id: r.item_id, url: r.url });
+  }
+  return out;
+}
+
+// Entries read from zenith-db at run time: graded notices and council agendas.
+// Each part fails on its own: an error is logged and that part is empty.
+export async function runtimeEntries(db, { sinceIso }) {
+  const parts = await Promise.all([
+    gradedNotices(db, { sinceIso }).catch((e) => { console.error("graded notices failed", e?.message || e); return []; }),
+    councilAgendas(db, { sinceIso }).catch((e) => { console.error("council agendas failed", e?.message || e); return []; }),
+  ]);
+  return parts.flat();
+}
+
+// Sheet entries plus run-time entries overlapping [from, from + days]; with
+// tickers, only those tickers (the covered universe).
+export async function upcoming(db, sheetEntries, { from, days = 30, ticker = null, tickers = null, noticesSince }) {
+  let all = [...sheetEntries, ...await runtimeEntries(db, { sinceIso: noticesSince })];
+  if (tickers) all = all.filter((e) => tickers.includes(e.ticker));
   if (ticker) all = all.filter((e) => e.ticker === ticker);
   return occurrences(all, from, addDays(from, days));
 }
