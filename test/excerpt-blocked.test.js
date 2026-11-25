@@ -9,8 +9,8 @@ import { readFileSync } from "node:fs";
 import { hookJsonImports, zenithDb } from "./helpers/worker-env.js";
 
 hookJsonImports();
-const { isBlockPage, fetchExcerpt, fetchPage, fedregDocNumber, fedregApiUrl, govinfoUrl, fedregSupplementary, fedregExcerpt, enrich, PAGE_UA } =
-  await import("../worker/src/excerpt.js");
+const EX = await import("../worker/src/excerpt.js");
+const { isBlockPage, fetchExcerpt, fetchPage, fedregDocNumber, fedregApiUrl, govinfoUrl, fedregSupplementary, fedregExcerpt, enrich, PAGE_UA } = EX;
 const FR = JSON.parse(readFileSync(new URL("./fixtures/fedreg.json", import.meta.url), "utf8"));
 
 // federalregister.gov's page as zenith-core received it (its text, 2026-11-25).
@@ -31,6 +31,51 @@ test("isBlockPage: bot checks served as pages are refusals; an article about CAP
   assert.equal(isBlockPage(ARTICLE_ON_BOTS), false, "a long page that only mentions the words");
   assert.equal(isBlockPage(FR.govinfo["2026-22600"]), false);
   assert.equal(isBlockPage("<h1>Planet signs agreement</h1><p>Planet signed a multi-launch agreement.</p>"), false);
+});
+
+test("isBlockPage: markers only in scripts, attributes or hidden forms do not make a short release a block page", () => {
+  const release = `<h1>Example Corp Wins $12 Million Order</h1><p>${"Example Corp today announced a $12 million order from a defense customer. ".repeat(10)}</p>`;
+  const hidden = [
+    `<script>var msg = "Please complete the CAPTCHA";</script>`,
+    `<form data-error="Please complete the captcha."><input name="e"></form>`,
+    `<noscript>Enable JavaScript and cookies to continue</noscript>`,
+    `<template><label>Please verify you are human</label></template>`,
+  ];
+  for (const h of hidden) assert.equal(isBlockPage(`<html><head><title>Example Corp news</title></head><body>${h}${release}</body></html>`), false, h);
+  assert.equal(isBlockPage(release), false);
+});
+
+test("Federal Register: the signature, [FR Doc.] line and billing code, and public-participation boilerplate are not kept", () => {
+  const html = `<html><body><pre>
+SUMMARY: The agency proposes a rule.
+
+SUPPLEMENTARY INFORMATION:
+
+Instructions
+
+    All submissions must include the agency name and docket number.
+
+Background
+
+    The agency proposes to exempt 40 automated trucks from the rule.
+
+Public Participation
+
+    Comments may be submitted electronically.
+
+</pre></body></html>`;
+  const supp = fedregSupplementary(html);
+  assert.equal(supp, "Background\nThe agency proposes to exempt 40 automated trucks from the rule.");
+  const signed = `<pre>
+SUPPLEMENTARY INFORMATION: The agency grants the exemption for 3 years.
+
+    Issued under the authority of 49 CFR 1.87.
+Jane Example,
+Administrator.
+[FR Doc. 2025-00123 Filed 1-7-25; 8:45 am]
+BILLING CODE 4910-EX-P
+</pre>`;
+  assert.equal(fedregSupplementary(signed), "The agency grants the exemption for 3 years.");
 });
 
 function serve(routes) {
@@ -56,6 +101,16 @@ const frRoutes = (url) => {
   if (/federalregister\.gov\/documents\//.test(url)) return { body: FR_BLOCK };
   return null;
 };
+
+test("htmlToText and the govinfo reader run in linear time on unclosed tags", () => {
+  const { htmlToText } = EX;
+  for (const s of ["<br ".repeat(75_000), "<".repeat(300_000), "<pre ".repeat(60_000)]) {
+    const t = performance.now();
+    htmlToText(s); fedregSupplementary(s); isBlockPage(`please complete the CAPTCHA ${s}`);
+    assert.ok(performance.now() - t < 2000, `${s.slice(0, 5)}: ${Math.round(performance.now() - t)} ms`);
+  }
+  assert.equal(htmlToText("<p>a<br>b</p><brx>c<br/>d</h2 x>e<b>f</b>"), "a\nb\nc\nd\ne f");
+});
 
 test("fetchPage: a block page served with a 200 is 'blocked', not ok", async () => {
   const s = serve(() => ({ body: FR_BLOCK }));
@@ -84,6 +139,7 @@ test("Federal Register: the FCC rule is read from the API and govinfo, never the
   try {
     const r = await fetchExcerpt({}, { url: FCC_URL, title: "Modernizing Spectrum Sharing for Satellite Broadband", role: "counterparty" });
     assert.equal(r.status, "ok");
+    assert.deepEqual([r.source, r.replaceSource], [null, true], "excerpt_source names the item's own URL");
     assert.ok(r.excerpt.startsWith("Rule: Final action.\nAgency: Federal Communications Commission\nDates: Effective December 7, 2026."), r.excerpt);
     assert.ok(r.excerpt.includes("geostationary (GSO) satellite network reference links"));
     assert.ok(r.excerpt.includes("SB Docket No. 25-157"), "the supplementary information follows the abstract");

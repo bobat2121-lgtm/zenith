@@ -97,10 +97,26 @@ function decodeEntity(m, name) {
   return ENTITIES[name.toLowerCase()] ?? m;
 }
 
+// Replaces "<...>" tags with sep, as s.replace(/<[^>]*>/g, sep) would, or with
+// lineTag only the tags that end a line (/<(br|\/p|...)\b[^>]*>/gi), in linear
+// time: those regexes rescan to the end for each "<" when no ">" follows.
+const LINE_TAG = /^<(?:br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/table)\b/i;
+function stripTags(s, sep, lineTag = false) {
+  let res = "", pos = 0, from = 0;
+  for (;;) {
+    const i = s.indexOf("<", from);
+    if (i === -1) return res + s.slice(pos);
+    if (lineTag && !LINE_TAG.test(s.slice(i, i + 8))) { from = i + 1; continue; }
+    const j = s.indexOf(">", i + 1);
+    if (j === -1) return res + s.slice(pos);
+    res += s.slice(pos, i) + sep;
+    pos = from = j + 1;
+  }
+}
+
 export function htmlToText(html) {
-  return dropBlocks(dropComments(String(html || "").slice(0, MAX_TEXT_INPUT)), DROP_BLOCKS)
-    .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/table)\b[^>]*>/gi, "\n")
-    .replace(/<[^>]*>/g, " ")
+  const body = dropBlocks(dropComments(String(html || "").slice(0, MAX_TEXT_INPUT)), DROP_BLOCKS);
+  return stripTags(stripTags(body, "\n", true), " ")
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
     .replace(/[ \t\f\v\r\u00a0]+/g, " ")
     .replace(/ ?\n ?/g, "\n")
@@ -485,8 +501,9 @@ export function secExcerpt(bodyText, exhibitText) {
 // federalregister.gov's "Request Access" page, Cloudflare's challenge and
 // block pages, Incapsula, Akamai and Distil denials. fetchPage reports one as
 // 'blocked', which is retried like a 403. A marker is searched for in the raw
-// page first (cheap); only a short page counts, so an article that mentions
-// CAPTCHAs is still read.
+// page first (cheap), then must be in its title or visible text (not a script,
+// an attribute or a hidden form's label), and only a short page counts, so an
+// article that mentions CAPTCHAs is still read.
 const BLOCK_RE = [
   /has been flagged as potentially automated/i,
   /programmatic access to these sites is limited/i,
@@ -503,7 +520,13 @@ const BLOCK_PAGE_CHARS = 4000;
 export function isBlockPage(html) {
   const h = String(html || "").slice(0, MAX_TEXT_INPUT);
   if (!BLOCK_RE.some((re) => re.test(h))) return false;
-  return htmlToText(h).length <= BLOCK_PAGE_CHARS;
+  const text = htmlToText(h);
+  if (text.length > BLOCK_PAGE_CHARS) return false;
+  const t = h.toLowerCase().indexOf("<title");
+  const te = t === -1 ? -1 : h.indexOf(">", t);
+  const tc = te === -1 ? -1 : h.toLowerCase().indexOf("</title", te);
+  const title = tc === -1 ? "" : htmlToText(h.slice(te + 1, Math.min(tc, te + 1 + 300)));
+  return BLOCK_RE.some((re) => re.test(title) || re.test(text));
 }
 
 // --- Federal Register ------------------------------------------------------------
@@ -535,15 +558,19 @@ export function govinfoUrl(rec) {
 // columns; a blank line between paragraphs), tags dropped, entities decoded.
 function gpoParagraphs(html) {
   const s = String(html || "").slice(0, MAX_TEXT_INPUT);
-  const pre = /<pre\b[^>]*>([\s\S]*?)(?:<\/pre>|$)/i.exec(s);
-  return (pre ? pre[1] : s).replace(/<[^>]*>/g, "").replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
+  const lower = s.toLowerCase();
+  const open = lower.indexOf("<pre");
+  const gt = open === -1 ? -1 : s.indexOf(">", open);
+  const close = gt === -1 ? -1 : lower.indexOf("</pre>", gt);
+  const body = gt === -1 ? s : s.slice(gt + 1, close === -1 ? s.length : close);
+  return stripTags(body, "").replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
     .replace(/\r/g, "").replace(/\n?\[\[Page \d+\]\]\n?/g, "\n").split(/\n[ \t]*\n/).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 const FR_SUPP_START = /^SUPPLEMENTARY INFORMATION:\s*/;
-const FR_SUPP_END = /^(?:List of Subjects\b|Regulatory Flexibility\b|Final Regulatory Flexibility\b|Initial Regulatory Flexibility\b|Paperwork Reduction Act\b|Congressional Review Act\b|Rulemaking Requirements\b|Regulatory (?:Analyses|Analysis|Requirements|Notices)\b|Procedural Matters\b|Ordering Clauses\b|Executive Orders? \d|Statutory Authority\b|Authority:|\[FR Doc\.)/;
+const FR_SUPP_END = /^(?:List of Subjects\b|Public Participation\b|Privacy Act\b|Regulatory Flexibility\b|Final Regulatory Flexibility\b|Initial Regulatory Flexibility\b|Paperwork Reduction Act\b|Congressional Review Act\b|Rulemaking Requirements\b|Regulatory (?:Analyses|Analysis|Requirements|Notices)\b|Procedural Matters\b|Ordering Clauses\b|Executive Orders? \d|Statutory Authority\b|Authority:|\[FR Doc\.)/;
 // Subsections every rule of a kind repeats (BIS's description of the Entity
 // List, its savings clause, its statutory authority): skipped to the next heading.
-const FR_BOILERPLATE = /^(?:The Entity List|Savings Clause|Export Control Reform Act(?: of 2018)?|Legal Authority|Statutory Authority)$/i;
+const FR_BOILERPLATE = /^(?:The Entity List|Savings Clause|Export Control Reform Act(?: of 2018)?|Legal Authority|Statutory Authority|Instructions)$/i;
 const isHeading = (p) => p.length <= 80 && !/[.:;,]$/.test(p);
 export function fedregSupplementary(html) {
   const paras = gpoParagraphs(html);
@@ -553,6 +580,9 @@ export function fedregSupplementary(html) {
   let skipping = false;
   for (const p of paras.slice(start + 1)) {
     if (FR_SUPP_END.test(p)) break;
+    // The signature, "[FR Doc. ...]" and billing code share a paragraph that
+    // opens with the signer's name: nothing from it on is kept.
+    if (p.includes("[FR Doc.")) break;
     if (isHeading(p)) skipping = FR_BOILERPLATE.test(p);
     if (!skipping) out.push(p);
   }
@@ -578,7 +608,8 @@ async function fetchFedreg(num) {
   const textUrl = govinfoUrl(rec);
   const doc = textUrl ? await fetchPage(textUrl, PAGE_UA) : null;
   const excerpt = fedregExcerpt(rec, doc?.status === "ok" ? fedregSupplementary(doc.html) : "");
-  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
+  // Not read from any PDF the feed named: excerpt_source is cleared (the item's URL).
+  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt, source: null, replaceSource: true } : { status: "skipped_empty" };
 }
 
 // --- Fetching ----------------------------------------------------------------
@@ -972,7 +1003,7 @@ export async function enrich(env) {
   if (stmts.length) await env.DB.batch(stmts);
   const count = (status) => results.filter((r) => r.status === status).length;
   return { tried: results.length, ok: count("ok"), pdf: count("pdf"), pdf_unreadable: count("pdf_unreadable"), pdf_deferred: count("deferred_pdf"),
-    retry: results.filter((r) => RETRYABLE(r.status)).length, sec_deferred: secBusy, at: now };
+    retry: results.filter((r) => RETRYABLE(r.status)).length, blocked: count("blocked"), sec_deferred: secBusy, at: now };
 }
 
 // Last reads that ended in a refusal or an outage, worth one more pass.
