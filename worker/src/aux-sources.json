@@ -686,6 +686,18 @@
       ],
       "record": true
     },
+    "fedreg_fcc_space": {
+      "entity": "fedreg_fcc_space",
+      "name": "Federal Register",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "PL",
+        "SATL"
+      ],
+      "record": true
+    },
     "figure": {
       "entity": "figure",
       "name": "Figure AI (private)",
@@ -1052,6 +1064,132 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "legistar_cookcounty": {
+      "entity": "legistar_cookcounty",
+      "name": "Cook County Board of Commissioners",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_corpuschristi": {
+      "entity": "legistar_corpuschristi",
+      "name": "Corpus Christi City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_dallas": {
+      "entity": "legistar_dallas",
+      "name": "Dallas City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_dane": {
+      "entity": "legistar_dane",
+      "name": "Dane County Board",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_elpaso": {
+      "entity": "legistar_elpaso",
+      "name": "El Paso City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_fresno": {
+      "entity": "legistar_fresno",
+      "name": "Fresno City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_hayward": {
+      "entity": "legistar_hayward",
+      "name": "Hayward City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_milwaukee": {
+      "entity": "legistar_milwaukee",
+      "name": "Milwaukee Common Council and Fire and Police Commission",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_nashville": {
+      "entity": "legistar_nashville",
+      "name": "Metro Nashville Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
     "legistar_oakland_axon": {
       "entity": "legistar_oakland_axon",
       "name": "Oakland City Council",
@@ -1060,6 +1198,48 @@
       "coverage_subject": true,
       "affects": [
         "AXON"
+      ],
+      "record": true
+    },
+    "legistar_sanjose": {
+      "entity": "legistar_sanjose",
+      "name": "San Jose City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_stpaul": {
+      "entity": "legistar_stpaul",
+      "name": "Saint Paul City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
+    "legistar_toledo": {
+      "entity": "legistar_toledo",
+      "name": "Toledo City Council",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
       ],
       "record": true
     },
@@ -2238,10 +2418,14 @@
     "probe_aglt_ir_home": "ops",
     "probe_aglt_ir_news_rss": "ops",
     "probe_aglt_press_page": "ops",
+    "probe_army_article_jiatf": "ops",
+    "probe_army_news": "ops",
+    "probe_army_rss": "ops",
     "probe_axon_newsroom": "ops",
     "probe_axon_sitemap": "ops",
     "probe_bw_legacy_feed": "ops",
     "probe_bw_pl_release": "ops",
+    "probe_dvids_news_rss": "ops",
     "probe_gnw_bot_rss": "ops",
     "probe_gnw_bot_www": "ops",
     "probe_gnw_sym_rss": "ops",
@@ -2263,6 +2447,7 @@
     "probe_sym_ir_events_rss": "ops",
     "probe_sym_ir_news_page": "ops",
     "probe_sym_ir_news_rss": "ops",
+    "probe_wargov_news_rss": "ops",
     "probe_xtraf_ir_events_rss": "ops",
     "probe_xtraf_ir_presentations": "ops",
     "site_agility": "ops",

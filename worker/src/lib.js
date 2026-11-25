@@ -660,8 +660,14 @@ export function routeCounterparty(title, cp, match) {
   const text = String(title || "");
   const company = affects.filter((t) => regexesFor(match, t).company?.test(text));
   const account = affects.filter((t) => regexesFor(match, t).account?.test(text));
+  // Phase 0 nm-sources: leading tag. A title's leading "[T]" or "[T/U]" tag
+  // (news-monitor's matcher prefix, e.g. "[SERV] … personal delivery device
+  // rules") decides when no company or key account matches; a tag outside
+  // affects is ignored, and the rival skip rule is unchanged.
+  const tag = (text.match(/^\[([A-Z][A-Z0-9.]{0,7}(?:\/[A-Z][A-Z0-9.]{0,7})*)\]/) || [])[1];
+  const tagged = tag ? tag.split("/").filter((t) => affects.includes(t)) : [];
   return {
-    ticker: company[0] || account[0] || affects[0],
+    ticker: company[0] || account[0] || tagged[0] || affects[0],
     role: cp.role || "counterparty",
     affects: affects.join(","),
     skip: cp.role === "rival" && !company.length && !account.length ? "rival_no_key_account" : null,
