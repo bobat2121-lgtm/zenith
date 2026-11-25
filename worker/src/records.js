@@ -7,6 +7,7 @@
 import COVERED from "./covered.json";
 import AUX from "./aux-sources.json";
 import { isSecItem } from "./lib.js";
+export { RECORD_LOOKBACK_DAYS } from "./lib.js";
 
 const RECORDS = new Set(COVERED.records || []);
 const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);

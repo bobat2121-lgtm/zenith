@@ -21,6 +21,7 @@ import { enrich, refreshSecExcerpts } from "./excerpt.js";
 import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk, parseFloors, sightingAgeDays, olderEventDate, labelReason, ownerRank, ownerPick, TO_LABEL_DAYS, TO_LABEL_ORDER, LABELS, MAX_CLAIM, LEASE_MINUTES, MAX_ATTEMPTS, HELD_SQL } from "./lib.js";
 // Phase 0 gates: the daily grading budget (held rows) and the admin rescue.
 import { releaseHeld } from "./budget.js";
+import { isOfficialRecord } from "./records.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
@@ -105,11 +106,13 @@ async function claim(env, body) {
         AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
   ).bind(claimId, until, now, limit, nowIso(Date.now() - HOLD_MINUTES * 60_000)).run();
   const items = (await env.DB.prepare(
-    `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status, i.bill_lines FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
+    `SELECT ${ITEM_COLS}, i.excerpt, i.excerpt_status, i.bill_lines, i.admit FROM items i WHERE i.claim_id = ? ORDER BY i.nm_first_seen DESC`,
   ).bind(claimId).all()).results || [];
   for (const it of items) {
     // Timeliness is measured from first sighting, never from grading time.
     it.seen_after_days = sightingAgeDays(it.published, it.first_seen);
+    // Phase 0 gates: admit says why the gate let a row in; record whether it is an official record.
+    it.record = isOfficialRecord(it);
     // The grader sees the compact AUTONOMY LINES block, never the stored JSON.
     const bl = parseStored(it.bill_lines);
     delete it.bill_lines;

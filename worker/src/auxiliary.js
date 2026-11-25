@@ -15,8 +15,9 @@
 import COVERED from "./covered.json";
 import { AUX_RUBRIC_VERSION, MATCH } from "./rubric.generated.js";
 import { auxRoute } from "./aux-route.js";
-import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, OLD_OR_UNDATED_SQL } from "./ingest.js";
-import { json, nowIso, bandFor, chunk, isHttpUrl, skipReason, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, sightingAgeDays,
+import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCursor, storedArchiveCounts, seedMap, isSeedRow, gateContext, parkGroupStatement } from "./ingest.js";
+import { isOfficialRecord } from "./records.js";
+import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, routeCounterparty, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
   HELD_SQL } from "./lib.js";
 import { mutedSources, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
@@ -104,7 +105,7 @@ export function rivalGate(r) {
 // `end`. rivalCatchUp: rival rows only, as the aux_rv_cursor catch-up above.
 async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false }) {
   const bounded = end !== null;
-  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, done = false;
+  let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, held = 0, done = false;
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare(`SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ?${bounded ? " AND rowid <= ?" : ""} ORDER BY rowid LIMIT ?)`)
@@ -127,13 +128,12 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     // Day-one archive rows (a seed or backfill of undated or old pages) are
     // parked, not queued; earlier rows of the same poll are parked too.
     const park = archiveSeedGroups(rows, await storedArchiveCounts(db, rows, cursor, "aux_items"));
+    // Phase 0 gates: seed membership (news-monitor MIN(first_seen), SELECT only).
+    const first = await seedMap(news, rows);
     const groupRow = new Map(rows.map((r) => [archiveGroupKey(r.source_key, r.first_seen), r]));
     for (const key of park) {
-      const { source_key: sourceKey, first_seen: firstSeen } = groupRow.get(key);
-      stmts.push(db.prepare(
-        `UPDATE aux_items SET state = 'skipped', skip_reason = 'archive_seed', claim_id = NULL, claimed_until = NULL
-          WHERE source_key = ? AND nm_first_seen = ? AND nm_rowid <= ? AND state = 'pending' AND ${OLD_OR_UNDATED_SQL}`,
-      ).bind(sourceKey, firstSeen, cursor));
+      const g = groupRow.get(key);
+      stmts.push(parkGroupStatement(db, "aux_items", { sourceKey: g.source_key, firstSeen: g.first_seen, cursor, seed: isSeedRow(g, first) }));
     }
     const updates = stmts.length;
     // Rival rows the coverage gate keeps, stored here before Z11: graded on Coverage.
@@ -145,22 +145,26 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     }
     const movedTo = stmts.length;
     for (const { r, route } of routed) {
-      const archive = park.has(archiveGroupKey(r.source_key, r.first_seen)) && isArchiveCandidate(r);
+      // The arrival gate (lib.js arrivalGate) with the Auxiliary rules: no
+      // record exception past 21 days (auxiliary.md section 5).
+      const gate = arrivalGate(r, gateContext(r, "aux", first, park));
       // Only http(s) links are ever shown in the feed.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : archive ? "archive_seed" : skipReason(r) || (muted.has(r.source_key) ? "muted_source" : null);
+      const reason = !isHttpUrl(r.url) ? "bad_url" : gate.reason || (muted.has(r.source_key) ? "muted_source" : null);
+      const admit = reason ? null : gate.admit;
       if (reason) skipped++;
+      if (admit) held++;
       const feed = feedFields(r, { role: null }, now);
       if (feed.status) fromFeed++;
       const subject = route.coverage_subject === true;
       // The rival catch-up also marks a stored row it would have routed this way.
       stmts.push(db.prepare(
         `INSERT${rivalCatchUp ? "" : " OR IGNORE"} INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, published, category, nm_first_seen,
-           ingested_at, state, skip_reason, excerpt, excerpt_status, coverage_subject, affects)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${rivalCatchUp
+           ingested_at, state, skip_reason, excerpt, excerpt_status, coverage_subject, affects, admit)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${rivalCatchUp
           ? " ON CONFLICT (nm_rowid) DO UPDATE SET coverage_subject = 1, affects = excluded.affects WHERE aux_items.state != 'graded'" : ""}`,
       ).bind(r.nm_rowid, r.source_key, route.entity_key, route.entity_name, route.status, r.url || "", r.title || "(untitled)", r.published ?? null,
         r.category ?? null, r.first_seen, now, reason ? "skipped" : "pending", reason || null, feed.status ? feed.excerpt : null, feed.status,
-        subject ? 1 : 0, subject && route.affects?.length ? route.affects.join(",") : null));
+        subject ? 1 : 0, subject && route.affects?.length ? route.affects.join(",") : null, admit));
     }
     const n = stmts.length;
     stmts.push(setMeta(db, cursorKey, win.hi));
@@ -174,14 +178,14 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     cursor = win.hi;
     if (win.n < BATCH || (bounded && cursor >= end)) { done = bounded; break; }
   }
-  const out = { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed };
+  const out = { cursor, scanned, matched, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held };
   if (rivalCatchUp) out.parked_on_coverage = moved;
   return bounded ? { ...out, done } : out;
 }
 
 // --- Claim ------------------------------------------------------------------
 const CLAIM_COLS = `i.id AS item_id, i.source_key, i.entity_key, i.entity_name, i.status, i.title, i.url, i.published,
-  i.nm_first_seen AS first_seen, i.excerpt, i.excerpt_status, i.coverage_subject, i.affects`;
+  i.nm_first_seen AS first_seen, i.excerpt, i.excerpt_status, i.coverage_subject, i.affects, i.admit`;
 
 // Claim order (Z1): items first seen more than AUX_OLD_HOURS ago come first,
 // oldest first, so a backlog drains instead of aging out; then newest first.
@@ -219,6 +223,8 @@ export async function auxClaim(env, body) {
     // From a feed built for these covered companies (aux-route.js).
     it.coverage_subject = it.coverage_subject === 1;
     it.affects = it.affects ? String(it.affects).split(",").filter(Boolean) : [];
+    // Phase 0 gates: whether it is an official record (admit says why the gate let it in).
+    it.record = isOfficialRecord(it);
   }
   const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: AUX_RUBRIC_VERSION, items,

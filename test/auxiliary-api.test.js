@@ -127,8 +127,9 @@ test("claim: newest first under a 45-minute lease; concurrent claims never share
   const c1 = await claimAux(env, { limit: 2, run_id: "run-a", model: "m", rubric_version: "a-x" });
   assert.deepEqual(c1.items.map((i) => i.item_id), [ids[4], ids[3]], "newest first; skipped and graded items are never claimed");
   assert.deepEqual([c1.run_id, c1.rubric_version, c1.lease_minutes, c1.remaining], ["run-a", AUX_RUBRIC_VERSION, LEASE_MINUTES, 3]);
-  assert.deepEqual(Object.keys(c1.items[0]).sort(), ["affects", "coverage_subject", "entity_key", "entity_name", "excerpt", "excerpt_status", "first_seen",
-    "item_id", "published", "seen_after_days", "source_key", "status", "title", "url"]);
+  // Phase 0 gates added admit (why the arrival gate let it in) and record (an official record).
+  assert.deepEqual(Object.keys(c1.items[0]).sort(), ["admit", "affects", "coverage_subject", "entity_key", "entity_name", "excerpt", "excerpt_status", "first_seen",
+    "item_id", "published", "record", "seen_after_days", "source_key", "status", "title", "url"]);
   assert.deepEqual([c1.items[0].entity_name, c1.items[0].status, c1.items[0].seen_after_days], ["Anduril (private)", "private", 1]);
   assert.deepEqual([c1.items[0].coverage_subject, c1.items[0].affects], [false, []], "a company's own channel is not a coverage subject");
   const lease = rows(env, "SELECT claim_id, claimed_until, attempts, state FROM aux_items WHERE id = ?", ids[4])[0];

@@ -15,6 +15,7 @@ const { ingest } = await import("../worker/src/ingest.js");
 const { SEC_FORMS, SEC_FORM_RE, LABEL_REASONS, normalizeHeadline, bandFor } = await import("../worker/src/lib.js");
 const { runGaps, graderStatus, prefRefusal, suggestFor, DEMOTE_POINTS } = await import("../worker/src/tuning.js");
 const { buildCalibration } = await import("../worker/src/brief.js");
+const { releaseHeld } = await import("../worker/src/budget.js");
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -567,6 +568,10 @@ test("Z11 rival items the key-account gate drops are auxiliary (coverage subject
   assert.deepEqual(aux[0], { title: "Vector raises $40M Series B for drone interceptors", entity_key: "tfvector", entity_name: "Vector (tfvector.com; Bluffdale, Utah)",
     state: "pending", coverage_subject: 1, affects: "DPRO,RCAT" });
   assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'anduril'")[0].n, 1);
+  // Phase 0 gates (ruling A1): these rows are their sources' first poll, so they
+  // are held for the daily grading budget until the cron releases them.
+  assert.equal(env.DB.rows("SELECT admit FROM aux_items WHERE source_key = 'tfvector'")[0].admit, "seed_fresh");
+  await releaseHeld(env);
   const claim = (await post(env, "/v1/aux/claim", { limit: 10 }, "grader")).body;
   const it = claim.items.find((i) => i.source_key === "tfvector");
   assert.deepEqual([it.coverage_subject, it.affects], [true, ["DPRO", "RCAT"]]);

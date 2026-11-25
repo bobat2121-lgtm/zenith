@@ -257,3 +257,21 @@ test("REGRESSION with the budget at 0, a fresh own-channel release and a fresh e
   assert.deepEqual((await releaseHeld(env)).released, { coverage: 0, aux: 0 });
   assert.equal((await claim(env)).items.length, 2);
 });
+
+test("A1 releaseHeld releases seed_fresh rows before older held rows, still at most 5 per source and 20 a day", async () => {
+  const env = newEnv();
+  // Older record_late rows from five sources (25 rows), then a new source's seed: 7 seed_fresh rows, newest of all.
+  for (const s of ["r1", "r2", "r3", "r4", "r5"]) for (let k = 0; k < 5; k++) addAux(env, held({ source_key: s, nm_first_seen: iso((40 + k) * HOUR) }));
+  for (let k = 0; k < 7; k++) addAux(env, held({ source_key: "legistar_testville", admit: "seed_fresh", nm_first_seen: iso(HOUR) }));
+  // A second source's seed_fresh rows on Coverage come first there too.
+  addItem(env, held({ source_key: "cov_old", nm_first_seen: iso(50 * HOUR) }));
+  const covSeed = addItem(env, held({ source_key: "cov_seed", admit: "seed_fresh", nm_first_seen: iso(HOUR) }));
+  const r = await releaseHeld(env, { now: Date.now() });
+  assert.equal(r.released.coverage + r.released.aux, 20);
+  const rel = (sql) => env.DB.rows(sql)[0].n;
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'legistar_testville' AND released_at IS NOT NULL"), 5, "seed first, capped at 5");
+  assert.ok(env.DB.rows("SELECT released_at FROM items WHERE id = ?", covSeed)[0].released_at);
+  assert.equal(r.released.coverage, 2);
+  assert.equal(r.released.aux, 18);
+  assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'record_late' AND released_at IS NOT NULL"), 13);
+});

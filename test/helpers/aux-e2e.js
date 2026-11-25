@@ -78,8 +78,9 @@ export function newsRows(now = Date.now()) {
     // Ops: a site-structure watcher.
     { tag: "ops", source_key: "site_kodiak", title: "kodiak.ai sitemap changed", first_seen: iso(now, 5.2 * HOUR) },
     // Archive seed burst: six undated pages from one poll.
+    // seed: the source's first poll (insertNews adds no earlier poll for it).
     ...Array.from({ length: 6 }, (_, k) => ({ tag: "archive", source_key: "zoox", url: `https://zoox.com/journal/${k}`, title: `Zoox journal page ${k}`,
-      published: null, first_seen: burst })),
+      published: null, first_seen: burst, seed: true })),
     // Runtime managed_* key for a covered company: a coverage duplicate, never auxiliary.
     { tag: "managed_covered", source_key: "managed_draganfly_news", title: "Draganfly news mention", first_seen: iso(now, 4.5 * HOUR) },
     // Peer newsroom.
@@ -99,9 +100,21 @@ export function newsRows(now = Date.now()) {
 }
 
 // Inserts rows into a newsDb() (test/helpers/worker-env.js) that has a body column.
+// Like a live system, each source first gets one earlier poll, 60 days back
+// (before both ingests' backfill windows, so zenith-core never reads it): the
+// test rows are then not their source's first poll, which the Phase 0 arrival
+// gate would hold for the daily grading budget (seed_fresh, budget.js). A row
+// marked seed: true is its source's first poll: no earlier poll is added.
 let seq = 0;
+const HISTORY_MS = 60 * 24 * 3_600_000;
 export function insertNews(news, rows) {
   const stmt = news.db.prepare("INSERT INTO items (source_key, url, title, published, category, first_seen, notified, body) VALUES (?, ?, ?, ?, NULL, ?, 1, ?)");
+  const known = new Set(news.db.prepare("SELECT DISTINCT source_key FROM items").all().map((x) => x.source_key));
+  for (const key of new Set(rows.map((r) => r.source_key))) {
+    if (known.has(key) || rows.some((r) => r.source_key === key && r.seed)) continue;
+    const old = new Date(Date.now() - HISTORY_MS).toISOString();
+    stmt.run(key, `https://news.example.com/${key}/earlier-poll`, `${key} earlier poll`, old, old, null);
+  }
   for (const r of rows) {
     stmt.run(r.source_key, r.url ?? `https://news.example.com/${r.source_key}/${++seq}`, r.title,
       r.published === undefined ? r.first_seen : r.published, r.first_seen, r.body ?? null);
