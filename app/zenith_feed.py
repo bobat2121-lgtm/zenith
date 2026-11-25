@@ -7,7 +7,9 @@ Tuning reads /v1/calibration, /v1/expansion/candidates, /v1/source-yield,
 /v1/left-out and /v1/ops and writes /v1/expansion/decide (approve, reject,
 reopen), /v1/source-prefs and /v1/left-out/grade; it also reads /v1/recall
 (counts only). The Coverage page shows /v1/ops as its grader strip and
-/v1/news-ops as its ops strip. Brief reads /v1/brief and /v1/calendar. A route an older zenith-core lacks shows "not available yet".
+/v1/news-ops as its ops strip. Brief reads /v1/brief and /v1/calendar. Every page
+(Coverage, Brief, Auxiliary, Tuning) also reads /v1/ops for the grader banner at
+the top. A route an older zenith-core lacks shows "not available yet".
 Titles, excerpts and grader text are untrusted: every string that reaches HTML
 is escaped, links must be http(s), and excerpts render as plain text.
 """
