@@ -12,7 +12,7 @@ const { ingest } = await import("../worker/src/ingest.js");
 const { ingestAux } = await import("../worker/src/auxiliary.js");
 const { releaseHeld, fastPathCounts, heldCounts, storyOrphans, releasedToday } = await import("../worker/src/budget.js");
 const { enrich } = await import("../worker/src/excerpt.js");
-const { storyKeys, findCanonicals, storyPlanner } = await import("../worker/src/story.js");
+const { storyKeys, findCanonicals, storyPlanner, rankOf } = await import("../worker/src/story.js");
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -160,6 +160,22 @@ test("B-T18 a held seed_fresh canonical plus a later fast-path media copy: the h
   assert.deepEqual([r2.story_held, r2.story_swapped], [0, 0]);
   assert.deepEqual([cov(e2, m2).state, cov(e2, m2).admit], ["pending", null]);
   assert.deepEqual([cov(e2, 999001).state, cov(e2, 999001).admit], ["pending", "rescue"]);
+
+  // A held official record (rank 1: the record source's first poll, held) and a later fast-path media copy of its URL: neither row changes.
+  const e3 = newEnv();
+  seed(e3, "managed_widgetco_news");
+  const url = "https://records.example.gov/notice/42";
+  const rec = nm(e3, { source_key: "diu", first_seen: ago(2 * DAY), url, title: "Acme Robotics award notice" });
+  await ingestAux(e3);
+  const held = auxRow(e3, rec);
+  assert.deepEqual([held.state, held.story_key], ["pending", null], "a record gets no title key");
+  assert.ok(held.admit && held.url_key, "held, with its URL key");
+  assert.equal(rankOf({ source_key: "diu" }), 1);
+  const media = nm(e3, { source_key: "managed_widgetco_news", first_seen: ago(DAY), url: `${url}?utm_source=feed`, title: "Widgetco newsroom: award notice posted" });
+  const r3 = await ingestAux(e3);
+  assert.deepEqual([r3.story_held, r3.story_swapped], [0, 0]);
+  assert.deepEqual([auxRow(e3, media).state, auxRow(e3, media).admit, auxRow(e3, media).url_key, auxRow(e3, media).story_of], ["pending", null, held.url_key, null]);
+  assert.deepEqual(auxRow(e3, rec), held, "the held record is unchanged");
 });
 
 test("B-T19 not held: a copy of a skipped row, a copy 15 days later, an own release after a media copy; a stale copy keeps stale_on_arrival and gets no keys", async () => {
