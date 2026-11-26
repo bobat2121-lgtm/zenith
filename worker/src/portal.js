@@ -170,7 +170,7 @@ async function pair(request, env, url, auth, deps, now) {
   if (auth.mode !== "session") return notFound();
   const nonce = newNonce();
   const done = (body) => htmlResponse(page({ title: "Pair a device", active: "", body, nonce, mode: auth.mode }), nonce);
-  if (request.method === "GET") {
+  if (request.method !== "POST") {
     const res = done(html`<p>A pairing code signs in one more device (for example this phone's home-screen app). It works once, for 10 minutes.</p>
 <form class="pair" method="post" action="${ROUTES.find((x) => x.pair).path}"><button type="submit">Make a pairing code</button></form>`);
     const p = scheduleCount(env, deps, { view: "pair", client: clientClass(request.headers.get("user-agent"), url), via: auth.via, now });

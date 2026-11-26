@@ -315,6 +315,7 @@ test("S9: pairing codes are single use, short-lived, locked after 5 misses, one 
   const g = await pfetch(worker, wenv, "/p/pair", { cookie });
   assert.equal(g.status, 200);
   assert.match(g.text, /Make a pairing code/);
+  assert.equal((await pfetch(worker, wenv, "/p/pair", { cookie, method: "HEAD" })).status, 200, "HEAD is GET");
   assert.equal(rowCount(wenv, "portal_pairings"), 0);
   const p = await pfetch(worker, wenv, "/p/pair", { method: "POST", cookie, origin: ORIGIN, form: {} });
   assert.equal(p.status, 200);
