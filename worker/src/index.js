@@ -60,6 +60,8 @@ import { newsOps } from "./source-signals.js";
 import { recallRoute, recallLoad } from "./recall.js";
 // Phase 2: the golden-set replay harness (migration 0018).
 import { replayClaim, replaySubmit, replayRoute, adminReplay, goldenLoad } from "./replay.js";
+// Phase 2: the read-time rarity class (rarity.js); nothing is stored.
+import { rareRoute } from "./rarity.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -116,6 +118,8 @@ const ALLOW = {
   "GET /v1/replay": ["app", "admin"],
   "POST /v1/admin/replay": ["admin"],
   "POST /v1/admin/golden": ["admin"],
+  // Phase 2: rare finds (register and original rows at or above a score floor; rarity.js).
+  "GET /v1/rare": ["app", "admin"],
 };
 
 async function readJson(request) {
@@ -700,6 +704,7 @@ export default {
       case "GET /v1/replay": return replayRoute(env, url, role);
       case "POST /v1/admin/replay": return adminReplay(env, await readJson(request), who);
       case "POST /v1/admin/golden": return goldenLoad(env, await readJson(request), who);
+      case "GET /v1/rare": return rareRoute(env, url, { muted: MUTED_SQL, universe: IN_UNIVERSE });
     }
     return json({ error: "not found" }, 404);
   },

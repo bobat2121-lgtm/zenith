@@ -9,6 +9,12 @@ import AUX from "./aux-sources.json";
 import { isSecItem } from "./lib.js";
 export { RECORD_LOOKBACK_DAYS } from "./lib.js";
 
+// The government and register hosts of scripts/sync-covered.mjs
+// OFFICIAL_HOST_RE, copied here because the Worker cannot import the script.
+// This is the one Worker copy (the rarity class in rarity.js reads it);
+// test/rarity.test.js asserts the two stay equal.
+export const OFFICIAL_HOST_RE = /(^|\.)(gov|mil)$|\.gov\.[a-z]{2}$|(^|\.)legistar\.com$|(^|\.)canada\.ca$|(^|\.)fmv\.se$/i;
+
 const RECORDS = new Set(COVERED.records || []);
 const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
 
