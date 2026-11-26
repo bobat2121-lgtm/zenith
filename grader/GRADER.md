@@ -230,7 +230,8 @@ above ends the whole run.
      COUNTERPARTY item is graded only through core.md section 9 or 9A, as the printout says.
    - Write `.zenith/replay-grades.json` (the section 10 contract, headline and tag
      included), then `node grader/zenith.mjs replay-submit .zenith/replay-grades.json`.
-     Fix any REJECTED objects and resubmit the same file, at most twice.
+     Fix any REJECTED objects and resubmit the same file, at most twice. If it prints
+     `REPLAY CLOSED`, the replay pass is over.
    - Replay grades are never shown to the analyst and never change a live grade.
 8. **Report.** End with one line: items graded, how many Lead/Digest, the highest
    item, and anything that looked broken (e.g. many items with no excerpt from one

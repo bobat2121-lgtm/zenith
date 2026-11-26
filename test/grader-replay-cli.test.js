@@ -165,6 +165,11 @@ test("replay-claim writes .zenith/replay/ from the checkout, prints the claim bl
   assert.equal(sub.path, "/v1/replay/grades");
   assert.deepEqual([sub.body.claim_id, sub.body.rubric_version, sub.body.run_id], ["rc-1", co.candidate, RUN]);
   assert.match(s.stdout, /^accepted 1, rejected 0; replay armed/);
+
+  routes.set("POST /v1/replay/grades", () => ({ status: 409, json: { error: "no replay is armed" } }));
+  const closed = await run(co, ["replay-submit", "g.json"]);
+  assert.equal(closed.code, 0, closed.stderr);
+  assert.match(closed.stdout, /^REPLAY CLOSED: no replay is armed now/, "a 409 prints one clear line instead of exiting 1");
 });
 
 test("replay-claim refuses when the checkout's hash is not the claim's rubric_version", async () => {

@@ -68,7 +68,8 @@ function printTrimmed(c, maxChars) {
 if (!API || !TOKEN) die("set ZENITH_API and ZENITH_GRADER_TOKEN");
 
 // allow404: return null on 404 instead of stopping (optional resources).
-async function call(method, path, body, { allow404 = false } = {}) {
+// allow409: return { conflict: true, ...body } on 409 instead of stopping.
+async function call(method, path, body, { allow404 = false, allow409 = false } = {}) {
   let r;
   try {
     r = await fetch(API + path, {
@@ -82,6 +83,7 @@ async function call(method, path, body, { allow404 = false } = {}) {
   const text = await r.text();
   let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
   if (allow404 && r.status === 404) return null;
+  if (allow409 && r.status === 409) return { ...data, conflict: true };
   if (!r.ok) die(`${method} ${path} -> HTTP ${r.status}: ${text.slice(0, 300)}`);
   return data;
 }
@@ -458,11 +460,17 @@ if (cmd === "stats") {
   const claim = JSON.parse(readFileSync(claimFile, "utf8"));
   const version = readText(join(REPLAY_DIR, "VERSION"));
   if (!version) die("no .zenith/replay/VERSION; run replay-claim first");
-  const r = await call("POST", "/v1/replay/grades", { claim_id: claim.claim_id, run_id: runId(), rubric_version: version, model: MODEL, grades: list });
+  const r = await call("POST", "/v1/replay/grades", { claim_id: claim.claim_id, run_id: runId(), rubric_version: version, model: MODEL, grades: list }, { allow409: true });
+  if (r.conflict) {
+    console.log("REPLAY CLOSED: no replay is armed now (it finished or was aborted); nothing was stored. Do not resubmit; the replay pass is over.");
+    process.exit(0);
+  }
   const rejected = r.rejected || [];
   console.log(`accepted ${r.accepted}, rejected ${rejected.length}${r.status ? `; replay ${r.status}` : ""}`);
   for (const x of rejected) console.log(`  REJECTED item ${x.item_id}: ${x.error}`);
-  if (Array.isArray(r.not_yet_graded) && r.not_yet_graded.length) console.log(`  NOT YET GRADED from this claim: ${r.not_yet_graded.join(", ")}`);
+  if (Array.isArray(r.not_yet_graded) && r.not_yet_graded.length) {
+    console.log(`  NOT YET GRADED from this claim: ${r.not_yet_graded.join(", ")} (an item with a REJECTED grade stays open until a resubmit has none for it, or its lease ends)`);
+  }
   if (rejected.length) process.exitCode = 2;
 } else {
   console.log("usage: zenith.mjs stats | rubric | labels [days] | recent <TICKER> [days] | claim [limit] | submit <grades.json>");

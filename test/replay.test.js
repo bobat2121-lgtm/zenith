@@ -296,6 +296,32 @@ test("T8: through the API a missed pair gets exactly one confirm re-grade, and t
   assert.deepEqual([s.verdict, s.misses, s.live_agreement.confirm], ["done", [], [{ pair: g.code, delta: 50 }]], "80 then 30: mean 55 hits");
 });
 
+test("T8: a rejected grade keeps its row open: a fixed resubmit is judged, and an unfixed row closes at lease end", async () => {
+  const env = newEnv();
+  idleRun(env);
+  const g = addGolden(env, { class: "guard", affects: "UMAC", expect: { RCAT: [0, 39], UMAC: [0, 39] } });
+  await arm(env);
+  const c = await rclaim(env);
+  let r = (await rsubmit(env, c, [gr(g.id, 20), gr(`${g.id}#UMAC`, 45, [])])).body;
+  assert.deepEqual([r.accepted, r.rejected.length, r.status, r.not_yet_graded], [1, 1, "armed", [g.id]], "no verdict while a grade of the row was rejected");
+  assert.equal(env.DB.rows("SELECT state FROM replay_queue")[0].state, "claimed");
+  r = (await rsubmit(env, c, [gr(g.id, 20), gr(`${g.id}#UMAC`, 45)])).body;
+  assert.deepEqual([r.accepted, r.rejected.length, r.confirm_added, r.status], [2, 0, 1, "armed"], "the fixed #UMAC grade is judged: 45 misses, one confirm");
+  assert.equal(env.DB.rows("SELECT score FROM replay_grades WHERE ticker = 'UMAC'")[0].score, 45);
+  // Never fixed: the next replay claim after the lease closes the row on the grades it has.
+  const env2 = newEnv();
+  idleRun(env2);
+  const g2 = addGolden(env2, { class: "guard", affects: "UMAC", expect: { RCAT: [0, 39], UMAC: [0, 39] } });
+  await arm(env2);
+  const c2 = await rclaim(env2);
+  assert.equal((await rsubmit(env2, c2, [gr(g2.id, 20), gr(`${g2.id}#UMAC`, 45, [])])).body.status, "armed");
+  env2.DB.db.exec(`UPDATE replay_queue SET claimed_until = '${iso(MIN)}'`);
+  assert.equal((await rclaim(env2)).reason, "replay_finished");
+  assert.deepEqual({ ...env2.DB.rows("SELECT state, attempts FROM replay_queue")[0] }, { state: "graded", attempts: 1 }, "closed, not reclaimed");
+  const rp = env2.DB.rows("SELECT status, n_graded, summary FROM replays")[0];
+  assert.deepEqual([rp.status, rp.n_graded, JSON.parse(rp.summary).misses], ["done", 1, []]);
+});
+
 test("T8: a missing #TICKER grade with hi >= 40 gets no confirm re-grade; it stays an R1 miss on pass 1", async () => {
   const env = newEnv();
   idleRun(env);

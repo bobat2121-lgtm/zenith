@@ -132,6 +132,7 @@ export async function replayClaim(env, body, { now = Date.now(), bundle = BUNDLE
         AND NOT ${HELD_SQL("i.")} AND NOT (i.source_key = 'wargov_contracts' AND i.excerpt_status IS NULL AND i.nm_first_seen > ?2) LIMIT ?3)`,
   ).bind(nowS, nowIso(now - WARGOV_HOLD_MINUTES * 60_000), REPLAY_AUX_GUARD).first();
   if ((aux?.n || 0) >= REPLAY_AUX_GUARD) return empty("live_aux");
+  if ((await closeLapsed(env, replay, { now })) !== "armed") return empty("replay_finished");
   const caps = replaySettings(env);
   // Rows leased and not yet graded count against the caps too.
   const leased = (await db.prepare("SELECT COUNT(*) AS n FROM replay_queue WHERE replay_id = ? AND state = 'claimed' AND claimed_until >= ?").bind(replay.id, nowS).first())?.n || 0;
@@ -168,6 +169,23 @@ export async function replayClaim(env, body, { now = Date.now(), bundle = BUNDLE
     items: rows.map(claimItem), remaining: Math.max(0, left - rows.length) };
 }
 
+// A claimed row whose lease ran out with its own-ticker grade stored (a submit
+// that also had a rejected grade, never fixed) is graded on what it has, before
+// any row is reclaimed or failed; then the confirm and verdict step runs.
+// Returns the replay's status.
+async function closeLapsed(env, replay, { now }) {
+  const db = env.DB;
+  const r = await db.prepare(
+    `UPDATE replay_queue SET state = 'graded' WHERE replay_id = ?1 AND state = 'claimed' AND claimed_until < ?2
+       AND EXISTS (SELECT 1 FROM replay_grades rg JOIN golden_items g ON g.id = rg.golden_id
+                    WHERE rg.replay_id = replay_queue.replay_id AND rg.golden_id = replay_queue.golden_id AND rg.pass = replay_queue.pass AND rg.ticker = g.ticker)`,
+  ).bind(replay.id, nowIso(now)).run();
+  const n = r?.meta?.changes || 0;
+  if (!n) return "armed";
+  await db.prepare("UPDATE replays SET n_graded = n_graded + ? WHERE id = ?").bind(n, replay.id).run();
+  return (await afterGrades(env, replay, { now })).status;
+}
+
 // POST /v1/replay/grades. Validates with normalizeGrade against the replay's
 // floors and industry_links, stores into replay_grades only, idempotently.
 export async function replaySubmit(env, body, role, { now = Date.now(), bundle = BUNDLE } = {}) {
@@ -184,19 +202,23 @@ export async function replaySubmit(env, body, role, { now = Date.now(), bundle =
   const b = bundleFor(replay.kind, bundle);
   const rows = new Map();
   for (const r of (await db.prepare(
-    `SELECT q.pass, q.state AS q_state, g.* FROM replay_queue q JOIN golden_items g ON g.id = q.golden_id WHERE q.replay_id = ? AND q.claim_id = ?`,
+    `SELECT q.pass, q.state AS q_state,
+            EXISTS (SELECT 1 FROM replay_grades rg WHERE rg.replay_id = q.replay_id AND rg.golden_id = q.golden_id AND rg.pass = q.pass AND rg.ticker = g.ticker) AS has_primary,
+            g.* FROM replay_queue q JOIN golden_items g ON g.id = q.golden_id WHERE q.replay_id = ? AND q.claim_id = ?`,
   ).bind(replay.id, claimId).all()).results || []) rows.set(r.id, r);
   const runId = String(body.run_id || "").slice(0, 80) || null;
   const model = String(body.model || "").slice(0, 60) || null;
   const at = nowIso(now);
-  const accepted = [], rejected = [], stmts = [], seen = new Set(), done = new Set();
+  const accepted = [], rejected = [], stmts = [], seen = new Set(), held = new Set();
+  // Own-ticker grades already stored by an earlier submit of this claim count.
+  const primary = new Set([...rows.values()].filter((r) => r.has_primary).map((r) => r.id));
   for (const raw of body.grades) {
     const ref = parseItemRef(raw?.item_id);
     const row = ref ? rows.get(ref.id) : undefined;
     if (!row) { rejected.push({ item_id: raw?.item_id ?? null, error: `item ${ref?.id ?? "?"} is not in claim ${claimId}; grade only items from your replay claim` }); continue; }
     const item = { id: row.id, ticker: row.ticker, title: row.title, excerpt: row.excerpt, source_key: row.source_key, url: row.url, published: row.published, first_seen: row.first_seen };
     const res = normalizeGrade(raw, item, ref.alsoTicker || null, COVERED.tickers, b.floors, { industry: b.industry });
-    if (!res.ok) { rejected.push({ item_id: raw.item_id, error: res.error }); continue; }
+    if (!res.ok) { rejected.push({ item_id: raw.item_id, error: res.error }); held.add(row.id); continue; }
     const g = res.grade;
     const key = `${row.id}|${g.ticker}`;
     if (seen.has(key)) continue;
@@ -205,12 +227,17 @@ export async function replaySubmit(env, body, role, { now = Date.now(), bundle =
       `INSERT OR IGNORE INTO replay_grades (replay_id, golden_id, ticker, pass, run_id, model, score, band, rung, event_type, flags, why, confidence, read_source, graded_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(replay.id, row.id, g.ticker, row.pass, runId, model, g.score, g.band, g.rung, g.event_type, g.flags, g.why, g.confidence, g.read_source, at));
-    if (g.primary && row.q_state === "claimed" && !done.has(row.id)) {
-      done.add(row.id);
-      stmts.push(db.prepare("UPDATE replay_queue SET state = 'graded' WHERE replay_id = ? AND golden_id = ? AND pass = ? AND claim_id = ? AND state = 'claimed'")
-        .bind(replay.id, row.id, row.pass, claimId));
-    }
+    if (g.primary) primary.add(row.id);
     accepted.push({ item_id: raw.item_id, ticker: g.ticker, score: g.score, band: g.band });
+  }
+  // A row is graded once its own-ticker grade is stored and this submit
+  // rejected none of its grades. A row with a rejected grade stays claimed, so
+  // a fixed resubmit is still judged; at lease end the next replay claim
+  // closes it on the grades it has (closeLapsed).
+  const done = new Set([...primary].filter((id) => !held.has(id) && rows.get(id).q_state === "claimed"));
+  for (const id of done) {
+    stmts.push(db.prepare("UPDATE replay_queue SET state = 'graded' WHERE replay_id = ? AND golden_id = ? AND pass = ? AND claim_id = ? AND state = 'claimed'")
+      .bind(replay.id, id, rows.get(id).pass, claimId));
   }
   if (done.size) stmts.push(db.prepare("UPDATE replays SET n_graded = n_graded + ? WHERE id = ?").bind(done.size, replay.id));
   // All-or-nothing, as the live submit: a retry after a failure is safe.
