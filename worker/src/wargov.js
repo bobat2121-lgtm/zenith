@@ -4,6 +4,7 @@ import AUX from "./aux-sources.json";
 import { MATCH } from "./rubric.generated.js";
 import { nowIso, phraseRegex } from "./lib.js";
 import { htmlToText, fetchPage, PAGE_UA, EXCERPT_CHARS } from "./excerpt.js";
+import { visibleBudgets } from "./text-class.js";
 
 const MAX_TEXT_INPUT = 300_000;
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
@@ -167,9 +168,11 @@ export async function enrichAuxWargov(env, { now = Date.now() } = {}) {
   const late = nowIso(now - WARGOV_HOLD_MINUTES * 60_000);
   const stmts = [];
   let ok = 0, missing = 0;
+  // A record's visible budget: 2,500 unless TEXT_BUDGETS=class (text-class.js).
+  const budget = visibleBudgets(env).record;
   for (const r of rows) {
     const b = byUrl.get(normalUrl(r.url)) || byTitle.get(String(r.title || "").replace(/\s+/g, " ").trim().toLowerCase()) || null;
-    const excerpt = b ? wargovDigestExcerpt(b.html) : "";
+    const excerpt = b ? wargovDigestExcerpt(b.html, budget) : "";
     if (excerpt) {
       stmts.push(db.prepare("UPDATE aux_items SET excerpt = ?, excerpt_status = 'ok' WHERE id = ? AND excerpt_status IS NULL").bind(excerpt, r.id));
       ok++;

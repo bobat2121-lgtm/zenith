@@ -20,6 +20,7 @@ import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCurs
 import { isOfficialRecord } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
 import { WARGOV_HOLD_MINUTES } from "./wargov.js";
+import { textClass, visibleBudgets, LEGACY_BUDGET } from "./text-class.js";
 import { storyPlanner, storyDedupOn, hasFeedText, storyOfSql, storyOfArgs, swapStatement } from "./story.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
@@ -39,8 +40,9 @@ const STATS_ENTITY_DAYS = 30;
 // Copies news-monitor rows whose source routes to an auxiliary name, by its own
 // rowid cursor (meta aux_nm_cursor; the first run backfills 14 days). Windowing,
 // skip reasons and archive parking are the coverage ingest's (ingest.js); the
-// excerpt is the feed's own text when it carries the release itself, and an
-// auxiliary page is never fetched.
+// excerpt is the feed's own text when it carries the release itself (sized by
+// the row's text class, text-class.js: 2,500 unless TEXT_BUDGETS=class), and
+// an auxiliary page is never fetched.
 //
 // One pipeline per item (Phase 0 gates (d), ingest.js coverageOwner): a row
 // Coverage owns (a covered source's, or a counterparty row routed to a ticker
@@ -87,11 +89,13 @@ export async function ingestAux(env) {
   const fastCap = budgetSettings(env).fast_cap;
   // Phase 2: exact-key story dedup (story.js); STORY_DEDUP=off writes keys and holds nothing.
   const dedupOn = storyDedupOn(env);
+  // Phase 2: the feed excerpt's budget by text class (2,500 unless TEXT_BUDGETS=class).
+  const budgets = visibleBudgets(env);
   // Phase 0 gates (d): once, before the scan, the waiting aux copies of rows Coverage owns leave the queue.
   const ownerCleanup = await auxOwnerCleanup(db);
-  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted, fastCap, dedupOn });
-  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, fastCap, dedupOn, only: (route) => route.coverage_subject === true });
-  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, fastCap, dedupOn, rivalCatchUp: true });
+  const main = await scanAux(db, news, { cursorKey: "aux_nm_cursor", cursor, muted, fastCap, dedupOn, budgets });
+  const subjects = await catchUp(db, news, main.cursor, "aux_cs_cursor", { muted, fastCap, dedupOn, budgets, only: (route) => route.coverage_subject === true });
+  const rivals = await catchUp(db, news, main.cursor, "aux_rv_cursor", { muted, fastCap, dedupOn, budgets, rivalCatchUp: true });
   return { ...main, owner_cleanup: ownerCleanup, coverage_subject_catch_up: subjects, rival_catch_up: rivals };
 }
 
@@ -151,7 +155,8 @@ export function rivalGate(r) {
 // windows, MAX_BATCHES a run, storing every row whose route passes `only`, and
 // keeps the cursor in meta cursorKey with each window. done: the scan reached
 // `end`. rivalCatchUp: rival rows only, as the aux_rv_cursor catch-up above.
-async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false, fastCap = 0, dedupOn = true }) {
+async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => true, muted = new Set(), rivalCatchUp = false, fastCap = 0, dedupOn = true,
+  budgets = LEGACY_BUDGET }) {
   const bounded = end !== null;
   let scanned = 0, matched = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, moved = 0, held = 0, done = false, storyHeld = 0, storySwapped = 0;
   for (let b = 0; b < MAX_BATCHES; b++) {
@@ -210,7 +215,7 @@ async function scanAux(db, news, { cursorKey, cursor, end = null, only = () => t
     // stored, get no keys and are never held. Only the excerpt is stored here
     // (no fallback), so only it counts as the row's text.
     const entries = routed.map(({ r, route }) => {
-      const feed = feedFields(r, { role: null }, now);
+      const feed = feedFields(r, { role: null }, now, { budget: budgets[textClass(r)] });
       return { r, route, feed, scope: route.entity_key, has_text: hasFeedText({ status: feed.status, excerpt: feed.status ? feed.excerpt : null }),
         live: !stored?.has(r.nm_rowid) && !skipOf(r, arrivalGate(r, gateContext(r, "aux", first, park))) };
     });

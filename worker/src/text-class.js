@@ -24,6 +24,7 @@
 import COVERED from "./covered.json";
 import { OFFICIAL_HOST_RE, isOfficialRecord } from "./records.js";
 import { regDomain, hostOf } from "./domain.js";
+import { UNANCHORED_CHARS } from "./excerpt.js";
 
 export const TEXT_CLASSES = ["record", "wire", "issuer", "press"];
 
@@ -34,9 +35,10 @@ export const WIRE_SERVICES = [
 ];
 
 // Characters kept per class once TEXT_BUDGETS=class. A page whose article the
-// reader could not find (no anchor) keeps UNANCHORED_CHARS whatever its class.
+// reader could not find (no anchor) keeps UNANCHORED_CHARS (2,500, defined in
+// excerpt.js, which applies it) whatever its class.
 export const TEXT_BUDGET = Object.freeze({ record: 8000, issuer: 6000, wire: 6000, press: 2500 });
-export const UNANCHORED_CHARS = 2500;
+export { UNANCHORED_CHARS };
 export const LEGACY_BUDGET = Object.freeze({ record: 2500, issuer: 2500, wire: 2500, press: 2500 });
 
 // Hosts the shadow aux reader never fetches. reuters.com: its robots.txt
