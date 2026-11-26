@@ -123,8 +123,10 @@ const auxEntries = Object.entries(AUX.sources);
 const inUniverse = (a) => (a.affects || []).some((t) => COVERED.tickers.includes(t));
 // Coverage-subject filters (not record, not sec), with a covered ticker they affect.
 const filters = auxEntries.filter(([, a]) => a.coverage_subject && !a.record && !a.sec && inUniverse(a)).map(([k, a]) => [k, a.affects.find((t) => COVERED.tickers.includes(t))]);
-const [[FILTER, FILTER_T], [MUTED_KEY, MUTED_T]] = filters;
-const [OWN_KEY, OWN_T] = Object.entries(COVERED.sources).find(([k]) => !k.startsWith("edgar_") && !(COVERED.records || []).includes(k));
+// Defensive: a future catalog sync with too few key shapes must reach T16's assert message, not throw at load.
+const [FILTER, FILTER_T] = filters[0] ?? [];
+const [MUTED_KEY, MUTED_T] = filters[1] ?? [];
+const [OWN_KEY, OWN_T] = Object.entries(COVERED.sources).find(([k]) => !k.startsWith("edgar_") && !(COVERED.records || []).includes(k)) ?? [];
 const AUX_RECORD = auxEntries.find(([, a]) => a.record === true && !a.sec)?.[0];
 const AUX_CHANNEL = auxEntries.find(([, a]) => !a.coverage_subject && !a.record && !a.sec)?.[0];
 
