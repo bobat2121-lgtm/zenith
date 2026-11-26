@@ -15,7 +15,7 @@
 //     segment, so a term never lands inside an HTML entity.
 //   - A failure is logged by its class name only, never q or the message.
 // Imports portal-html.js, portal-stub.js and search.js only (the portal import rule, S18).
-import { html, parseRange, rangeControl, itemCard, tickerHref, RANGE_PRESETS } from "./portal-html.js";
+import { html, parseRange, rangeControl, itemCard, tickerHref, safeReturn, RANGE_PRESETS } from "./portal-html.js";
 import { denied } from "./portal-stub.js";
 import { searchRows, highlight, SEARCH_DEFAULT_RANGE, SEARCH_MAX_DAYS, SEARCH_SCOPED_MAX_DAYS, SEARCH_MAX_Q, SEARCH_LIMIT, SEARCH_MAX_TERMS } from "./search.js";
 
@@ -32,12 +32,26 @@ const HIT_LABELS = {
 const DAY = 86_400_000;
 
 // A /p/search link from { name: value } (empty values dropped). Spaces are %20, not
-// "+", so the link is also a valid label-form return path (portal-html.js safeReturn).
+// "+", and "*" is %2A (URLSearchParams leaves it bare), so every character is one
+// portal-html.js safeReturn accepts in a label-form return path.
 export function searchHref(params) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params || {})) if (v !== null && v !== undefined && v !== "") p.set(k, String(v));
-  const s = p.toString().replace(/\+/g, "%20");
+  const s = p.toString().replace(/\+/g, "%20").replace(/\*/g, "%2A");
   return `${PATH}${s ? `?${s}` : ""}`;
+}
+
+// The label forms' return path: this search, or a shorter form of it when safeReturn
+// would refuse the full link (over its length cap) and send the form to Today.
+// Drops limit, then the dates, then q; the scope and the choices stay.
+export function returnHref(cur) {
+  const drop = (...ks) => ({ ...cur, ...Object.fromEntries(ks.map((k) => [k, ""])) });
+  const dates = ["limit", "range", "start", "end"];
+  for (const t of [cur, drop("limit"), drop(...dates), drop(...dates, "q")]) {
+    const h = searchHref(t);
+    if (safeReturn(h) === h) return h;
+  }
+  return PATH;
 }
 
 const current = (sp) => Object.fromEntries(KEEP.map((k) => [k, (sp.get(k) || "").trim()]));
@@ -144,7 +158,7 @@ ${snippetLine(r, terms)}`;
 }
 
 function results(result, cur, now) {
-  const returnTo = searchHref(cur);
+  const returnTo = returnHref(cur);
   const n = result.results.length;
   const best = result.sort === "best";
   const truncated = result.truncated?.coverage || result.truncated?.aux;

@@ -240,6 +240,35 @@ test("V6: every link carries q exactly, and source only when the link sets it", 
   assert.equal(String(viewMod.namesBlock({ q, companies: [], names: [], sources: [] })), "");
 });
 
+test("V6: the label forms' return path is one safeReturn keeps: '*' is encoded, an over-long link is shortened", async () => {
+  const { safeReturn } = await imp("portal-html.js");
+  const returnOf = (text) => unescape(/<input type="hidden" name="return" value="([^"]+)">/.exec(text)[1]);
+  const env = sessionEnv();
+  await addCov(env.DB, { title: "Synthetic widget* item", nm_first_seen: ago(HOUR) });
+  const star = await open(env, "/p/search?q=widget*");
+  const ret = returnOf(star.text);
+  assert.equal(ret, "/p/search?q=widget%2A");
+  assert.equal(safeReturn(ret), ret, "not sent back to Today");
+  assert.equal(new URL(ret, ORIGIN).searchParams.get("q"), "widget*");
+
+  // Each "ä" is six characters encoded: q alone fits, q + range fits, q + range + limit does not.
+  const q = `widget ${"ä".repeat(28)}`;
+  await addCov(env.DB, { title: `Synthetic ${q}`, nm_first_seen: ago(HOUR) });
+  const full = viewMod.searchHref({ q, range: "7d", limit: "50" });
+  assert.notEqual(safeReturn(full), full, "the full link is over the cap");
+  const long = await open(env, `/p/search?${new URLSearchParams({ q, sort: "newest", range: "7d", limit: "50" })}`);
+  assert.equal(long.status, 200);
+  const lret = returnOf(long.text);
+  assert.equal(safeReturn(lret), lret);
+  const lu = new URL(lret, ORIGIN);
+  assert.equal(lu.searchParams.get("q"), q);
+  assert.equal(lu.searchParams.get("sort"), "newest");
+  assert.equal(lu.searchParams.has("limit"), false, "limit is dropped first");
+  // A q too long for any return link still returns to the search, not Today.
+  const huge = { q: "ä".repeat(60), ticker: "TST" };
+  assert.equal(viewMod.returnHref(huge), "/p/search?ticker=TST");
+});
+
 // --- V7 ----------------------------------------------------------------------------------
 test("V7: the range: the preset is marked, custom dates echo, a long unscoped span falls back with a line", async () => {
   const env = sessionEnv();
