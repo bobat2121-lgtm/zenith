@@ -377,3 +377,13 @@ test("brief store: the streak SQL counts 5 weekdays Mon-Fri and across a weekend
   assert.equal(streak(["2026-11-27", "2026-11-30", "2026-12-01"], "2026-11-30")[0].weekdays, 2);
   assert.deepEqual(streak(["2026-11-30"], "2026-11-02", { counts: '{"competitors":null,"industry":0}' }), []);
 });
+
+test("brief store: brief-store.js imports brief.js, et.js and lib.js only, and names no send path (runSlot, discordSendAll, discord.js, delivery.js)", () => {
+  // brief.js imports discord.js for runSlot; the store calls buildBrief only.
+  const src = readFileSync(new URL("../worker/src/brief-store.js", import.meta.url), "utf8");
+  const imports = [...src.matchAll(/(?:from\s+|import\()\s*"([^"]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(imports, ["./brief.js", "./et.js", "./lib.js"]);
+  assert.deepEqual([...src.matchAll(/import \{([^}]+)\} from "\.\/brief\.js"/g)].map((m) => m[1].trim()), ["buildBrief, SECTION_CAP"]);
+  const code = src.replace(/^\s*\/\/.*$/gm, "");
+  assert.ok(!/runSlot|discordSendAll|discord|delivery|fetch\(/i.test(code));
+});
