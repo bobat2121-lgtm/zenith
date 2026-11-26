@@ -234,6 +234,47 @@ test("brief store: a build that throws stores failed; the next tick retries; aft
   assert.deepEqual([rowsOf(db2)[0].status, rowsOf(db2)[0].attempts], ["ok", 2]);
 });
 
+// A D1 whose 'ok' brief_days write throws (`times` times, then works).
+function okWriteFails(db, times = Infinity) {
+  const env = { builds: 0, left: times };
+  env.DB = {
+    prepare(sql) {
+      if (/FROM runs/.test(sql)) env.builds++;
+      const stmt = db.prepare(sql);
+      if (!/^INSERT INTO brief_days/.test(sql)) return stmt;
+      return {
+        bind: (...args) => {
+          const bound = stmt.bind(...args);
+          return { run: async () => { if (args[1] === "ok" && env.left > 0) { env.left--; throw new Error("synthetic write failure"); } return bound.run(); } };
+        },
+      };
+    },
+    batch: (st) => db.batch(st),
+  };
+  env.NEWS = quietNews();
+  return env;
+}
+
+test("brief store: an ok write that throws stores failed, so attempts counts on and the tick gives up after 3; a write that fails once stores ok on the next tick", async () => {
+  const t = (k) => TUE_EST + k * 5 * 60_000;
+  const db = ensureBriefDays(new D1());
+  const env = okWriteFails(db);
+  for (let k = 0; k < 3; k++) {
+    const r = await tick(env, t(k));
+    assert.deepEqual([r.status, r.attempts, r.error], ["failed", k + 1, "store write failed: synthetic write failure"]);
+    assert.deepEqual([rowsOf(db)[0].status, rowsOf(db)[0].attempts], ["failed", k + 1]);
+  }
+  const builds = env.builds;
+  assert.equal((await tick(env, t(3))).status, "gave_up");
+  assert.equal(env.builds, builds, "no build after the third attempt");
+  const db2 = ensureBriefDays(new D1());
+  const env2 = okWriteFails(db2, 1);
+  assert.equal((await tick(env2, t(0))).status, "failed");
+  const r = await tick(env2, t(1));
+  assert.deepEqual([r.status, r.attempts], ["ok", 2]);
+  assert.deepEqual([rowsOf(db2)[0].status, rowsOf(db2)[0].attempts, rowsOf(db2)[0].error], ["ok", 2, null]);
+});
+
 test("brief store: stored contents have no text key, graded ≤ 40 rows with full counts, and fit 64 KB with 200 graded rows and 100 calendar entries", async () => {
   const db = ensureBriefDays(new D1());
   for (let k = 0; k < 200; k++) {

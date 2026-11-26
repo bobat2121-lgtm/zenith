@@ -200,6 +200,18 @@ export async function briefStoreTick(env, covered, { now, rel = null } = {}) {
     await db.prepare(UPSERT_SQL).bind(day, "failed", from, to, nowIso(now), null, null, error).run();
     return { status: "failed", day, attempts, error };
   }
-  await db.prepare(UPSERT_SQL).bind(day, "ok", from, to, nowIso(now), JSON.stringify(counts), stored.json, null).run();
+  try {
+    await db.prepare(UPSERT_SQL).bind(day, "ok", from, to, nowIso(now), JSON.stringify(counts), stored.json, null).run();
+  } catch (e) {
+    // The ok write failed (a transient D1 error): store failed so attempts
+    // counts on and the 3-attempt cap holds; never rebuild on every tick.
+    const error = `store write failed: ${String(e?.message || e)}`.slice(0, 300);
+    try {
+      await db.prepare(UPSERT_SQL).bind(day, "failed", from, to, nowIso(now), null, null, error).run();
+    } catch {
+      console.warn("brief store: the failed row was not written either");
+    }
+    return { status: "failed", day, attempts, error };
+  }
   return { status: "ok", day, attempts, bytes: stored.bytes, counts };
 }
