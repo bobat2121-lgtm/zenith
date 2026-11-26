@@ -243,7 +243,9 @@ test("GET /v1/brief without sections has exactly the old top-level keys and text
   assert.ok(full.body.text.join("\n").includes("**Competitors and peers**"));
   // The same text without the new sections.
   const strip = (t) => t.join("\n").replace(/\n\n\*\*Competitors and peers\*\*[\s\S]*?(?=\n\n\*\*Waiting for a grade)/, "");
-  assert.equal(strip(full.body.text).replace(/\d+[hm]( \d+m)?/g, "T"), joined.replace(/\d+[hm]( \d+m)?/g, "T"));
+  // Times and ages are masked: the two requests may straddle a minute.
+  const mask = (t) => t.replace(/\b\w{3} \d{1,2} \w{3} \d{2}:\d{2} ET\b/g, "DAY T").replace(/\d+[hmd]( \d+[hm])?/g, "T");
+  assert.equal(mask(strip(full.body.text)), mask(joined));
   assert.equal((await request(worker, env, "GET", "/v1/brief?sections=full", { role: "admin" })).status, 200);
   assert.equal((await request(worker, env, "GET", "/v1/brief?sections=full", { role: "grader" })).status, 403);
   const anon = await worker.fetch(new Request("https://zenith.test/v1/brief?sections=full"), env);
