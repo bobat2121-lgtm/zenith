@@ -126,7 +126,19 @@ export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
 // muting or demoting them. A record source is an SEC filing adapter, a
 // register adapter, or a strategic-lane source on a government host. Bing
 // searches (www.bing.com) are never records.
-export const RECORD_ADAPTERS = ["fpds_atom", "legistar_matters", "wargov_contract_paragraphs", "safetyact_awards", "regulations_gov", "federal_register"];
+// Register adapters (phase 2): news-monitor's register lane, each register
+// read whole and matched locally on identifiers. Their auxiliary entries are
+// marked register (worker/src/records.js isRegisterSource), so zenith-core
+// holds their fresh rows inside the grading budget (lib.js arrivalGate
+// 'register'). They are records and coverage-subject filters, and each
+// register is one program entity, as the FPDS feeds are.
+export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report"];
+export const REGISTERS = {
+  lda_registrations: { entity: "lda", name: "LDA lobbying filings" },
+  lda_reports: { entity: "lda", name: "LDA lobbying filings" },
+  txdmv_av_report: { entity: "txdmv_av", name: "Texas DMV AV authorizations" },
+};
+export const RECORD_ADAPTERS = ["fpds_atom", "legistar_matters", "wargov_contract_paragraphs", "safetyact_awards", "regulations_gov", "federal_register", ...REGISTER_ADAPTERS];
 export const OFFICIAL_HOST_RE = /(^|\.)(gov|mil)$|\.gov\.[a-z]{2}$|(^|\.)legistar\.com$|(^|\.)canada\.ca$|(^|\.)fmv\.se$/i;
 const STRATEGIC_LANES = ["strategic_noncompany", "strategic_fast_noncompany"];
 export function isRecordSource(s) {
@@ -136,13 +148,15 @@ export function isRecordSource(s) {
   return STRATEGIC_LANES.includes(s?.lane) && OFFICIAL_HOST_RE.test(host);
 }
 // Counterparty adapters that filter a third-party feed down to items about a
-// covered company (keyword RSS, contract and docket searches, lists). Their
+// covered company (keyword RSS, contract and docket searches, lists,
+// registers matched on identifiers). Their
 // items are graded on the Coverage page and are also coverage_subject
 // auxiliary entries; any other adapter is the outside company's own channel
 // and a plain auxiliary name.
 export const FILTER_ADAPTERS = [
   "rss_filtered", "rss_body_filter", "fpds_atom", "legistar_matters", "wargov_contract_paragraphs",
   "js_list_diff", "js_announcements", "safetyact_awards", "regulations_gov", "federal_register", "csv_filter",
+  ...REGISTER_ADAPTERS,
 ];
 const LANE_STATUS = { public_adjacent: "public", private_adjacent: "private" };
 const COMPANY_STATUS = ["public", "private"];
@@ -203,6 +217,7 @@ export function buildAux(sourceList, covered, peers = []) {
   const entityOf = (key) => {
     if (peerByKey.has(key)) return key;
     if (subject.has(key) && aux.get(key).adapter === "fpds_atom") return FPDS.entity;
+    if (subject.has(key) && Object.hasOwn(REGISTERS, aux.get(key).adapter)) return REGISTERS[aux.get(key).adapter].entity;
     // The longest peers key or other auxiliary source key that prefixes this
     // one: maymobility_news -> maymobility, einride_sec -> einride. A prefix that
     // is itself a source resolves to its own entity.
@@ -229,6 +244,7 @@ export function buildAux(sourceList, covered, peers = []) {
     if (subject.has(key)) Object.assign(sources[key], { coverage_subject: true, affects: subject.get(key) });
     if (SEC_ADAPTERS.includes(s.adapter)) sources[key].sec = true;
     if (isRecordSource(s)) sources[key].record = true;
+    if (REGISTER_ADAPTERS.includes(s.adapter)) sources[key].register = true;
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
   return { sources, exclude: sortedExclude };
@@ -253,9 +269,11 @@ export function buildChannels(sourceList) {
   return Object.fromEntries(Object.keys(out).sort().map((k) => [k, out[k]]));
 }
 
-// The FPDS program, or a covered ticker's co-mention search; else null.
+// The FPDS program, a register, or a covered ticker's co-mention search; else null.
 function programName(entity, named, tickers) {
   if (entity === FPDS.entity) return FPDS.name;
+  const register = Object.values(REGISTERS).find((r) => r.entity === entity);
+  if (register) return register.name;
   const m = COMENTION_KEY.exec(named.key || "");
   const company = m && tickers.has(m[1]) ? withoutTicker(shortName(named.name)) : "";
   return company ? `${company} partner mentions` : null;
