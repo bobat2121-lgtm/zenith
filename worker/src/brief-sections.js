@@ -11,8 +11,8 @@
 // them on a row. A row placed in neither is counted in `unassigned`.
 //
 // Reads stored grades only: no claim, no grade, no budget. news-monitor-db is
-// read with one SELECT. Imports lib.js only (relations.js is loaded
-// on first use): never tuning.js, which reaches delivery.js and from there
+// read with one SELECT. Imports lib.js only (relations.js and aux-sources.json
+// are loaded on first use, so the default brief never loads them): never tuning.js, which reaches delivery.js and from there
 // brief.js (a cycle). The mute and rival-twin SQL below are the literal text of
 // tuning.js MUTED_SQL and lib.js rivalOnCoverageSql('i'); a test holds them equal.
 // Each part runs on its own: a failing part becomes { error } and is logged
@@ -142,19 +142,26 @@ export function registerReadings(rows, { from, to, inUniverse, cap = CAPS.regist
   return out.slice(0, cap);
 }
 
-// briefSections(env, covered, { from, to, graded, rel }) -> { competitors, industry }
+// A source key's entity (aux-sources.json), else the key itself: relations.js's
+// rule, so a Coverage rival row takes the sign relations.js keeps for its entity.
+const entityOfKey = (aux) => (key) => (Object.hasOwn(aux?.sources || {}, key) && aux.sources[key]?.entity) || key;
+
+// briefSections(env, covered, { from, to, graded, rel, aux }) -> { competitors, industry }
 //   graded: buildBrief's own graded list (its role = 'rival' rows join Competitors).
 //   rel: a relations.js object (tests inject one); else loadRelations().
-export async function briefSections(env, covered, { from, to, graded = [], rel = null } = {}) {
+//   aux: the aux-sources map `rel` was built from (default: the bundle).
+export async function briefSections(env, covered, { from, to, graded = [], rel = null, aux = null } = {}) {
   if (!rel) {
     const { loadRelations } = await import("./relations.js");
     rel = await loadRelations();
   }
+  if (!aux) aux = (await import("./aux-sources.json")).default;
   const tickers = covered?.tickers || rel.tickers || [];
   const universe = new Set(tickers);
   const inUniverse = (t) => universe.has(t);
   const order = (list) => tickers.filter((t) => list.includes(t));
   const peerMap = rel.peerMap();
+  const entityOf = entityOfKey(aux);
 
   const q5 = await part("aux grades", async () => (await env.DB.prepare(Q5_SQL).bind(from, to).all()).results || []);
   const q6 = await part("aux waiting", async () => (await env.DB.prepare(Q6_SQL).all()).results || []);
@@ -191,7 +198,8 @@ export async function briefSections(env, covered, { from, to, graded = [], rel =
   for (const r of graded) {
     const ts = rel.rivalTickers(r, "coverage").filter(inUniverse);
     if (!ts.length) continue;
-    const tk = ts.map((t) => ({ ticker: t, direction: peerMap[r.source_key]?.[t] || "-" }));
+    const entity = entityOf(r.source_key);
+    const tk = ts.map((t) => ({ ticker: t, direction: peerMap[entity]?.[t] || "-" }));
     comp.push({ entry: { ...coverageEntry(r, tk[0].direction), tickers: tk }, tickers: tk });
   }
   const byScore = (a, b) => (b.entry.score - a.entry.score) || ((b.entry.grade_id ?? 0) - (a.entry.grade_id ?? 0));

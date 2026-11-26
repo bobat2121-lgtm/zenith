@@ -24,7 +24,20 @@ const COVERED = { tickers: ["TST", "OTH"] };
 
 // Synthetic relations: acme is a peer of TST (+); widget_sec is a TST rival
 // source key (rivals.json style) whose aux entity is widget; cust_twin is a
-// customer counterparty of TST whose entity (acme_cust) is also a peer.
+// customer counterparty of TST whose entity (acme_cust) is also a peer;
+// acme_rival is a rival counterparty of TST whose aux entity is the peer acme.
+const AUX_FIX = {
+  sources: {
+    acme_pr: { entity: "acme", name: "Acme news", status: "private" },
+    acme_rival: { entity: "acme", name: "Acme rival feed", status: "private" },
+    widget_sec: { entity: "widget", name: "Widget filings", status: "public", sec: true },
+    widget_news: { entity: "widget", name: "Widget news", status: "public" },
+    prog_src: { entity: "program_x", name: "Program X", status: "program" },
+    media_src: { entity: "trade_mag", name: "Trade Mag", status: "media" },
+    cust_twin: { entity: "acme_cust", name: "Acme Customer mentions", status: "public", coverage_subject: true, affects: ["TST"] },
+    far_src: { entity: "faraway", name: "Faraway news", status: "private" },
+  },
+};
 const rel = loadRelations({
   relations: {
     basis: "files",
@@ -37,18 +50,8 @@ const rel = loadRelations({
     key_accounts: {},
   },
   version: "rel-test",
-  covered: { tickers: ["TST", "OTH"], counterparty: { cust_twin: { role: "customer", affects: ["TST"] } } },
-  aux: {
-    sources: {
-      acme_pr: { entity: "acme", name: "Acme news", status: "private" },
-      widget_sec: { entity: "widget", name: "Widget filings", status: "public", sec: true },
-      widget_news: { entity: "widget", name: "Widget news", status: "public" },
-      prog_src: { entity: "program_x", name: "Program X", status: "program" },
-      media_src: { entity: "trade_mag", name: "Trade Mag", status: "media" },
-      cust_twin: { entity: "acme_cust", name: "Acme Customer mentions", status: "public", coverage_subject: true, affects: ["TST"] },
-      far_src: { entity: "faraway", name: "Faraway news", status: "private" },
-    },
-  },
+  covered: { tickers: ["TST", "OTH"], counterparty: { cust_twin: { role: "customer", affects: ["TST"] }, acme_rival: { role: "rival", affects: ["TST"] } } },
+  aux: AUX_FIX,
   match: {},
   industry: {},
   isRecordSource: () => false,
@@ -77,7 +80,7 @@ async function addAux(db, item = {}, grade = {}) {
 }
 
 const ids = (list) => list.map((x) => x.item_id);
-const sections = (db, over = {}) => briefSections({ DB: db, NEWS: over.NEWS ?? seriesDb([]) }, COVERED, { from: FROM, to: TO, graded: over.graded || [], rel });
+const sections = (db, over = {}) => briefSections({ DB: db, NEWS: over.NEWS ?? seriesDb([]) }, COVERED, { from: FROM, to: TO, graded: over.graded || [], rel, aux: AUX_FIX });
 
 test("brief sections: a peer's aux grade 80 lists under TST with the relations sign; a program-source grade 75 lists under Industry with its reads_through ticker", async () => {
   const db = new D1();
@@ -130,6 +133,18 @@ test("brief sections: a 65 alone goes below the line with count 0; a 75 empties 
   assert.equal(c.by_ticker[0].items[0].direction, "-");
 });
 
+test("brief sections: a Coverage rival row takes the relations sign of its source key's entity, as competitorsOf gives it", async () => {
+  const db = new D1();
+  const graded = [
+    { grade_id: 11, item_id: 901, ticker: "TST", role: "rival", source_key: "acme_rival", score: 80, band: "digest", title: "Acme via its rival feed", url: "https://example.com/ar", why: "w", graded_at: IN },
+    { grade_id: 10, item_id: 902, ticker: "TST", role: "rival", source_key: "rival_src", score: 79, band: "digest", title: "Unmapped rival", url: "https://example.com/u", why: "w", graded_at: IN },
+  ];
+  const { competitors: c } = await sections(db, { graded });
+  assert.equal(rel.competitorsOf("TST").get("acme")?.direction, "+");
+  assert.deepEqual(c.by_ticker.map((g) => [g.ticker, g.items.map((x) => [x.item_id, x.direction])]), [["TST", [[901, "+"], [902, "-"]]]],
+    "acme_rival resolves to the peer acme (+); a key with no entity and no peer note keeps '-'");
+});
+
 test("brief sections: the inlined mute and twin SQL equal tuning.js MUTED_SQL and lib.js rivalOnCoverageSql('i'); brief-sections.js imports neither tuning.js nor delivery.js", () => {
   assert.equal(AUX_MUTED_SQL, MUTED_SQL);
   assert.equal(AUX_RIVAL_TWIN_SQL, rivalOnCoverageSql("i"));
@@ -137,7 +152,9 @@ test("brief sections: the inlined mute and twin SQL equal tuning.js MUTED_SQL an
   assert.ok(Q5_SQL.includes(`NOT ${rivalOnCoverageSql("i")}`));
   const src = readFileSync(new URL("../worker/src/brief-sections.js", import.meta.url), "utf8");
   const imports = [...src.matchAll(/(?:from\s+|import\()\s*"([^"]+)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(imports, ["./lib.js", "./relations.js"]);
+  assert.deepEqual(imports, ["./aux-sources.json", "./lib.js", "./relations.js"]);
+  assert.ok(/^import \{ isHttpUrl \} from "\.\/lib\.js";$/m.test(src) && !/^import .*(relations\.js|aux-sources)/m.test(src),
+    "lib.js is the only static import, so the default brief never loads the JSON bundles");
   assert.ok(!/tuning\.js|delivery\.js|discord\.js/.test(src.replace(/^\s*\/\/.*$/gm, "")));
 });
 
