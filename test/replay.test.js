@@ -382,8 +382,12 @@ test("T11: admin/golden validates, counts on dry_run, refuses while armed, and a
   assert.deepEqual(dry, { dry_run: true, would_insert: 2, would_update: 0, by_class: { anchor: 1, guard: 1 }, active_after: 2 });
   assert.equal(count(env, "golden_items"), 0);
   assert.match((await golden(env, { items: [GOOD({ ticker: "ZZZZ" })] })).body.error, /ticker ZZZZ is not covered/);
-  assert.equal((await golden(env, { items: [GOOD({ code: "IN-1", ticker: "ZZZZ", active: 0, affects: "RCAT", expect: { RCAT: [0, 10] } })] })).status, 200,
-    "an inactive item for a dropped name is accepted");
+  const dropped = GOOD({ code: "IN-1", ticker: "ZZZZ", source_key: "zzzz", expect: { ZZZZ: [40, 60] } });
+  assert.match((await golden(env, { items: [{ ...dropped, active: 1 }] })).body.error, /ticker ZZZZ is not covered/, "active: refused");
+  assert.equal((await golden(env, { items: [{ ...dropped, active: 0 }] })).status, 200,
+    "an inactive item for a dropped name, expect keyed to its own ticker, is accepted");
+  assert.match((await golden(env, { items: [{ ...dropped, code: "IN-2", active: 0, affects: "YYYY", expect: { ZZZZ: [40, 60], YYYY: [40, 60] } }] })).body.error,
+    /expect key YYYY is not a covered ticker/, "only the item's own ticker is exempt");
   assert.match((await golden(env, { items: [GOOD({ code: "GL-2", excerpt: "Sorry, you have been blocked" })] })).body.error, /block or challenge page/);
   assert.match((await golden(env, { items: [GOOD({ code: "GL-3", expect: { RCAT: [40, 60], UMAC: [50, 60] } })] })).body.error, /UMAC is neither in affects nor named in the title/);
   assert.equal((await golden(env, { items: [GOOD({ code: "GL-4", affects: "UMAC", expect: { RCAT: [40, 60], UMAC: [50, 60] } })] })).status, 200);

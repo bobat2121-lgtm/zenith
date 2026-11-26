@@ -499,7 +499,8 @@ function validGolden(raw, covered) {
   const expect = raw.expect;
   if (!expect || typeof expect !== "object" || Array.isArray(expect) || !Object.keys(expect).length) return err("expect must be an object keyed by ticker");
   for (const [t, v] of Object.entries(expect)) {
-    if (!covered.includes(t)) return err(`expect key ${t} is not a covered ticker`);
+    // An inactive item for a name that left coverage keeps its own ticker as a key.
+    if (!covered.includes(t) && (active || t !== ticker)) return err(`expect key ${t} is not a covered ticker`);
     if (v !== "duplicate") {
       const ok = Array.isArray(v) && v.length === 2 && v.every((x) => x === null || (Number.isInteger(x) && x >= 0 && x <= 100)) && (v[0] == null || v[1] == null || v[0] <= v[1]);
       if (!ok) return err(`expect ${t} must be [lo, hi] with 0 <= lo <= hi <= 100 (either may be null) or "duplicate"`);
