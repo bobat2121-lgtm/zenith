@@ -68,7 +68,8 @@ import { rareRoute } from "./rarity.js";
 // Phase 3: the portal (portal.js): /p/* behind its own gate, /s/* public install files.
 import { portal } from "./portal.js";
 
-const ALLOW = {
+// Exported for the /v1 auth walk (test/v1-auth-walk.test.js); no behaviour change.
+export const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
   "POST /v1/grades": ["grader", "admin"],
   "GET /v1/labels": ["grader", "admin"],
