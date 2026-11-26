@@ -597,10 +597,18 @@ test("T16: a muted source's rows are hidden; muted keys passed in skip the sourc
   const kept = await graded(db, SHAPE, { source_key: k2 });
   await db.prepare("INSERT INTO source_prefs (source_key, action, updated_at) VALUES (?, 'mute', ?)").bind(k1, ago(0)).run();
   await item(db, "TST", { source_key: k1, title: "Off-list name" });
+  // An off-list name's item graded for SHAPE in its primary run (also graded, Q3) stays off the page too;
+  // an on-list name's item graded the same way is listed.
+  const offList = await graded(db, "TST", { source_key: "test_offlist_src", title: "Off-list item" });
+  await addGrade(db, offList, { ticker: SHAPE, score: 70 });
+  const other = COV.tickers.find((t) => t !== SHAPE);
+  const onList = await graded(db, other, { source_key: "test_onlist_src", title: "On-list item" });
+  await addGrade(db, onList, { ticker: SHAPE, score: 70 });
   const all = (d) => SECTIONS.flatMap((s) => flat(d.sections[s].rows || [])).map((r) => r.id).filter(Boolean);
   const d = await data({ DB: db }, SHAPE);
   assert.ok(!all(d).includes(muted));
   assert.ok(all(d).includes(kept));
+  assert.deepEqual(d.also_graded.map((r) => [r.ticker, r.item_id]), [[other, onList]]);
   const seen = [];
   const spy = { prepare(sql) { seen.push(sql); return db.prepare(sql); }, batch: (s) => db.batch(s) };
   const e = await data({ DB: spy }, SHAPE, { muted: new Set() });

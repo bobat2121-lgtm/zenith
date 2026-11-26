@@ -383,8 +383,10 @@ export async function companyData(env, ticker, { days = DEFAULT_DAYS, now = Date
   }
 
   // Q3: other names' items graded for this name, from the primary grade's run (index.js SHOWN_GRADE); never counted.
+  // An item of a name off the coverage list (a dropped name) stays off every page.
   const alsoGraded = [];
   for (const r of got.q3 || []) {
+    if (!(COVERED.tickers || []).includes(r.item_ticker)) continue;
     if (r.run_id === null || r.run_id === undefined || r.run_id !== r.primary_run) continue;
     if (mutedSet.has(r.source_key) || !inWindow(r)) continue;
     alsoGraded.push({ kind: "coverage", id: r.item_id, item_id: r.item_id, ticker: r.item_ticker, grade_ticker: T, source_key: r.source_key,
