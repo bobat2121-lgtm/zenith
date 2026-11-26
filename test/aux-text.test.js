@@ -15,6 +15,7 @@ const { enrichAuxText, AUX_TEXT_HOLD_MINUTES, AUX_TEXT_PICK_SQL } = await import
 const { pickText, takeSecLease, releaseSecLease, EXCERPT_CHARS, LEAD_CHARS } = await import("../worker/src/excerpt.js");
 const { releaseHeld } = await import("../worker/src/budget.js");
 const { TEXT_BUDGET } = await import("../worker/src/text-class.js");
+const { default: COVERED } = await import("../worker/src/covered.json");
 
 const MIN = 60_000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -359,10 +360,12 @@ test("A23: default env: a row ingested now with no text is claimed at once, and 
 });
 
 // --- A31: nothing new reaches Discord ----------------------------------------------------------------
-test("A31: the aux reader and a full cron tick make no Discord request; deliveries, incidents and reports stay 0; aux-text.js and text-class.js reach neither delivery.js nor discord.js", async () => {
+test("A31: the aux reader and a full cron tick make no Discord request; deliveries, incidents and reports stay 0; aux-text.js and text-class.js reach neither delivery.js nor discord.js; covered.json gains no sources or counterparty key", async () => {
   const env = { DB: zenithDb(), NEWS: newsDb(), ...TOKENS };
   addAux(env.DB);
   addAux(env.DB, { source_key: "agency_notices", url: "https://www.agency.gov/news/2" });
+  const keys = () => ({ sources: Object.keys(COVERED.sources).sort(), counterparty: Object.keys(COVERED.counterparty).sort() });
+  const before = keys();
   const calls = await withFetch(() => null, async (c) => {
     await enrichAuxText(env);
     const waits = [];
@@ -372,6 +375,9 @@ test("A31: the aux reader and a full cron tick make no Discord request; deliveri
   });
   assert.ok(calls.length >= 2);
   assert.ok(!calls.some((u) => /discord(app)?\.com/i.test(u)), calls.join(", "));
+  // No fast lane: the rows the reader read are under no covered or counterparty key, and the run adds none.
+  assert.deepEqual(keys(), before);
+  for (const k of ["managed_widget_news", "agency_notices"]) assert.ok(!(k in COVERED.sources) && !(k in COVERED.counterparty), k);
   assert.deepEqual({ ...env.DB.rows("SELECT (SELECT COUNT(*) FROM deliveries) d, (SELECT COUNT(*) FROM incidents) i, (SELECT COUNT(*) FROM reports) r")[0] }, { d: 0, i: 0, r: 0 });
   const SRC = new URL("../worker/src/", import.meta.url);
   for (const f of ["aux-text.js", "text-class.js"]) {
@@ -386,4 +392,8 @@ test("A31: the aux reader and a full cron tick make no Discord request; deliveri
     assert.ok(!seen.has("delivery.js") && !seen.has("discord.js"), `${f} reaches ${[...seen].join(", ")}`);
   }
   assert.doesNotMatch(readFileSync(new URL("aux-text.js", SRC), "utf8"), /\bfetch\(/, "aux-text.js fetches only through excerpt.js");
+  // covered.json changes only through npm run sync:covered: neither module writes it or assigns a key in it.
+  for (const f of ["aux-text.js", "text-class.js"]) {
+    assert.doesNotMatch(readFileSync(new URL(f, SRC), "utf8"), /sync-covered|writeFile|COVERED\.(?:sources|counterparty)\b[^;\n]*[^=!<>]=[^=]/, f);
+  }
 });
