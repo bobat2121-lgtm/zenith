@@ -55,12 +55,18 @@ const { readFileSync, readdirSync } = await import("node:fs");
 const CAND = "r-0000000c0ffe";
 const CAND_FLOORS = '{"calendar":{"floor":77,"fixed":true,"undisclosed":null}}';
 // A worker with a synthetic candidate bundled (rubric/candidate/ as build-rubric.mjs would emit it).
+// The patterns match the committed lines whether or not a real overlay is bundled
+// (PR-C4 bundles one), so these tests never depend on the repo's candidate.
+const candLine = (name) => new RegExp(`^export const CANDIDATE_${name} = .*;$`, "m");
 const candidateWorker = (version = CAND) => loadWorker({ patch: (f, code) => (f === "rubric.generated.js" ? code
-  .replace("export const CANDIDATE_VERSION = null;", `export const CANDIDATE_VERSION = ${JSON.stringify(version)};`)
-  .replace("export const CANDIDATE_FLOORS = null;", `export const CANDIDATE_FLOORS = ${CAND_FLOORS};`)
-  .replace("export const CANDIDATE_INDUSTRY = null;", 'export const CANDIDATE_INDUSTRY = {"RCAT":{"rules_y":{"core":true}}};')
-  .replace("export const CANDIDATE_SCOPE = null;", 'export const CANDIDATE_SCOPE = {"scope":"full","tickers":[]};') : code) });
+  .replace(candLine("VERSION"), () => `export const CANDIDATE_VERSION = ${JSON.stringify(version)};`)
+  .replace(candLine("FLOORS"), () => `export const CANDIDATE_FLOORS = ${CAND_FLOORS};`)
+  .replace(candLine("INDUSTRY"), () => 'export const CANDIDATE_INDUSTRY = {"RCAT":{"rules_y":{"core":true}}};')
+  .replace(candLine("SCOPE"), () => 'export const CANDIDATE_SCOPE = {"scope":"full","tickers":[]};') : code) });
 const cworker = await candidateWorker();
+// A worker with no candidate bundled (every CANDIDATE_* null), as on a main without rubric/candidate/.
+const nworker = await loadWorker({ patch: (f, code) => (f === "rubric.generated.js"
+  ? ["VERSION", "FLOORS", "INDUSTRY", "SCOPE"].reduce((c, n) => c.replace(candLine(n), `export const CANDIDATE_${n} = null;`), code) : code) });
 
 const iso = (msAgo = 0) => new Date(Date.now() - msAgo).toISOString();
 const MIN = 60_000, DAYMS = 86_400_000;
@@ -392,7 +398,7 @@ test("T10: arm rules: 409 while armed, 400 without a candidate, stale versions a
   assert.equal((await arm(env)).status, 200);
   assert.equal((await arm(env)).status, 409);
   assert.equal((await request(worker, env, "POST", "/v1/admin/replay", { body: { action: "abort" } })).status, 200);
-  const none = await arm(env, { kind: "candidate" });
+  const none = await arm(env, { kind: "candidate" }, nworker);
   assert.equal(none.status, 400);
   assert.match(none.body.error, /no candidate rubric is bundled/);
   assert.match((await arm(env, { kind: "candidate", targets: ["NOPE"] }, cworker)).body.error, /unknown target codes: NOPE/);

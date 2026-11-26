@@ -144,11 +144,17 @@ test("T1: no overlay gives null CANDIDATE_* and INDUSTRY {}; rubric-hash.mjs giv
   }
 }));
 
-test("T1: the committed rubric.generated.js matches rubric-hash.mjs on the repo's rubric and bundles no candidate", async () => {
+test("T1: the committed rubric.generated.js matches rubric-hash.mjs on the repo's rubric, and bundles a candidate only with rubric/candidate/", async () => {
   const gen = await import("../worker/src/rubric.generated.js");
-  assert.equal(versionOf(loadRubric(fileURLToPath(new URL("..", import.meta.url)))), gen.RUBRIC_VERSION);
+  const repo = fileURLToPath(new URL("..", import.meta.url));
+  assert.equal(versionOf(loadRubric(repo)), gen.RUBRIC_VERSION);
   assert.deepEqual(gen.INDUSTRY, {});
-  assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+  if (existsSync(join(repo, "rubric", "candidate"))) {
+    assert.equal(gen.CANDIDATE_VERSION, versionOf(loadRubric(repo, { overlay: true })));
+    assert.notEqual(gen.CANDIDATE_VERSION, gen.RUBRIC_VERSION);
+  } else {
+    assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+  }
 });
 
 test("T1: an overlay adds CANDIDATE_VERSION and floors, leaves RUBRIC_VERSION alone, and --promote-candidate makes it live", () => withRoot((root) => {
