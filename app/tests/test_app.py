@@ -1043,6 +1043,61 @@ class TuningFunctions(unittest.TestCase):
         self.assertIn("Check queue_stale: fail. 3 covered items waiting <b>over</b> 75 min", details)  # plain text (st.text)
         self.assertEqual(zf.grader_details({"grader": {}}), ["Status: unknown. No grader run recorded."])
 
+    # Phase 2 (PR-C6): one golden-replay line from ops.replay. Synthetic values only.
+    def replay_lines(self, replay=..., **grader):
+        ops = {"grader": dict(grader)}
+        if replay is not ...:
+            ops["replay"] = replay
+        return [x for x in zf.grader_details(ops) if "replay" in x.lower()]
+
+    def test_replay_line_absent_without_a_replay(self):
+        self.assertEqual(self.replay_lines(), [])  # an older zenith-core: no "replay" key
+        self.assertEqual(self.replay_lines(None), [])  # before migration 0018
+        self.assertEqual(self.replay_lines({"armed": None, "last": None}), [])  # nothing armed or finished yet
+        self.assertEqual(self.replay_lines({}), [])
+        for junk in ("x", [], 3, {"armed": "x", "last": []}):
+            self.assertEqual(self.replay_lines(junk), [])
+        self.assertEqual([x for x in zf.grader_details(OPS) if "replay" in x.lower()], [])
+        # Whole output, not only lines naming "replay": a null, empty or junk replay adds,
+        # drops and changes nothing anywhere in the details.
+        self.assertNotIn("replay", OPS)
+        for base in (OPS, {"grader": {}}):
+            want = zf.grader_details(base)
+            for replay in (None, {}, {"armed": None, "last": None}, "x", [], 3, {"armed": "x", "last": []}):
+                ops = copy.deepcopy(base)
+                ops["replay"] = replay
+                self.assertEqual(zf.grader_details(ops), want, replay)
+
+    def test_replay_line_while_armed(self):
+        armed = {"kind": "baseline", "scope": "full", "rubric_version": "r-test0000", "n_graded": 7, "n_items": 40}
+        self.assertEqual(self.replay_lines({"armed": armed, "last": None}),
+                         ["Golden replay armed: baseline r-test0000 (scope full), 7/40 graded."])
+        # Armed wins over an older finished replay: still one line.
+        last = {"kind": "baseline", "status": "done", "finished_at": "2026-11-20T10:00:00Z", "verdict": "done"}
+        self.assertEqual(len(self.replay_lines({"armed": armed, "last": last})), 1)
+        # Missing keys do not raise.
+        self.assertEqual(self.replay_lines({"armed": {}}), ["Golden replay armed: ?."])
+        self.assertEqual(self.replay_lines({"armed": {"kind": "candidate", "n_items": 12}}),
+                         ["Golden replay armed: candidate, 0/12 graded."])
+
+    def test_replay_line_after_a_replay(self):
+        last = {"kind": "candidate", "status": "failed", "finished_at": "2026-11-20T10:00:00Z", "verdict": "failed"}
+        self.assertEqual(self.replay_lines({"armed": None, "last": last}),
+                         ["Last golden replay: candidate, failed (finished Nov 20 10:00 UTC)."])
+        # No verdict (an aborted row may have none): the status stands in; missing keys do not raise.
+        self.assertEqual(self.replay_lines({"last": {"kind": "baseline", "status": "aborted"}}),
+                         ["Last golden replay: baseline, aborted."])
+        self.assertEqual(self.replay_lines({"last": {}}), ["Last golden replay: ?, unknown."])
+
+    def test_replay_line_names_no_item_code(self):
+        # Even if a future zenith-core added per-item fields, only kind, scope, version and counts show.
+        armed = {"kind": "candidate", "scope": "targets", "n_graded": 1, "n_items": 2,
+                 "code": "Z-TEST1", "reasons": ["Z-TEST2 missed"], "misses": ["Z-TEST3"]}
+        last = {"kind": "baseline", "verdict": "passed", "regressions": ["Z-TEST4"]}
+        for replay in ({"armed": armed}, {"last": last}):
+            line = " ".join(self.replay_lines(replay))
+            self.assertNotIn("Z-TEST", line)
+
     def test_calibration_parts(self):
         cov, aux, reasons = zf.calibration_parts(CALIBRATION)
         self.assertEqual((cov["all_time"]["n"], aux["all_time"]["n"], reasons["stale"]), (10, 2, 3))
@@ -1501,6 +1556,22 @@ class Round4Pages(AppBase):
         self.api.routes["/v1/ops"]["grader"]["gaps_7d"] = []
         self.open_tuning()
         self.assertIn("No missed grader runs in the last 7 days.", self.captions())
+
+    def test_tuning_no_replay_line_before_a_replay(self):
+        # Phase 2 (PR-C6): no line while nothing is armed or finished.
+        self.api.routes["/v1/ops"]["replay"] = {"armed": None, "last": None}
+        self.open_tuning()
+        self.assertIn("Last run: claimed 12, graded 11.", self.texts())
+        self.assertFalse([t for t in self.texts() if "golden replay" in t.lower()])
+
+    def test_tuning_replay_line(self):
+        # Phase 2 (PR-C6): one line while a replay is armed.
+        self.api.routes["/v1/ops"]["replay"] = {
+            "armed": {"kind": "baseline", "scope": "full", "rubric_version": "r-test0000", "n_graded": 3, "n_items": 9},
+            "last": None}
+        self.open_tuning()
+        self.assertEqual([t for t in self.texts() if "golden replay" in t.lower()],
+                         ["Golden replay armed: baseline r-test0000 (scope full), 3/9 graded."])
 
 
 if __name__ == "__main__":

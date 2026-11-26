@@ -772,6 +772,23 @@ def grader_details(ops) -> list[str]:
     lines += grades_today_lines(g)
     if isinstance(backlog, dict):
         lines += backlog_phase1_lines(backlog)
+    # Phase 2: one golden-replay line from ops.replay ({armed, last}; null or absent on an
+    # older zenith-core). Counts and a verdict only: ops.replay carries no item codes.
+    replay = ops.get("replay") if isinstance(ops, dict) else None
+    if isinstance(replay, dict):
+        armed, done = replay.get("armed"), replay.get("last")
+        if isinstance(armed, dict):
+            what = " ".join(p for p in (one_line(armed.get("kind")), one_line(armed.get("rubric_version"))) if p) or "?"
+            scope = one_line(armed.get("scope"))
+            line = f"Golden replay armed: {what}" + (f" (scope {scope})" if scope else "")
+            if armed.get("n_items") is not None:
+                line += f", {_num(armed.get('n_graded'))}/{_num(armed.get('n_items'))} graded"
+            lines.append(line + ".")
+        elif isinstance(done, dict):
+            verdict = one_line(done.get("verdict")) or one_line(done.get("status")) or "unknown"
+            when = done.get("finished_at")
+            lines.append(f"Last golden replay: {one_line(done.get('kind')) or '?'}, {verdict}"
+                         + (f" (finished {utc_text(when)})" if when else "") + ".")
     for c in g.get("checks") or []:
         if isinstance(c, dict):
             state = str(c.get("state") or "?")
