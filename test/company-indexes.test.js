@@ -200,6 +200,24 @@ test("T23 plan record: existing queries keep their indexes; none becomes a SCAN 
   const rare = real.find((s) => /FROM grades g JOIN items i/.test(s));
   assert.match(planOf(after.db, rare)[0], /^SEARCH g USING INDEX idx_grades_graded_at \(graded_at>\?\)$/);
 
+  // The aux feed's main read. Before 0023 it scans the table; after, the entity
+  // feed and the default feed scan the matching live-row index instead, which
+  // holds only live rows (`scans()` keeps only the alias, so it is spelled out
+  // here). With skipped rows included, the plan stays a table scan.
+  const feeds = [
+    ["entity feed", "?entity=Test%20Co", /^SCAN i USING INDEX aux_items_entity_live$/],
+    ["default feed", "?order=newest", /^SCAN i USING INDEX aux_items_source_live$/],
+    ["feed with skipped rows", "?order=newest&include_skipped=1", /^SCAN i$/],
+  ];
+  for (const [name, query, now] of feeds) {
+    const one = recorder(after);
+    await auxFeed({ DB: one }, new URL(`https://example.com/v1/aux/feed${query}`));
+    const main = one.seen.find((s) => /\bFROM aux_items i\b/.test(s));
+    assert.ok(main, `${name}: main read captured`);
+    assert.equal(planOf(before.db, main)[0], "SCAN i", `${name} before`);
+    assert.match(planOf(after.db, main)[0], now, `${name} after`);
+  }
+
   // Shapes held as copies: an entity_key filter on live rows moves to the partial
   // index; the grader's pending and per-item reads keep their indexes.
   const shapes = [
