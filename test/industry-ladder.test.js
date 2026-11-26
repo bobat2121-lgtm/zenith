@@ -1,9 +1,12 @@
-// Phase 2, industry ladder (core.md section 9A in the candidate overlay,
-// rubric/candidate/). The ladder is bundled as a candidate only: the live
-// RUBRIC_VERSION and INDUSTRY stay as they were, and the candidate's
-// industry_links reach normalizeGrade only through a candidate replay. The
-// normalizeGrade cases use a synthetic INDUSTRY map; the bundle cases read the
-// repo's own rubric files, which are public.
+// Phase 2, industry ladder (core.md section 9A). PR-C4 bundles it as a
+// candidate overlay (rubric/candidate/): the live RUBRIC_VERSION and INDUSTRY
+// stay as they were, and the candidate's industry_links reach normalizeGrade
+// only through a candidate replay. PR-C5 runs build-rubric.mjs
+// --promote-candidate, which writes the overlay over the live files and removes
+// rubric/candidate/. Every case here holds in both states, so PR-C5 needs no
+// edit to this file: the state is read from whether rubric/candidate/ exists.
+// The normalizeGrade cases use a synthetic INDUSTRY map; the bundle cases read
+// the repo's own rubric files, which are public.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -25,6 +28,17 @@ const SCRIPT = join(REPO, "scripts", "build-rubric.mjs");
 const CAND = join(REPO, "rubric", "candidate");
 const read = (...p) => readFileSync(join(REPO, ...p), "utf8");
 const LADDER_SHEETS = ["AUR", "KDK", "PL", "SATL", "SYM"];
+const LADDER_INDUSTRY = {
+  AUR: { av_truck_rules: { core: true } },
+  KDK: { av_truck_rules: { core: true } },
+  PL: { space_licensing: { core: true } },
+  SATL: { space_licensing: { core: true } },
+  SYM: { robotics_trade: { core: false } },
+};
+// Before promotion (PR-C4) the ladder lives in rubric/candidate/; after it (PR-C5) it is live.
+const PROMOTED = !existsSync(CAND);
+const LADDER_DIR = PROMOTED ? ["rubric"] : ["rubric", "candidate"];
+const ladderIndustry = PROMOTED ? gen.INDUSTRY : gen.CANDIDATE_INDUSTRY;
 
 // --- T12: normalizeGrade against a synthetic INDUSTRY map -----------------------------------------
 const SYN_INDUSTRY = { SYN: { trade_x: { core: false }, rules_y: { core: true } } };
@@ -40,32 +54,30 @@ test("T12: an undeclared industry id is rejected; the ceiling is 69 without core
   assert.equal(check(74, "industry:rules_y").ok, true);
 });
 
-// --- The bundle: live untouched, candidate bundled ---------------------------------------------
-test("the live rubric is untouched: RUBRIC_VERSION is the hash of the live files and INDUSTRY is {}", () => {
+// --- The bundle: candidate bundled (PR-C4) or promoted (PR-C5) --------------------------------
+test("RUBRIC_VERSION is the hash of the live files; INDUSTRY is {} before promotion and the ladder after it", () => {
   assert.equal(gen.RUBRIC_VERSION, versionOf(loadRubric(REPO)));
-  assert.deepEqual(gen.INDUSTRY, {});
+  assert.deepEqual(gen.INDUSTRY, PROMOTED ? LADDER_INDUSTRY : {});
   for (const t of LADDER_SHEETS) {
-    assert.equal(/^industry_links:/m.test(frontMatter(read("rubric", "companies", `${t}.md`)) || ""), false, `live ${t}.md declares no industry_links`);
+    assert.equal(/^industry_links:/m.test(frontMatter(read("rubric", "companies", `${t}.md`)) || ""), PROMOTED,
+      `live ${t}.md declares industry_links only after promotion`);
   }
-  assert.equal(read("rubric", "core.md").includes("## 9A."), false, "live core.md has no section 9A");
+  assert.equal(read("rubric", "core.md").includes("## 9A."), PROMOTED, "live core.md has section 9A only after promotion");
 });
 
-test("the candidate is bundled: version, scope full, the five industry_links and unchanged floors", () => {
-  assert.ok(existsSync(CAND), "rubric/candidate/ exists");
+test("the candidate is bundled with scope full, the five industry_links and unchanged floors, or nothing is after promotion", () => {
+  if (PROMOTED) {
+    assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+    return;
+  }
   assert.equal(gen.CANDIDATE_VERSION, versionOf(loadRubric(REPO, { overlay: true })));
   assert.notEqual(gen.CANDIDATE_VERSION, gen.RUBRIC_VERSION);
   assert.deepEqual(gen.CANDIDATE_SCOPE, { scope: "full", tickers: [] }, "core.md changed, so the replay is full");
-  assert.deepEqual(gen.CANDIDATE_INDUSTRY, {
-    AUR: { av_truck_rules: { core: true } },
-    KDK: { av_truck_rules: { core: true } },
-    PL: { space_licensing: { core: true } },
-    SATL: { space_licensing: { core: true } },
-    SYM: { robotics_trade: { core: false } },
-  });
+  assert.deepEqual(gen.CANDIDATE_INDUSTRY, LADDER_INDUSTRY);
   assert.deepEqual(gen.CANDIDATE_FLOORS, parseFloors(read("rubric", "core.md")), "the 9A edits leave every floor as it is");
 });
 
-test("each overlay sheet is its live sheet plus one industry_links block, owner sections untouched", () => {
+test("each ladder sheet declares one filled-in industry_links entry; before promotion it is its live sheet plus that block", () => {
   const dropBlock = (md) => {
     const lines = md.split("\n");
     const at = lines.findIndex((l) => l.startsWith("industry_links:"));
@@ -73,29 +85,31 @@ test("each overlay sheet is its live sheet plus one industry_links block, owner 
     while (j < lines.length && /^\s/.test(lines[j])) j++;
     return lines.slice(0, at).concat(lines.slice(j)).join("\n");
   };
-  const overlaySheets = new Set(loadRubricOverlayNames());
-  assert.deepEqual([...overlaySheets].sort(), LADDER_SHEETS);
+  if (!PROMOTED) assert.deepEqual(loadRubricOverlayNames().sort(), LADDER_SHEETS);
   for (const t of LADDER_SHEETS) {
-    const live = read("rubric", "companies", `${t}.md`);
-    const cand = read("rubric", "candidate", "companies", `${t}.md`);
-    assert.equal(dropBlock(cand), live, `${t}: no change outside industry_links`);
-    assert.deepEqual(ownerSectionsEqual(live, cand, frontMatter), [], `${t}: owner sections`);
-    const parsed = parseIndustryLinks(frontMatter(cand));
+    const sheet = read(...LADDER_DIR, "companies", `${t}.md`);
+    if (!PROMOTED) {
+      const live = read("rubric", "companies", `${t}.md`);
+      assert.equal(dropBlock(sheet), live, `${t}: no change outside industry_links`);
+      assert.deepEqual(ownerSectionsEqual(live, sheet, frontMatter), [], `${t}: owner sections`);
+    }
+    const parsed = parseIndustryLinks(frontMatter(sheet));
     assert.deepEqual(parsed.errors, [], `${t}: industry_links parse`);
     assert.equal(parsed.links.length, 1, `${t}: one entry`);
     const [link] = parsed.links;
     assert.ok(INDUSTRY_KINDS.includes(link.kind));
+    assert.deepEqual({ [link.id]: { core: link.core === true } }, LADDER_INDUSTRY[t], `${t}: id and core`);
     assert.ok(link.area.length > 40 && link.actors.length > 2, `${t}: area and actors are filled in`);
   }
-  assert.deepEqual(JSON.parse(read("rubric", "candidate", "BASE.json")).declared, {}, "no sheet body change is declared");
+  if (!PROMOTED) assert.deepEqual(JSON.parse(read("rubric", "candidate", "BASE.json")).declared, {}, "no sheet body change is declared");
 });
 function loadRubricOverlayNames() {
   const dir = join(CAND, "companies");
   return existsSync(dir) ? readdirSync(dir).map((f) => f.replace(/\.md$/, "")) : [];
 }
 
-test("the candidate core.md: section 9A sits between sections 9 and 10, and its ceilings match the API", () => {
-  const core = read("rubric", "candidate", "core.md");
+test("the ladder core.md: section 9A sits between sections 9 and 10, and its ceilings match the API", () => {
+  const core = read(...LADDER_DIR, "core.md");
   const heads = core.split("\n").filter((l) => /^## \d/.test(l)).map((l) => l.split(" ")[1]);
   const at = heads.indexOf("9A.");
   assert.ok(at > 0 && heads[at - 1] === "9." && heads[at + 1] === "10.", `heading order ${heads.join(" ")}`);
@@ -106,14 +120,16 @@ test("the candidate core.md: section 9A sits between sections 9 and 10, and its 
   assert.match(core, /- \*\*Ceiling:\*\* 74, or 69 for an entry without `core: true`\./);
   // The text's ceilings are the ones normalizeGrade enforces (74 core, 69 otherwise).
   const pl = { ...synItem, ticker: "PL" }, sym = { ...synItem, ticker: "SYM" };
-  const ind = { industry: gen.CANDIDATE_INDUSTRY };
+  const ind = { industry: ladderIndustry };
   assert.equal(normalizeGrade(grade(74, "industry:space_licensing"), pl, null, ["PL"], null, ind).ok, true);
   assert.match(normalizeGrade(grade(75, "industry:space_licensing"), pl, null, ["PL"], null, ind).error, /industry ladder ceiling/);
   assert.equal(normalizeGrade(grade(69, "industry:robotics_trade"), sym, null, ["SYM"], null, ind).ok, true);
   assert.match(normalizeGrade(grade(70, "industry:robotics_trade"), sym, null, ["SYM"], null, ind).error, /industry ladder ceiling/);
   assert.match(normalizeGrade(grade(50, "industry:robotics_trade"), pl, null, ["PL"], null, ind).error, /unknown industry link robotics_trade for PL/);
-  assert.match(normalizeGrade(grade(50, "industry:space_licensing"), pl, null, ["PL"], null, { industry: gen.INDUSTRY }).error,
-    /unknown industry link/, "the live INDUSTRY {} still rejects the flag");
+  if (!PROMOTED) {
+    assert.match(normalizeGrade(grade(50, "industry:space_licensing"), pl, null, ["PL"], null, { industry: gen.INDUSTRY }).error,
+      /unknown industry link/, "the live INDUSTRY {} still rejects the flag");
+  }
 });
 
 test("build-rubric --strict is clean on the repo's rubric and reproduces the committed rubric.generated.js", () => {
