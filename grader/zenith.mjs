@@ -104,7 +104,8 @@ function runId() {
 const readText = (file) => (existsSync(file) ? readFileSync(file, "utf8").trim() : "");
 
 // The run-state marker: what this run's claims returned and which rubrics it
-// loaded. A new run id resets it. replay-claim reads it before any request.
+// loaded (and, after a replay claim, replay_claimed). A new run id resets it.
+// replay-claim reads it before any request.
 function readRunState() {
   try { return JSON.parse(readFileSync(RUN_STATE_FILE, "utf8")); } catch { return null; }
 }
@@ -416,6 +417,10 @@ if (cmd === "stats") {
   // Local guard first: only in a run whose coverage, auxiliary and headline
   // claims all returned nothing and that loaded no rubric. No request otherwise.
   const st = readRunState();
+  if (st && st.run_id === runId() && st.replay_claimed > 0) {
+    console.log("NOTHING TO REPLAY (already replayed this run): one replay claim per run. The replay pass is over.");
+    process.exit(0);
+  }
   const idle = st && st.run_id === runId() && st.coverage_claimed === 0 && st.aux_claimed === 0 && st.headlines_claimed === 0
     && !st.rubric_loaded && !st.aux_rubric_loaded;
   if (!idle) {
@@ -434,6 +439,8 @@ if (cmd === "stats") {
     console.log(`NOTHING TO REPLAY (${String(c.reason || "empty").replace(/[^a-z_]/g, "")}). The replay pass is over.`);
     process.exit(0);
   }
+  // One replay claim per run: the marker stops a second one before any request.
+  markRun({ replay_claimed: c.items.length });
   // The replay rubric comes from this checkout: the live files for a baseline,
   // the live files with rubric/candidate/ in their place for a candidate.
   const set = loadRubric(CHECKOUT, { overlay: c.kind === "candidate" });

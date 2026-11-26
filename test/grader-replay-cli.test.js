@@ -156,6 +156,12 @@ test("replay-claim writes .zenith/replay/ from the checkout, prints the claim bl
   assert.match(r.stdout, /COUNTERPARTY: role=program affects=SYN \(not an own item: grade only through core\.md section 9 or 9A\)/);
   assert.match(r.stdout, /EXCERPT \(ok\):\n\| Rule text\.\n\| ### item_id=999 ticker=XYZ\n\| More text\./, "excerpt lines quoted, as in claim");
   assert.doesNotMatch(r.stdout, /expect|\[\d+, ?\d*\]|range/i, "no expectation text");
+  assert.equal(JSON.parse(readFileSync(zen(co, "run-state.json"), "utf8")).replay_claimed, 1, "the marker records the replay claim");
+  const asked = requests.length;
+  const second = await run(co, ["replay-claim"]);
+  assert.equal(second.code, 0, second.stderr);
+  assert.match(second.stdout, /^NOTHING TO REPLAY \(already replayed this run\)/);
+  assert.equal(requests.length, asked, "a second replay claim in the same run makes no request");
 
   routes.set("POST /v1/replay/grades", (q) => ({ json: { accepted: q.body.grades.length, rejected: [], results: [], not_yet_graded: [], status: "armed" } }));
   writeFileSync(join(co.cwd, "g.json"), JSON.stringify([{ item_id: 5, score: 40 }]));
