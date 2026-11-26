@@ -356,19 +356,19 @@ const copyRank = (r) => (r.state === "graded" ? 0 : r.state === "skipped" ? 2 : 
 const lc = (s) => String(s ?? "").toLowerCase();
 
 // One news-monitor row stored in both pipelines: keep graded, then waiting or
-// held, then skipped; ties go to coverage. Under sort=best, `cmp` (the best
-// order) picks instead, so the higher-ranked copy is kept: a graded Lead copy is
-// never dropped for a graded Reject copy that then falls outside the top 50. The
-// best order ranks by tier first, which already puts graded before waiting or
-// held before skipped, and its last tiebreak puts coverage first.
-// Returns the set of dropped rows.
-function droppedCopies(cov, aux, cmp = null) {
+// held, then skipped; ties go to coverage (spec 5.3 step 6). Under sort=best
+// (`byTier`) the copy in the better tier is kept first, so a graded Lead copy is
+// never dropped for a graded Reject copy that then falls outside the top 50
+// (spec 5.2: every graded Lead and Digest is found). Within one tier the state
+// rule above decides, ties to coverage; the hit and headline tiebreaks of the
+// best order play no part. Returns the set of dropped rows.
+function droppedCopies(cov, aux, byTier = false) {
   const byRowid = new Map(cov.map((r) => [r.nm_rowid, r]));
   const dropped = new Set();
   for (const r of aux) {
     const c = byRowid.get(r.nm_rowid);
     if (!c) continue;
-    const auxWins = cmp ? cmp(r, c) < 0 : copyRank(r) < copyRank(c);
+    const auxWins = ((byTier ? r.tier - c.tier : 0) || copyRank(r) - copyRank(c)) < 0;
     dropped.add(auxWins ? c : r);
   }
   return dropped;
@@ -432,7 +432,7 @@ export async function searchRows(env, params, deps = {}) {
     });
   }
   const best = q.sort === "best" ? bestOrder(q.terms) : null;
-  const dropped = droppedCopies(fetched.coverage, fetched.aux, best);
+  const dropped = droppedCopies(fetched.coverage, fetched.aux, Boolean(best));
   const ran = new Set(stmts.map((s) => s.pipeline));
 
   let shown = [];

@@ -306,6 +306,23 @@ test("S8b: sort=best keeps the higher-ranked copy of a row graded in both pipeli
   assert.deepEqual(await pair(950_002, 10, 91), ["aux", "coverage"], "best keeps the aux Lead; newest is unchanged (graded tie to coverage)");
   assert.deepEqual(await pair(950_003, 91, 10), ["coverage", "coverage"], "best keeps the coverage Lead");
   assert.deepEqual(await pair(950_004, 50, 55), ["coverage", "coverage"], "same tier: coverage");
+
+  // Same tier, the aux copy has the stronger hit (headline or grader entity), the
+  // coverage copy an excerpt hit only: the state rule decides, ties to coverage.
+  const d3 = zenithDb();
+  const twin = async (rowid, cov, aux, gCov, gAux, q) => {
+    const c = await addCov(d3, { nm_rowid: rowid, nm_first_seen: at, ...cov });
+    await gradeCov(d3, c, gCov);
+    const a = await addAux(d3, { nm_rowid: rowid, nm_first_seen: at, ...aux });
+    await gradeAux(d3, a, gAux);
+    const r = await search(d3, { q });
+    assert.equal(r.results.length, 1, q);
+    return [r.results[0].pipeline, r.results[0].item_id === c];
+  };
+  assert.deepEqual(await twin(950_005, { title: "Twin story", excerpt: "about plainco deal" }, { title: "Twin story" },
+    { score: 91 }, { score: 91, entity: "Plainco" }, "plainco"), ["coverage", true], "both Lead, aux entity hit: coverage");
+  assert.deepEqual(await twin(950_006, { title: "Other story", excerpt: "a sprocket order" }, { title: "Other story", headline: "Sprocket win" },
+    { score: 75 }, { score: 80 }, "sprocket"), ["coverage", true], "both Digest, aux headline hit: coverage");
 });
 
 // --- S9 -------------------------------------------------------------------------------------
