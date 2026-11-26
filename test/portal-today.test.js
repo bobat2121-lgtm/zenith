@@ -258,7 +258,9 @@ test("T-7: at most 150 cards; rejects are a count, or 50 cards with ?rejects=1; 
   const some = sessionEnv();
   await bulk(some, 390, 75);
   await bulk(some, 20, 20);
-  assert.match((await open(some, "/p/today")).text, /At least 10 rejects/);
+  const s = (await open(some, "/p/today")).text;
+  assert.match(s, /At least 10 rejects/);
+  assert.match(s, /Showing the first 150 of 390 cards/);
 });
 
 // --- T-8 ---------------------------------------------------------------------------------

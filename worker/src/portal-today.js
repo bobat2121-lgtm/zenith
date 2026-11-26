@@ -154,8 +154,9 @@ export async function todayView(vctx) {
   const card = (r) => itemCard(r, { kind: "coverage", now, returnTo });
 
   const groups = SECTIONS.map(([band, label]) => [label, split.cards.filter((r) => ROW_BAND(r) === band)]).filter(([, list]) => list.length);
+  // Rejects sort last in T1, so a reject among the rows means every non-reject row came back.
   const capped = split.nonReject > split.cards.length
-    ? html`<p class="meta">Showing the first ${split.cards.length} of ${split.hitLimit ? "at least " : ""}${split.nonReject} cards; pick a shorter range for the rest.</p>` : "";
+    ? html`<p class="meta">Showing the first ${split.cards.length} of ${split.hitLimit && split.rejectCount === 0 ? "at least " : ""}${split.nonReject} cards; pick a shorter range for the rest.</p>` : "";
   const quiet = quietNames(rows, tickers).map((t) => [t, tickerHref(t)]).filter(([, h]) => h);
 
   const body = html`<p class="meta">${range.label} · Updated ${fmtEt(now, { day: false })}</p>
