@@ -49,19 +49,21 @@ const finalStatement = (db) => db.prepare(
 );
 
 // The update for one read (excerpt.js resultStatement's rules, on page_*).
+// kind: "deferred" (no request, waits), "retry" (another try is scheduled) or
+// "final" (page_status written).
 function resultStatement(db, { row, status, excerpt, cap }, now, nowMs) {
   if (status === "skipped_sec_needs_contact") {
-    return db.prepare("UPDATE aux_items SET page_next_at = ? WHERE id = ? AND page_status IS NULL")
-      .bind(nowIso(nowMs + NO_CONTACT_WAIT_MINUTES * 60_000), row.id);
+    return { kind: "deferred", stmt: db.prepare("UPDATE aux_items SET page_next_at = ? WHERE id = ? AND page_status IS NULL")
+      .bind(nowIso(nowMs + NO_CONTACT_WAIT_MINUTES * 60_000), row.id) };
   }
   // No request was made for a no-fetch host: no try is spent.
   const tries = (row.page_tries || 0) + (status === "skipped_policy" ? 0 : 1);
   if ((RETRYABLE(status) && tries < MAX_TRIES) || (REFUSED(status) && tries < FORBIDDEN_TRIES)) {
     const wait = RETRY_MINUTES[Math.min(tries - 1, RETRY_MINUTES.length - 1)];
-    return db.prepare("UPDATE aux_items SET page_tries = ?, page_next_at = ? WHERE id = ? AND page_status IS NULL")
-      .bind(tries, nowIso(nowMs + wait * 60_000), row.id);
+    return { kind: "retry", stmt: db.prepare("UPDATE aux_items SET page_tries = ?, page_next_at = ? WHERE id = ? AND page_status IS NULL")
+      .bind(tries, nowIso(nowMs + wait * 60_000), row.id) };
   }
-  return finalStatement(db).bind(excerpt || null, status, tries, now, excerpt ? cap ?? null : null, row.id);
+  return { kind: "final", stmt: finalStatement(db).bind(excerpt || null, status, tries, now, excerpt ? cap ?? null : null, row.id) };
 }
 
 // opts.now (ms) for tests; opts.noFetchHosts replaces NO_FETCH_HOSTS.
@@ -105,13 +107,18 @@ export async function enrichAuxText(env, { now = Date.now(), noFetchHosts = NO_F
       fetchExcerpt(env, { ...row, role: "aux", excerpt_tries: row.page_tries || 0 }, { pdfBudget: { left: 0 }, budget: TEXT_BUDGET[cls], noFetch: policy })
         .then((r) => ({ row, ...r })))));
   }
+  // tried: rows a request was made for; retry: of those, rows given another
+  // try; ok and blocked: final results. A no-fetch host counts in policy, a
+  // sec.gov row waiting for CONTACT_EMAIL in sec_deferred.
   for (const r of results) {
-    stmts.push(resultStatement(db, r, at, now));
-    if (r.status === "skipped_policy") out.policy++;
-    else out.tried++;
-    if (r.status === "ok") out.ok++;
-    if (r.status === "blocked") out.blocked++;
-    if (RETRYABLE(r.status)) out.retry++;
+    const { kind, stmt } = resultStatement(db, r, at, now);
+    stmts.push(stmt);
+    if (r.status === "skipped_policy") { out.policy++; continue; }
+    if (kind === "deferred") { out.sec_deferred++; continue; }
+    out.tried++;
+    if (kind === "retry") out.retry++;
+    else if (r.status === "ok") out.ok++;
+    else if (r.status === "blocked") out.blocked++;
   }
   if (stmts.length) await db.batch(stmts);
   return out;

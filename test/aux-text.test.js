@@ -175,7 +175,9 @@ test("A26: 200 is ok at the class budget; a 403 is retried once 20 minutes later
   const handler = (url) => (url.includes("refuse.example") ? new Response("no", { status: 403 })
     : url.includes("down.example") ? new Response("down", { status: 503 }) : null);
   let now = Date.now();
-  await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  const counts = (r) => [r.tried, r.ok, r.retry, r.blocked, r.sec_deferred];
+  let r = await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  assert.deepEqual(counts(r), [4, 2, 2, 0, 0], "tried, ok, retry (scheduled), blocked, sec_deferred");
   assert.equal(page(db, issuer).page_status, "ok");
   assert.equal(page(db, issuer).page_cap, 6000);
   assert.ok(page(db, issuer).page_excerpt.length > EXCERPT_CHARS && page(db, issuer).page_excerpt.length <= 6000, "captured at the issuer budget");
@@ -185,14 +187,16 @@ test("A26: 200 is ok at the class budget; a 403 is retried once 20 minutes later
   assert.deepEqual([page(db, refused).page_status, page(db, refused).page_tries, wait(refused)], [null, 1, 20]);
   assert.deepEqual([page(db, down).page_status, page(db, down).page_tries, wait(down)], [null, 1, 20]);
   now += 21 * MIN;
-  await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  r = await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  assert.deepEqual(counts(r), [2, 0, 1, 0, 0], "a final http_403 is tried, not a retry");
   assert.deepEqual([page(db, refused).page_status, page(db, refused).page_tries, page(db, refused).page_excerpt], ["http_403", 2, null], "a 403 is final on its second try");
   assert.deepEqual([page(db, down).page_tries, wait(down)], [2, 120]);
   now += 121 * MIN;
   await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
   assert.deepEqual([page(db, down).page_tries, wait(down)], [3, 720]);
   now += 721 * MIN;
-  await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  r = await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  assert.deepEqual(counts(r), [1, 0, 0, 0, 0], "the 4th 503 is final, not a retry");
   assert.deepEqual([page(db, down).page_status, page(db, down).page_tries], ["http_503", 4], "final after 4 tries");
 });
 
@@ -203,7 +207,9 @@ test("A26: a PDF URL is skipped_binary with no download; a block page is retried
   const sec = addAux(db, { source_key: "widget_filings", url: "https://www.sec.gov/Archives/edgar/data/1/000000000000000001/x.htm" });
   const handler = (url) => (url.includes("blockhost") ? `<html><body><h1>Attention Required! | Cloudflare</h1><p>Sorry, you have been blocked</p></body></html>` : null);
   let now = Date.now();
-  const calls = await withFetch(handler, async (c) => { await enrichAuxText({ DB: db }, { now }); return [...c]; });
+  let r;
+  const calls = await withFetch(handler, async (c) => { r = await enrichAuxText({ DB: db }, { now }); return [...c]; });
+  assert.deepEqual([r.tried, r.retry, r.blocked, r.sec_deferred], [2, 1, 0, 1], "a sec.gov row with no contact address makes no request: sec_deferred, not tried");
   assert.ok(!calls.some((u) => u.endsWith(".pdf")), "the PDF is never requested");
   assert.ok(!calls.some((u) => u.includes("sec.gov")), "no sec.gov request without a contact address");
   assert.equal(page(db, pdf).page_status, "skipped_binary");
@@ -211,7 +217,8 @@ test("A26: a PDF URL is skipped_binary with no download; a block page is retried
   assert.deepEqual([page(db, sec).page_status, page(db, sec).page_tries], [null, 0]);
   assert.equal(Math.round((Date.parse(page(db, sec).page_next_at) - now) / MIN), 720);
   now += 21 * MIN;
-  await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  r = await withFetch(handler, () => enrichAuxText({ DB: db }, { now }));
+  assert.deepEqual([r.tried, r.retry, r.blocked], [1, 0, 1]);
   assert.equal(page(db, block).page_status, "blocked");
   assert.equal(page(db, block).page_excerpt, null);
 });
