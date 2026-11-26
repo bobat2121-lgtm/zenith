@@ -29,6 +29,8 @@
 //           (idle runs only, own caps REPLAY_DAILY 20 and REPLAY_WEEKLY 100; never a live grade);
 //           app GET /v1/replay (counts and a verdict); admin POST /v1/admin/replay {action: arm|abort},
 //           POST /v1/admin/golden (the golden set; expectations live only in zenith-db)
+//   portal: /p/* (the phone and desktop portal behind its own sign-in gate) and /s/* (its public
+//           manifest and icons; no data); portal.js. /p never reaches the bearer-token roles below
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION, INDUSTRY } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
@@ -63,6 +65,8 @@ import { recallRoute, recallLoad } from "./recall.js";
 import { replayClaim, replaySubmit, replayRoute, adminReplay, goldenLoad } from "./replay.js";
 // Phase 2: the read-time rarity class (rarity.js); nothing is stored.
 import { rareRoute } from "./rarity.js";
+// Phase 3: the portal (portal.js): /p/* behind its own gate, /s/* public install files.
+import { portal } from "./portal.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -635,9 +639,14 @@ async function auditGradeOverride(env, who, kind, res) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/health") return json({ ok: true, service: "zenith-core", rubric_version: RUBRIC_VERSION });
+    // Phase 3: the portal. Handlers that live here or in auxiliary.js and tuning.js arrive through deps.
+    if (url.pathname === "/p" || url.pathname.startsWith("/p/") || url.pathname.startsWith("/s/")) {
+      return portal(request, env, url, { feedback: (b, w) => feedback(env, b, w), auxFeedback: (b, w) => auxFeedback(env, b, w),
+        tickers: COVERED.tickers, muted: MUTED_SQL, ctx });
+    }
     if (url.pathname === "/m" || url.pathname.startsWith("/m/")) {
       return mobile(request, env, url, { feedback: (body, w) => feedback(env, body, w), tickers: COVERED.tickers });
     }
