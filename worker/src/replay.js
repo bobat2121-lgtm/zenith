@@ -334,14 +334,19 @@ async function replayRows(db, replayId) {
 }
 
 // After a submit: one confirm re-grade (pass 2) for each pass-1 item with a
-// missed pair, then the verdict once nothing is pending or claimed.
+// pair whose pass-1 grade missed, then the verdict once nothing is pending or
+// claimed. A pair with no pass-1 grade gets no confirm: pairs() judges it on
+// pass 1 alone (a hit when out of scope, else R1 incomplete).
+function confirmIds(list, queue) {
+  const hasPass2 = new Set(queue.filter((q) => q.pass === 2).map((q) => q.golden_id));
+  const graded1 = new Set(queue.filter((q) => q.pass === 1 && q.state === "graded").map((q) => q.golden_id));
+  return [...new Set(list.filter((p) => p.graded && !p.first_hit && graded1.has(p.golden_id) && !hasPass2.has(p.golden_id)).map((p) => p.golden_id))];
+}
 async function afterGrades(env, replay, { now }) {
   const db = env.DB;
   const { queue, golden, grades } = await replayRows(db, replay.id);
   const list = pairs(golden, queue, grades);
-  const hasPass2 = new Set(queue.filter((q) => q.pass === 2).map((q) => q.golden_id));
-  const graded1 = new Set(queue.filter((q) => q.pass === 1 && q.state === "graded").map((q) => q.golden_id));
-  const confirm = [...new Set(list.filter((p) => !p.first_hit && graded1.has(p.golden_id) && !hasPass2.has(p.golden_id)).map((p) => p.golden_id))];
+  const confirm = confirmIds(list, queue);
   if (confirm.length) {
     await db.batch(confirm.map((id) => db.prepare("INSERT OR IGNORE INTO replay_queue (replay_id, golden_id, pass) VALUES (?, ?, 2)").bind(replay.id, id)));
   }

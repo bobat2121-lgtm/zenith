@@ -296,6 +296,19 @@ test("T8: through the API a missed pair gets exactly one confirm re-grade, and t
   assert.deepEqual([s.verdict, s.misses, s.live_agreement.confirm], ["done", [], [{ pair: g.code, delta: 50 }]], "80 then 30: mean 55 hits");
 });
 
+test("T8: a missing #TICKER grade with hi >= 40 gets no confirm re-grade; it stays an R1 miss on pass 1", async () => {
+  const env = newEnv();
+  idleRun(env);
+  const g = addGolden(env, { affects: "UMAC", expect: { RCAT: [40, 60], UMAC: [50, 70] } });
+  await arm(env);
+  const c = await rclaim(env);
+  const r = (await rsubmit(env, c, [gr(g.id, 50)])).body;
+  assert.deepEqual([r.confirm_added, r.status], [0, "done"], "no pass-2 row spent on a pair pass 1 never graded");
+  assert.equal(count(env, "replay_queue"), 1);
+  const s = JSON.parse(env.DB.rows("SELECT summary FROM replays")[0].summary);
+  assert.deepEqual(s.misses, [`${g.code}#UMAC`]);
+});
+
 test("T9: an unreturned claim is reclaimable after its lease; after MAX_ATTEMPTS the row is failed and a miss", async () => {
   const env = newEnv();
   idleRun(env);
