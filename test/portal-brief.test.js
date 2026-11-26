@@ -26,6 +26,7 @@ const { briefView, Q3_SQL, Q1V_SQL, CUT_NAMES } = briefMod;
 const { briefStoreTick, capBrief } = await import("../worker/src/brief-store.js");
 const { buildBrief } = await import("../worker/src/brief.js");
 const { loadRelations } = await import("../worker/src/relations.js");
+const { briefSections } = await import("../worker/src/brief-sections.js");
 
 const KEY = await keyPair("kid-brief");
 // A fixed, synthetic "now": Wednesday 2026-03-18, 12:00 ET (EDT).
@@ -367,18 +368,46 @@ test("B-7: a stored copy cut to fit 64 KB says which lists were cut, and an empt
 });
 
 // --- B-8 -------------------------------------------------------------------------------
-test("B-8: a failed section says so; an empty section says 'None at 70+' with its waiting counts and lists the rows below the Digest line; a missing section says so", async () => {
+// The Competitors section as brief-sections.js builds it for one peer aux grade at 65
+// (a below-the-line row carries its tickers as [{ ticker, direction }]).
+async function belowCompetitors() {
+  const db = new D1();
+  const auxMap = { sources: { peer_src: { entity: "peer_x", name: "Peer X news", status: "private" } } };
+  const rel = loadRelations({
+    relations: { basis: "files", peers: { peer_x: { name: "Peer X", status: "private", reads: [{ ticker: "TST", direction: "-" }] } }, rivals: {}, key_accounts: {} },
+    version: "rel-test", covered: { tickers: ["TST"], counterparty: {} }, aux: auxMap, match: {}, industry: {}, isRecordSource: () => false,
+  });
+  const at = "2026-03-17T15:00:00.000Z";
+  const item = await db.prepare(`INSERT INTO aux_items (nm_rowid, source_key, entity_key, entity_name, status, url, title, nm_first_seen, ingested_at, state, coverage_subject)
+    VALUES (60001, 'peer_src', 'peer_x', 'Peer X', 'private', 'https://example.com/a/below', 'Below row', ?, ?, 'graded', 0)`).bind(at, at).run();
+  const id = item.meta.last_row_id;
+  const g = await db.prepare(`INSERT INTO aux_grades (item_id, run_id, entity, score, band, why, reads_through, flags, graded_at)
+    VALUES (?, 'run-below', 'Peer X', 65, 'borderline', 'Below why', '[]', '[]', ?)`).bind(id, at).run();
+  await db.prepare("UPDATE aux_items SET grade_id = ? WHERE id = ?").bind(g.meta.last_row_id, id).run();
+  const news = { prepare: () => ({ all: async () => ({ results: [] }) }) };
+  const { competitors } = await briefSections({ DB: db, NEWS: news }, { tickers: ["TST"] },
+    { from: "2026-03-17T11:00:00.000Z", to: "2026-03-18T11:05:00.000Z", rel, aux: auxMap });
+  return { competitors, id };
+}
+
+test("B-8: a failed section says so; an empty section says 'None at 70+' with its waiting counts and lists the rows below the Digest line with their sign and ticker; a missing section says so", async () => {
   const env = sessionEnv();
+  const { competitors: built, id: belowId } = await belowCompetitors();
+  assert.equal(built.count, 0);
+  assert.deepEqual(built.below.map((x) => [x.item_id, x.tickers, "ticker" in x, "direction" in x]), [[belowId, [{ ticker: "TST", direction: "-" }], false, false]],
+    "brief-sections.js stores a below row's ticker and sign only in tickers");
   store(env, TODAY, { c: contents({
-    competitors: { by_ticker: [], count: 0, listed: 0, more: 0, below: [{ ...aux(401, { score: 65, title: "Below row" }), ticker: "TST", direction: "-" }],
-      unassigned: 1, waiting: { n: 4, held: 1 }, rival_sources: 2 },
+    competitors: { ...built, unassigned: 1, waiting: { n: 4, held: 1 }, rival_sources: 2 },
     industry: { error: "synthetic section failure" },
     calendar: undefined,
   }) });
   const r = await open(env, "/p/brief");
   const comp = section(r.text, "Competitors and peers");
   assert.match(comp, /None at 70\+ since Tue 17 Mar 07:00 ET\. 4 waiting for a grade \(1 held by the daily budget\); 2 rival sources followed\./);
-  assert.match(comp, /Below the Digest line<\/strong><\/p><article class="card aux" id="a401">/);
+  assert.match(comp, new RegExp(`Below the Digest line</strong></p><article class="card aux" id="a${belowId}">`));
+  const below = comp.slice(comp.indexOf("Below the Digest line"));
+  assert.match(below, /<span class="badge">- TST<\/span>/, "the below row shows its stored sign and ticker");
+  assert.doesNotMatch(below, /<span class="badge">±<\/span>/);
   assert.match(section(r.text, "Industry"), /This section failed to build/);
   assert.doesNotMatch(r.text, /synthetic section failure/, "the stored error text is not shown for a section");
   assert.match(section(r.text, "Calendar, next 30 days"), /Not in this stored brief/);

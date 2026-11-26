@@ -4,7 +4,8 @@
 // at /v1/brief for the Streamlit app, so this module never imports brief.js.
 // Reads per open: Q3 (the last 10 stored days, no contents) and Q1' (one row by
 // primary key). It writes nothing; the router's portal_views upsert counts the
-// open. Every stored string is escaped by `html`; links go through safeHref.
+// open. Every stored string is escaped by `html`; item links go through itemCard
+// (safeHref) and ticker links through tickerHref.
 //
 // Sections, in order: Leads and Digests; Competitors and peers; Industry (with
 // the register readings); Counterparty (rival rows are under Competitors);
@@ -15,7 +16,7 @@
 // rows it cut per list in contents.truncated ({ list: rows cut }). The page says
 // so at the top and in each cut section, so a list emptied by the cut is never
 // shown as a list with nothing in it.
-import { html, safeHref, itemCard, tickerHref } from "./portal-html.js";
+import { html, itemCard, tickerHref, TICKER_RE } from "./portal-html.js";
 import { denied } from "./portal-stub.js";
 import { etParts, fmtEt, fmtDay, addDays, weekdayOf } from "./et.js";
 
@@ -113,10 +114,15 @@ function auxCard(r, ctx, { badges = [], meta = [] } = {}) {
   });
 }
 
+const signOf = (d) => (typeof d === "string" && d ? d : "±");
+
 // A Competitors entry: aux rows as aux cards, Coverage rival rows as coverage cards.
-function competitorCard(r, ctx) {
-  const sign = typeof r.direction === "string" && r.direction ? r.direction : "±";
-  const badges = [`${sign} ${r.ticker || ""}`.trim()];
+// A by_ticker entry carries its own ticker and direction. A below-the-line entry
+// (brief-sections.js) carries them as tickers: [{ ticker, direction }], one badge
+// each; its top-level ticker, when it has one, is the Coverage row's own company.
+function competitorCard(r, ctx, below = false) {
+  const tk = below ? list(r.tickers).filter((t) => t && typeof t.ticker === "string" && TICKER_RE.test(t.ticker)) : [];
+  const badges = tk.length ? tk.map((t) => `${signOf(t.direction)} ${t.ticker}`) : [`${signOf(r.direction)} ${r.ticker || ""}`.trim()];
   if (r.pipeline === "coverage") {
     return itemCard({ ...r, why: clip(r.why, WHY_CLIP) || null }, {
       kind: "coverage", now: ctx.now, returnTo: ctx.returnTo, extra: { badges },
@@ -165,7 +171,7 @@ function competitorsSection(c, ctx, cuts) {
   const more = num(s.more) > 0 ? html`<p class="meta">${plural(num(s.more), "more entry", "more entries")} past the brief's cap.</p>` : "";
   const cut = cutLine(cuts, "competitors", groups.length > 0);
   const none = !count && !groups.length && !cut ? noneLine(s, c.from, `; ${num(s.rival_sources) ?? 0} rival sources followed.`) : "";
-  return html`${head}${count ? html`<p class="meta">${plural(count, "row")} at 70+.</p>` : ""}${body}${more}${cut}${none}${belowBlock(s, competitorCard, ctx, cuts, "competitors_below")}`;
+  return html`${head}${count ? html`<p class="meta">${plural(count, "row")} at 70+.</p>` : ""}${body}${more}${cut}${none}${belowBlock(s, (r) => competitorCard(r, ctx, true), ctx, cuts, "competitors_below")}`;
 }
 
 function registersBlock(regs) {
