@@ -96,7 +96,7 @@ function form(sp, range, scope, note) {
   const keep = { q: cur.q, pipeline: cur.pipeline, sort: cur.sort, status: cur.status, ticker: cur.ticker, entity: cur.entity, source: cur.source };
   return html`<form method="get" action="${PATH}" class="dates" role="search">
 <label>Search <input type="search" name="q" value="${cur.q}" maxlength="${SEARCH_MAX_Q}" autocomplete="off" spellcheck="false"></label>
-${isScoped(scope) ? "" : select("pipeline", PIPELINE_LABELS, cur.pipeline || "all")}${select("sort", SORT_LABELS, cur.sort || "best")}
+${scope.ticker || scope.entity ? "" : select("pipeline", PIPELINE_LABELS, cur.pipeline || "all")}${select("sort", SORT_LABELS, cur.sort || "best")}
 ${hidden("ticker")}${hidden("entity")}${hidden("source")}${hidden("status")}${rangeKeep}<button type="submit">Search</button></form>
 ${note ? html`<p class="meta" role="status">${note}</p>` : ""}
 ${rangeControl(range, PATH, keep)}`;

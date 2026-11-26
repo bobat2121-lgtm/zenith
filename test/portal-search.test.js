@@ -404,7 +404,7 @@ test("scopes and states: a ticker search says what it covers and links out; held
   assert.match(r.text, /<a href="\/p\/c\/TST">company page<\/a>/);
   assert.match(r.text, /<a href="\/p\/search\?q=widget">Search all names<\/a>/);
   assert.match(r.text, /<input type="hidden" name="ticker" value="TST">/);
-  assert.doesNotMatch(r.text, /<select name="pipeline"/, "a scoped search has no pipeline choice");
+  assert.doesNotMatch(r.text, /<select name="pipeline"/, "a ticker search has no pipeline choice");
   assert.equal(cardIds(r.text, "a").length, 0, "a ticker search shows no aux row");
   assert.match(r.text, /<span class="badge">skipped: synthetic_reason<\/span>/);
   assert.match(r.text, /<span class="badge">held<\/span>/);
@@ -418,4 +418,10 @@ test("scopes and states: a ticker search says what it covers and links out; held
   const ent = await open(env, "/p/search?q=widget&entity=plainco");
   assert.match(ent.text, /Searching one name \(plainco\)/);
   assert.equal(cardIds(ent.text, "i").length, 0);
+  assert.doesNotMatch(ent.text, /<select name="pipeline"/, "an entity search has no pipeline choice");
+  // A source search keeps its pipeline choice, so pressing Search again does not widen it.
+  const src = await open(env, "/p/search?q=widget&source=acm_ir&pipeline=aux");
+  assert.equal(src.status, 200);
+  assert.match(src.text, /<input type="hidden" name="source" value="acm_ir">/);
+  assert.match(src.text, /<select name="pipeline"[^>]*>.*?<option value="aux" selected>/s);
 });
