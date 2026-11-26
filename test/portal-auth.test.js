@@ -299,6 +299,19 @@ test("S9: pairing codes are single use, short-lived, locked after 5 misses, one 
   const c3 = (await createPairing(env, t)).code;
   for (let i = 0; i < 5; i++) assert.equal(await redeemPairing(env, c3 === "AAAAAAAAAA" ? "BBBBBBBBBB" : "AAAAAAAAAA", t + MIN), false);
   assert.equal(await redeemPairing(env, c3, t + 2 * MIN), false, "locked after 5 misses");
+  // (d2) wrong codes sent at the same time reserve at most 5 tries; the right code then fails.
+  const c6 = (await createPairing(env, t)).code;
+  const miss = c6 === "AAAAAAAAAA" ? "BBBBBBBBBB" : "AAAAAAAAAA";
+  const burst = await Promise.all(Array.from({ length: 30 }, () => redeemPairing(env, miss, t + MIN)));
+  assert.ok(burst.every((r) => r === false));
+  assert.equal(env.DB.db.prepare("SELECT fails FROM portal_pairings").get().fails, 5, "tries capped at 5");
+  assert.equal(await redeemPairing(env, c6, t + MIN), false, "locked after 5 concurrent misses");
+  // (d3) the right code sent alongside wrong ones still counts as one of the 5 tries.
+  const c7 = (await createPairing(env, t)).code;
+  const miss7 = c7 === "AAAAAAAAAA" ? "BBBBBBBBBB" : "AAAAAAAAAA";
+  const mixed = await Promise.all([...Array.from({ length: 30 }, () => redeemPairing(env, miss7, t + MIN)), redeemPairing(env, c7, t + MIN)]);
+  assert.ok(env.DB.db.prepare("SELECT fails FROM portal_pairings").get().fails <= 5);
+  assert.ok(mixed.filter(Boolean).length <= 1);
   // (e) a second code makes the first fail.
   const c4 = (await createPairing(env, t)).code;
   const c5 = (await createPairing(env, t)).code;

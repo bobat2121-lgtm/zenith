@@ -158,12 +158,15 @@ export async function redeemPairing(env, code, now = Date.now()) {
     const row = await env.DB.prepare("SELECT id, code_sha256 FROM portal_pairings WHERE used_at IS NULL AND expires_at > ? AND fails < ? LIMIT 1")
       .bind(iso(now), PAIR_MAX_FAILS).first();
     if (!row) return false;
-    if (tokenMatches(await sha256hex(c), String(row.code_sha256))) {
-      const u = await env.DB.prepare("UPDATE portal_pairings SET used_at = ? WHERE id = ? AND used_at IS NULL").bind(iso(now), row.id).run();
-      return u?.meta?.changes === 1;
-    }
-    await env.DB.prepare("UPDATE portal_pairings SET fails = fails + 1 WHERE id = ?").bind(row.id).run();
-    return false;
+    // Reserve one of the PAIR_MAX_FAILS tries atomically before comparing, so tries sent at
+    // the same time cannot all pass the check above. A miss keeps its reservation; the hit
+    // that reserved a try marks the code used.
+    const slot = await env.DB.prepare("UPDATE portal_pairings SET fails = fails + 1 WHERE id = ? AND used_at IS NULL AND expires_at > ? AND fails < ?")
+      .bind(row.id, iso(now), PAIR_MAX_FAILS).run();
+    if (slot?.meta?.changes !== 1) return false;
+    if (!tokenMatches(await sha256hex(c), String(row.code_sha256))) return false;
+    const u = await env.DB.prepare("UPDATE portal_pairings SET used_at = ? WHERE id = ? AND used_at IS NULL").bind(iso(now), row.id).run();
+    return u?.meta?.changes === 1;
   } catch (e) {
     console.warn("portal pairing unavailable");
     return false;
