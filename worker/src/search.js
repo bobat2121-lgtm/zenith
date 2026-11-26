@@ -248,11 +248,13 @@ function statement(pipeline, q, d, cursor) {
        substr(g.why, 1, 280) AS why, substr(g.note_hook, 1, 200) AS note_hook, ${hitSql(COVERAGE_HIT)},
        substr(i.excerpt, max(1, instr(lower(i.excerpt), ?4) - 100), 280) AS ex_snip, ${tierSql("i")} AS tier
   FROM items i LEFT JOIN grades g ON g.id = i.grade_id`
-    : `SELECT a.id AS item_id, a.nm_rowid, a.entity_key, COALESCE(g.entity, a.entity_name) AS entity, a.status AS entity_status,
-       a.source_key, a.title, a.headline, a.url, a.published, a.nm_first_seen AS first_seen, a.state, a.skip_reason,
-       (a.admit IS NOT NULL AND a.released_at IS NULL) AS held, g.id AS grade_id, g.score, g.band, g.event_type,
+    : `SELECT a.id AS item_id, a.nm_rowid, a.entity_key, COALESCE(g.entity, a.entity_name) AS entity, a.entity_name,
+       a.status AS entity_status, a.source_key, a.title, a.headline, a.url, a.published, a.nm_first_seen AS first_seen, a.state,
+       a.skip_reason, (a.admit IS NOT NULL AND a.released_at IS NULL) AS held, g.id AS grade_id, g.score, g.band, g.event_type,
        g.covered_ticker, substr(g.why, 1, 280) AS why, ${hitSql(AUX_HIT)},
-       substr(COALESCE(a.page_excerpt, a.excerpt), max(1, instr(lower(COALESCE(a.page_excerpt, a.excerpt)), ?4) - 100), 280) AS ex_snip,
+       CASE WHEN instr(lower(COALESCE(a.page_excerpt, '')), ?4) > 0
+            THEN substr(a.page_excerpt, max(1, instr(lower(a.page_excerpt), ?4) - 100), 280)
+            ELSE substr(a.excerpt, max(1, instr(lower(a.excerpt), ?4) - 100), 280) END AS ex_snip,
        ${tierSql("a")} AS tier
   FROM aux_items a LEFT JOIN aux_grades g ON g.id = a.grade_id`;
   const order = newest ? `${a}.nm_first_seen DESC, ${a}.id DESC` : `tier, ${a}.nm_first_seen DESC, ${a}.id DESC`;
@@ -371,7 +373,8 @@ function snippetOf(r) {
   if (r.hit === "headline") return r.headline;
   if (r.hit === "why") return r.why;
   if (r.hit === "note_hook") return r.note_hook;
-  if (r.hit === "entity" || r.hit === "entity_name") return r.entity;
+  if (r.hit === "entity") return r.entity;
+  if (r.hit === "entity_name") return r.entity_name;
   return r.ex_snip ?? null;
 }
 

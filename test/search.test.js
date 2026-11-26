@@ -80,7 +80,7 @@ test("S3: every searched field is found and hit names it", async () => {
   const aux = {
     title: await addAux(d1, { title: "Widget launch" }),
     headline: await addAux(d1, { headline: "widget headline" }),
-    excerpt: await addAux(d1, { excerpt: "feed text widget" }),
+    excerpt: await addAux(d1, { excerpt: "feed text widget", page_excerpt: "page text with nothing relevant in it" }),
     page_excerpt: await addAux(d1, { page_excerpt: "page text widget" }),
     entity_name: await addAux(d1, { entity_key: "gizmo", entity_name: "Widget Works", source_key: "gizmo_feed" }),
     why: await addAux(d1, { entity_key: "gizmo", entity_name: "Gizmo Labs", source_key: "gizmo_feed" }),
@@ -88,15 +88,20 @@ test("S3: every searched field is found and hit names it", async () => {
   };
   await gradeAux(d1, aux.why, { entity: "Gizmo Labs", why: "Widget demand." });
   await gradeAux(d1, aux.entity, { entity: "Widget Holdings" });
+  // A graded row whose grader entity differs from the stored entity_name that matched.
+  const gradedName = await addAux(d1, { entity_key: "gizmo", entity_name: "Widget Works", source_key: "gizmo_feed" });
+  await gradeAux(d1, gradedName, { entity: "Gizmo Labs" });
   await addCov(d1, { title: "Nothing here" });
   await addAux(d1, { title: "Nothing here either" });
   const r = await search(d1, { q: "widget" });
   const got = new Map(r.results.map((x) => [`${x.pipeline}:${x.item_id}`, x.hit]));
   for (const [field, id] of Object.entries(cov)) assert.equal(got.get(`coverage:${id}`), field, `coverage ${field}`);
   for (const [field, id] of Object.entries(aux)) assert.equal(got.get(`aux:${id}`), field, `aux ${field}`);
-  assert.equal(r.results.length, 12, "rows without the word are not returned");
-  const ex = r.results.find((x) => x.item_id === cov.excerpt && x.pipeline === "coverage");
-  assert.match(ex.snippet, /widget/);
+  assert.equal(got.get(`aux:${gradedName}`), "entity_name");
+  assert.equal(r.results.length, 13, "rows without the word are not returned");
+  for (const x of r.results) assert.match(x.snippet, /widget/i, `${x.pipeline} ${x.hit}: the snippet holds the term`);
+  assert.equal(r.results.find((x) => x.pipeline === "aux" && x.item_id === gradedName).snippet, "Widget Works");
+  assert.equal(r.results.find((x) => x.pipeline === "aux" && x.item_id === aux.excerpt).snippet, "feed text widget");
 });
 
 // --- S4 -------------------------------------------------------------------------------------
