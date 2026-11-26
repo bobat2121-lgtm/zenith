@@ -371,7 +371,7 @@ export async function gradedNotices(db, { sinceIso }) {
     `SELECT i.id AS item_id, i.ticker, i.title, i.url, i.published, i.nm_first_seen, g.why, g.score, g.band, g.graded_at
        FROM items i JOIN grades g ON g.id = i.grade_id
       WHERE i.nm_first_seen >= ? AND g.score IS NOT NULL AND (${like})
-      ORDER BY i.id DESC LIMIT 300`,
+      ORDER BY i.nm_first_seen DESC, i.id DESC LIMIT 300`,
   ).bind(sinceIso, ...NOTICE_FLAGS.map((f) => `%"${f}"%`)).all()).results || [];
   const out = [];
   for (const r of rows) {
@@ -422,10 +422,15 @@ function namesCompany(terms, text) {
   }
   return false;
 }
+// The source keys that start with "legistar_", as a range idx_items_source can
+// seek: under BINARY collation "`" (0x60) is the character after "_" (0x5F), so
+// [legistar_, legistar`) holds exactly those keys (the same rows as
+// substr(source_key, 1, 9) = 'legistar_', which scans the whole table).
+export const LEGISTAR_RANGE = (a = "") => `${a}source_key >= 'legistar_' AND ${a}source_key < 'legistar\x60'`;
 export async function councilAgendas(db, { sinceIso }) {
-  // substr, not LIKE 'legistar\_%' ESCAPE: the backslashes would not survive a JS string.
+  // LEGISTAR_RANGE, not substr() or LIKE: a range on idx_items_source instead of a scan of items.
   const rows = (await db.prepare(
-    "SELECT i.id AS item_id, i.ticker, i.title, i.url, i.source_key, i.nm_first_seen FROM items i WHERE substr(i.source_key, 1, 9) = 'legistar_' AND i.title LIKE '%, agenda 20%' AND i.nm_first_seen >= ? AND COALESCE(i.skip_reason,'') != 'muted_source' ORDER BY i.id DESC LIMIT 200",
+    `SELECT i.id AS item_id, i.ticker, i.title, i.url, i.source_key, i.nm_first_seen FROM items i WHERE ${LEGISTAR_RANGE("i.")} AND i.title LIKE '%, agenda 20%' AND i.nm_first_seen >= ? AND COALESCE(i.skip_reason,'') != 'muted_source' ORDER BY i.id DESC LIMIT 200`,
   ).bind(sinceIso).all()).results || [];
   const out = [];
   for (const r of rows) {
@@ -454,7 +459,7 @@ export async function councilAgendas(db, { sinceIso }) {
 async function councilDecisions(db, { sinceIso }) {
   const rows = (await db.prepare(
     `SELECT id, url, title, published, nm_first_seen FROM items
-      WHERE substr(source_key, 1, 9) = 'legistar_' AND instr(url, '#') > 0 AND nm_first_seen >= ?
+      WHERE ${LEGISTAR_RANGE()} AND instr(url, '#') > 0 AND nm_first_seen >= ?
         AND COALESCE(skip_reason,'') != 'muted_source'
       ORDER BY id DESC LIMIT 400`,
   ).bind(sinceIso).all()).results || [];

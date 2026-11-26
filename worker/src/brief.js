@@ -12,7 +12,9 @@ import { json, nowIso, HELD_SQL } from "./lib.js";
 import { etParts, etToUtc, addDays, fmtEt, fmtAge, fmtDay, DAY_MS } from "./et.js";
 import { discordSendAll, escapeMd, clip, link, figures, bandName, splitMessages } from "./discord.js";
 import { CALENDAR, CALENDAR_VERSION } from "./calendar.generated.js";
-import { briefCatalysts, councilOutcomes, runtimeEntries, upcoming } from "./calendar.js";
+import { briefCatalysts, councilOutcomes, runtimeEntries, upcoming, occurrences } from "./calendar.js";
+// Phase 3 Part E: the competitor and industry sections (sections: "full" only).
+import { briefSections } from "./brief-sections.js";
 
 // Cloudflare numbers weekdays 1 = Sunday to 7 = Saturday, so the Monday cron uses
 // the day name, which means Monday in every cron dialect.
@@ -30,7 +32,7 @@ const CATCH_UP_AFTER_MIN = 10;   // the dedicated cron gets the first 10 minutes
 const CATCH_UP_UNTIL_MIN = 180;
 const STALE_SENDING_MIN = 15;
 const MAX_REPORT_ATTEMPTS = 3;
-const SECTION_CAP = { graded: 40, counterparty: 15, waiting: 20, catalysts: 25 };
+export const SECTION_CAP = { graded: 40, counterparty: 15, waiting: 20, catalysts: 25, competitors: 25, industry: 25, calendar: 100 };
 
 // The grade that is current for (item, ticker): the item's primary grade, or a
 // cross-ticker grade from the same grading pass as the primary. Needs
@@ -102,7 +104,10 @@ export async function pickToLabel(db, now, n = 3, tickers = null) {
   return out.slice(0, n);
 }
 
-export async function buildBrief(env, covered, { from, to, now = Date.now(), kind = "brief" }) {
+// sections: "full" adds competitors and industry (brief-sections.js) and a
+// 30-day calendar; the default object is unchanged. rel: a relations.js object
+// for the sections (tests); else brief-sections.js loads it.
+export async function buildBrief(env, covered, { from, to, now = Date.now(), kind = "brief", sections = null, rel = null }) {
   const db = env.DB;
   const graded = ((await db.prepare(
     `SELECT g.id AS grade_id, g.item_id, g.ticker, g.score, g.band, g.event_type, g.why, g.note_hook, g.magnitude_usd,
@@ -149,6 +154,14 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
 
   const lastRun = await db.prepare("SELECT id, last_seen_at, graded, rejected FROM runs ORDER BY last_seen_at DESC LIMIT 1").first();
   const gradedInWindow = await db.prepare("SELECT COUNT(*) AS n FROM grades WHERE graded_at >= ? AND graded_at < ?").bind(from, to).first();
+  // The full brief: the two sections, and the next 30 days of the calendar from
+  // the run-time entries already read above (no extra query).
+  const full = {};
+  if (sections === "full") {
+    Object.assign(full, await briefSections(env, covered, { from, to, graded, rel }));
+    full.calendar = occurrences([...CALENDAR, ...runtime], today, addDays(today, 30))
+      .filter((e) => !tickers || tickers.includes(e.ticker)).slice(0, SECTION_CAP.calendar);
+  }
   return {
     kind, generated_at: nowIso(now), from, to, today,
     leads_digests: byTicker,
@@ -162,6 +175,7 @@ export async function buildBrief(env, covered, { from, to, now = Date.now(), kin
       news_monitor: await newsHealth(env, covered),
     },
     to_label: await pickToLabel(db, now, 3, tickers),
+    ...full,
   };
 }
 
@@ -170,6 +184,24 @@ function gradedLine(r) {
   const cross = r.item_ticker && r.item_ticker !== r.ticker ? ` (from a ${r.item_ticker} item)` : "";
   const lead = r.band === "lead";
   return `• **${r.score}** ${bandName(r.band)} · ${escapeMd(clip(r.title, lead ? 150 : 120))}${cross} — ${escapeMd(clip(r.why, lead ? 240 : 150))}${fig ? ` (${fig})` : ""} ${link(r.url)}`.trimEnd();
+}
+
+// The full brief's aux and rival lines.
+function compLine(r) {
+  const who = r.pipeline === "aux" ? escapeMd(clip(r.entity_name, 60)) : `${escapeMd(r.ticker)} ← rival`;
+  return `• ${r.direction || r.tickers?.[0]?.direction || "±"} **${r.score}** · ${who} · ${escapeMd(clip(r.title, 140))} — ${escapeMd(clip(r.why, 150))} ${link(r.url)}`.trimEnd();
+}
+function industryLine(r) {
+  const tag = [r.tag, ...(r.tickers || [])].filter(Boolean).map(escapeMd).join(", ");
+  return `• **${r.score}** · ${tag || "sector"} · ${escapeMd(clip(r.entity_name, 60))} · ${escapeMd(clip(r.title, 140))} — ${escapeMd(clip(r.why, 150))} ${link(r.url)}`.trimEnd();
+}
+function emptyLine(b, s, tail) {
+  const w = s.waiting || {};
+  const wait = w.error ? "waiting count unavailable" : `${w.n ?? 0} waiting for a grade (${w.held ?? 0} held by the daily budget)`;
+  return `None at 70+ since ${fmtEt(Date.parse(b.from))}. ${wait}${tail}`;
+}
+function belowLines(below, line) {
+  return below?.length ? ["Below the Digest line:", ...below.map(line)] : [];
 }
 
 // A council agenda's tag: its outcome once a decision row closed or deferred it.
@@ -212,6 +244,34 @@ export function renderBrief(b, { publicUrl = "", now = Date.parse(b.generated_at
     `• **${r.ticker}** ← ${escapeMd(r.role)} · **${r.score}** · ${escapeMd(clip(r.title, 140))} — ${escapeMd(clip(r.why, 180))} ${link(r.url)}`.trimEnd());
   if (b.counterparty.length > SECTION_CAP.counterparty) cp.push(`… and ${b.counterparty.length - SECTION_CAP.counterparty} more.`);
   section(L, `**Counterparty items that passed** (${b.counterparty.length})`, cp, "None.");
+
+  // The full brief only (sections: "full"); the default text is unchanged.
+  if (b.competitors) {
+    const c = b.competitors;
+    const lines = [];
+    if (!c.error) {
+      let shown = 0;
+      for (const g of c.by_ticker) {
+        const ls = g.items.slice(0, SECTION_CAP.competitors - shown).map(compLine);
+        shown += ls.length;
+        if (ls.length) lines.push(`__${g.ticker}__\n${ls[0]}`, ...ls.slice(1));
+      }
+      if (c.more > 0) lines.push(`… and ${c.more} more.`);
+      if (!c.count) lines.push(emptyLine(b, c, `; ${c.rival_sources} rival sources followed.`), ...belowLines(c.below, compLine));
+    }
+    section(L, `**Competitors and peers** (${c.error ? "failed" : c.count})`, lines, "This section failed to build.");
+  }
+  if (b.industry) {
+    const s = b.industry;
+    const lines = [];
+    if (!s.error) {
+      lines.push(...s.items.slice(0, SECTION_CAP.industry).map(industryLine));
+      if (s.count > s.items.length) lines.push(`… and ${s.count - s.items.length} more.`);
+      if (!s.count) lines.push(emptyLine(b, s, "."), ...belowLines(s.below, industryLine));
+      if (Array.isArray(s.registers) && s.registers.length) lines.push("Register readings:", ...s.registers.map((r) => `• ${escapeMd(clip(r.text, 160))}`));
+    }
+    section(L, `**Industry** (${s.error ? "failed" : s.count})`, lines, "This section failed to build.");
+  }
 
   const w = b.waiting;
   const waiting = w.items.slice(0, SECTION_CAP.waiting).map((r) =>
@@ -458,7 +518,9 @@ export async function briefRoute(env, covered, url) {
   const since = url.searchParams.get("since");
   let from = isIso(since) ? new Date(Date.parse(since)).toISOString() : await lastBriefEnd(env.DB, now);
   if (Date.parse(from) < now - 7 * DAY_MS) from = nowIso(now - 7 * DAY_MS);
-  const brief = await buildBrief(env, covered, { from, to: nowIso(now), now, kind: "brief" });
+  // ?sections=full adds the competitor and industry sections and the 30-day calendar.
+  const sections = url.searchParams.get("sections") === "full" ? "full" : null;
+  const brief = await buildBrief(env, covered, { from, to: nowIso(now), now, kind: "brief", sections });
   // window: whether from came from ?since or from the last brief slot.
   return json({ ...brief, window: isIso(since) ? "since" : "last_brief", text: renderBrief(brief, { publicUrl: env.ZENITH_PUBLIC_URL || "", now }) });
 }

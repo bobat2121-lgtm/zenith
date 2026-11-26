@@ -259,6 +259,17 @@ export function sameOrigin(request, url) {
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
+// The label body from a parsed form or JSON object (item_id, label, note,
+// ticker), as POST /m/feedback and the portal's POST /p/api/feedback build it:
+// { body } or { error } when the label is not one of MOBILE_LABELS.
+export function parseLabelBody(raw) {
+  const body = { item_id: Number(raw?.item_id), label: String(raw?.label || "").toLowerCase() };
+  if (raw?.note && String(raw.note).trim()) body.note = String(raw.note).trim().slice(0, 1000);
+  if (raw?.ticker && /^[A-Za-z.]{1,8}$/.test(String(raw.ticker))) body.ticker = String(raw.ticker).toUpperCase();
+  if (!MOBILE_LABELS.some(([v]) => v === body.label)) return { error: `label must be one of ${MOBILE_LABELS.map(([v]) => v).join(", ")}` };
+  return { body };
+}
+
 // deps.feedback(body, who) -> Response: the POST /v1/feedback handler; who is the
 // audit actor (lib.js whoForMobile: "app" by token, a hash of the Access email).
 export async function mobile(request, env, url, deps = {}) {
@@ -286,13 +297,9 @@ export async function mobile(request, env, url, deps = {}) {
   let raw = null;
   try { raw = isForm ? Object.fromEntries(await request.formData()) : await request.json(); } catch { raw = null; }
   if (!raw || typeof raw !== "object") return isForm ? messagePage("Not saved: unreadable form.", 400) : json({ error: "body must be JSON" }, 400);
-  const body = { item_id: Number(raw.item_id), label: String(raw.label || "").toLowerCase() };
-  if (raw.note && String(raw.note).trim()) body.note = String(raw.note).trim().slice(0, 1000);
-  if (raw.ticker && /^[A-Za-z.]{1,8}$/.test(String(raw.ticker))) body.ticker = String(raw.ticker).toUpperCase();
-  if (!MOBILE_LABELS.some(([v]) => v === body.label)) {
-    const msg = `label must be one of ${MOBILE_LABELS.map(([v]) => v).join(", ")}`;
-    return isForm ? messagePage(`Not saved: ${msg}.`, 400) : json({ error: msg }, 400);
-  }
+  const parsed = parseLabelBody(raw);
+  if (parsed.error) return isForm ? messagePage(`Not saved: ${parsed.error}.`, 400) : json({ error: parsed.error }, 400);
+  const { body } = parsed;
   if (typeof deps.feedback !== "function") return json({ error: "feedback unavailable" }, 500);
   const res = await deps.feedback(body, await whoForMobile(auth, request));
   if (!isForm) return res;

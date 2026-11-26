@@ -487,3 +487,24 @@ test("ops: every statement is a SELECT with at most 3 bound parameters, and noth
   }
   assert.ok(seen.every((s) => s.db === "DB"), "news-monitor-db is not read by /v1/ops");
 });
+
+// --- Phase 3 PR-PA2: the grader-health functions live in an import-free module ----------------
+// (grader-health.js), so the portal reads them without reaching tuning.js; tuning.js
+// re-exports each one, so every existing importer sees the very same function.
+test("grader-health.js imports nothing, and tuning.js re-exports every moved name unchanged", async () => {
+  const { readFileSync } = await import("node:fs");
+  const code = readFileSync(new URL("../worker/src/grader-health.js", import.meta.url), "utf8");
+  assert.doesNotMatch(code, /^\s*import\s/m, "grader-health.js has no import line");
+  assert.doesNotMatch(code, /\bfrom\s+["']/, "grader-health.js has no from clause");
+  const gh = await import("../worker/src/grader-health.js");
+  const tuning = await import("../worker/src/tuning.js");
+  const moved = ["OPS_LATE_MIN", "LATE_SLACK_MIN", "EVERY_DEFAULT_MIN", "EVERY_MIN_CLAMP", "EVERY_WINDOW", "EVERY_MIN_INTERVALS",
+    "EVERY_IGNORE", "expectedEvery", "runGaps", "graderStatus", "openGap"];
+  for (const name of moved) {
+    assert.ok(name in gh, `${name} is exported by grader-health.js`);
+    assert.equal(tuning[name], gh[name], `${name} from tuning.js is the grader-health.js export`);
+  }
+  assert.deepEqual(Object.keys(gh).sort(), [...moved].sort(), "grader-health.js exports exactly the moved names");
+  assert.equal(tuning.STUCK_CLAIM_MIN, 15, "STUCK_CLAIM_MIN stays in tuning.js");
+  assert.ok(!("STUCK_CLAIM_MIN" in gh));
+});

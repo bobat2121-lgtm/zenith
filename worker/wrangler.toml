@@ -2,6 +2,8 @@ name = "zenith-core"
 main = "src/index.js"
 compatibility_date = "2026-07-09"
 workers_dev = true
+# No public per-version URLs: every request reaches only the deployed version.
+preview_urls = false
 
 # Ingest covered-lane items from news-monitor every 5 minutes (then Lead push,
 # grader heartbeat and report catch-up). Grading happens in the hourly Claude
@@ -32,9 +34,10 @@ database_id = "d9217220-a23b-4715-b4ab-c7ddd057415c"
 #   DISCORD_BRIEF_WEBHOOK (secret) 07:00 and 17:30 ET briefs
 #   DISCORD_OPS_WEBHOOK   (secret) grader heartbeat alerts, Monday calibration report
 #   ZENITH_PUBLIC_URL     (var, optional) https origin of this Worker, for label links in posts
-#   ACCESS_TEAM_DOMAIN, ACCESS_AUD (vars) Cloudflare Access team domain and the /m
-#     application's AUD tag; until both are set, GET /m accepts only the APP_TOKEN bearer.
-# Secrets (wrangler secret put): ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN
+#   ACCESS_TEAM_DOMAIN, ACCESS_AUD (secrets, optional) Cloudflare Access team domain and AUD tag for /m and /p;
+#     until both are set /p uses its session cookie and GET /m accepts only the APP_TOKEN bearer.
+# Secrets (wrangler secret put): ADMIN_TOKEN, GRADER_TOKEN, APP_TOKEN; optional PORTAL_MODE (off closes /p)
+# and PORTAL_SESSION_EPOCH (a new value ends every portal session).
 # Optional secret CONTACT_EMAIL: SEC's fair-access policy requires a contact
 # email in the User-Agent. Until it is set, sec.gov items get no excerpt (they
 # are retried with backoff, so setting it later fills them in).
