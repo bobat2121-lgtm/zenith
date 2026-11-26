@@ -19,6 +19,7 @@
 import { html, itemCard, tickerHref, TICKER_RE } from "./portal-html.js";
 import { denied } from "./portal-stub.js";
 import { etParts, fmtEt, fmtDay, addDays, weekdayOf } from "./et.js";
+import { pushOn } from "./push-routes.js";
 
 export const BRIEF_PATH = "/p/brief";
 export const STRIP_ROWS = 10;
@@ -285,6 +286,20 @@ function dayStrip(rows, today, selected) {
   return html`<nav aria-label="Stored days"><ul class="names days">${items}</ul></nav>`;
 }
 
+// The Lead alerts panel (web push, PR-E4): rendered only while push is on and the
+// viewer signed in through Access with an email, so it is invisible while push is
+// off and in session mode. The public key sits in a data- attribute (it is public);
+// the shell's one script drives the buttons and is inert without this element.
+export function pushPanel(vctx) {
+  const a = vctx?.auth;
+  if (!pushOn(vctx?.env) || a?.via !== "access" || typeof a.email !== "string" || !a.email.trim()) return "";
+  return html`<section class="push" data-push-panel data-key="${vctx.env.VAPID_PUBLIC_KEY}"><h2>Lead alerts</h2>
+<p class="meta">A notification on this device when a covered company gets a new graded Lead (at most 5 a day).</p>
+<p class="meta push-home" hidden>Add Zenith to your Home Screen (Share → Add to Home Screen), open it from there, then turn alerts on. Needs iOS 16.4 or later.</p>
+<div class="btns"><button type="button" data-push="on">Turn on Lead alerts</button><button type="button" data-push="test">Send a test</button><button type="button" data-push="off">Turn off</button></div>
+<p class="status push-status" role="status"></p></section>`;
+}
+
 // briefView(vctx) -> { title, active, body, status? }
 export async function briefView(vctx) {
   if (vctx?.auth?.ok !== true) return denied("brief");
@@ -294,21 +309,22 @@ export async function briefView(vctx) {
     return { title: "Brief", active: "brief", status: 400, body: html`<p>Bad day: use a date written YYYY-MM-DD.</p><p><a href="${BRIEF_PATH}">Latest brief</a></p>` };
   }
   const today = etParts(now).date;
+  const panel = pushPanel(vctx);
   const db = env.DB;
   const strip = (await db.prepare(Q3_SQL).bind(today).all())?.results || [];
   const day = asked ?? (strip.some((r) => r.day === today) ? today : strip[0]?.day ?? null);
   if (!day) {
-    return { title: "Brief", active: "brief", body: html`<p class="empty">No brief stored yet. The morning brief is stored each weekday from 07:00 ET.</p>${dayStrip(strip, today, null)}` };
+    return { title: "Brief", active: "brief", body: html`<p class="empty">No brief stored yet. The morning brief is stored each weekday from 07:00 ET.</p>${dayStrip(strip, today, null)}${panel}` };
   }
   const row = await db.prepare(Q1V_SQL).bind(day).first();
   const head = html`<p class="meta brief-head"><strong>Morning brief · ${fmtDay(day)}</strong>${row?.window_from ? ` · since ${etTime(row.window_from)}` : ""}</p>`;
   const tail = dayStrip(strip, today, day);
-  if (!row) return { title: "Brief", active: "brief", body: html`${head}<p class="empty">Not stored: no brief was stored for this day.</p>${tail}` };
+  if (!row) return { title: "Brief", active: "brief", body: html`${head}<p class="empty">Not stored: no brief was stored for this day.</p>${tail}${panel}` };
   if (row.status !== "ok") {
-    return { title: "Brief", active: "brief", body: html`${head}<p class="empty">Not built: ${clip(row.error ?? "", 300) || "unknown error"}</p>${tail}` };
+    return { title: "Brief", active: "brief", body: html`${head}<p class="empty">Not built: ${clip(row.error ?? "", 300) || "unknown error"}</p>${tail}${panel}` };
   }
   const c = parseJson(row.contents);
-  if (!c || typeof c !== "object") return { title: "Brief", active: "brief", body: html`${head}<p class="empty">The stored copy could not be read.</p>${tail}` };
+  if (!c || typeof c !== "object") return { title: "Brief", active: "brief", body: html`${head}<p class="empty">The stored copy could not be read.</p>${tail}${panel}` };
   const counts = parseJson(row.counts) || {};
   const cuts = cutsOf(c);
   const ctx = { now, returnTo: `${BRIEF_PATH}?day=${day}` };
@@ -322,6 +338,6 @@ ${waitingSection(c, ctx)}
 ${calendarSection(c, counts, cuts)}
 ${outcomesSection(c, cuts)}
 ${healthSection(c, cuts)}
-<h2>Stored days</h2>${tail}`;
+<h2>Stored days</h2>${tail}${panel}`;
   return { title: "Brief", active: "brief", body };
 }

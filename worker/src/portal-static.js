@@ -2,8 +2,11 @@
 // fixed allow-list: any other /s/ path is 404. No auth, no data, never a cookie.
 // They sit outside /p/ because browsers fetch the manifest without credentials
 // unless the link says use-credentials; they are public code either way.
-// /s/sw.js is reserved for the web-push service worker (Part E) and is 404 here.
+// /s/sw.js is the web push service worker (Part E, push-sw.js): 404 while push is
+// off, so it answers 200 only once the owner has turned push on (pushOn).
 import { ICONS, ICON_COLOR } from "./portal-icons.generated.js";
+import { pushOn } from "./push-routes.js";
+import { SW_PATH, SW_SCOPE, SW_SOURCE } from "./push-sw.js";
 
 const iconUrl = (name) => `/s/${name}?v=${ICONS[name].sha8}`;
 
@@ -38,11 +41,23 @@ export const STATIC = Object.freeze({
 
 const BASE = { "x-content-type-options": "nosniff", "cross-origin-resource-policy": "same-origin" };
 
-export function staticResponse(request, url) {
+const SW_HEADERS = { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache", "service-worker-allowed": SW_SCOPE,
+  "content-security-policy": "default-src 'none'; connect-src 'self'" };
+
+export function staticResponse(request, url, env) {
+  if (url.pathname === SW_PATH && pushOn(env)) return swResponse(request);
   const hit = Object.prototype.hasOwnProperty.call(STATIC, url.pathname) ? STATIC[url.pathname] : null;
   if (!hit) return new Response("not found\n", { status: 404, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...BASE } });
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("method not allowed\n", { status: 405, headers: { allow: "GET, HEAD", "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...BASE } });
   }
   return new Response(request.method === "HEAD" ? null : hit.body, { status: 200, headers: { "content-type": hit.type, "cache-control": hit.cache, ...BASE } });
+}
+
+// GET /s/sw.js while push is on: the service worker, public code, no auth, no cookie.
+function swResponse(request) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("method not allowed\n", { status: 405, headers: { allow: "GET, HEAD", "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...BASE } });
+  }
+  return new Response(request.method === "HEAD" ? null : SW_SOURCE, { status: 200, headers: { ...SW_HEADERS, ...BASE } });
 }
