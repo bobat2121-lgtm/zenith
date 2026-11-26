@@ -12,6 +12,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRubric, versionOf, frontMatter } from "../scripts/rubric-hash.mjs";
 import { parseIndustryLinks } from "../scripts/owner-marks.mjs";
+import { ladderState } from "./helpers/ladder-state.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/build-rubric.mjs", import.meta.url));
 const SHEET = "---\nbase_usd: 100000000\ntiny_usd: 100000\nthesis_drivers: [a]\nopen_items: []\nterms: [Symbotic]\n---\n# SYM\n";
@@ -149,10 +150,12 @@ test("T1: the committed rubric.generated.js matches rubric-hash.mjs on the repo'
   const gen = await import("../worker/src/rubric.generated.js");
   const repo = fileURLToPath(new URL("..", import.meta.url));
   assert.equal(versionOf(loadRubric(repo)), gen.RUBRIC_VERSION);
-  // While rubric/candidate/ exists no live sheet declares industry_links, so INDUSTRY is {}.
-  // After --promote-candidate the live sheets carry them, and INDUSTRY is exactly their
-  // map, read here from the live sheets themselves ({T: {id: {core}}}).
-  if (existsSync(join(repo, "rubric", "candidate"))) {
+  // Until the industry ladder is live no live sheet declares industry_links, so INDUSTRY
+  // is {}. After --promote-candidate the live sheets carry them, and INDUSTRY is exactly
+  // their map, read here from the live sheets themselves ({T: {id: {core}}}). The state
+  // is whether the ladder is live, not whether rubric/candidate/ exists: a later overlay
+  // may be cut after promotion.
+  if (!ladderState(repo).live) {
     assert.deepEqual(gen.INDUSTRY, {});
   } else {
     const live = {};

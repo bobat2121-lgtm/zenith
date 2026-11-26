@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeHeadline } from "../worker/src/lib.js";
+import { ladderState } from "./helpers/ladder-state.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(root, "grader", "zenith.mjs");
@@ -619,9 +620,11 @@ test("rubric and GRADER.md: relations are optional, evidence-bound and printed a
     assert.match(s, /evidence/);
     assert.match(s, /`WARN` line/);
   }
-  // Version 3.4 added relations. While rubric/candidate/ exists the live core.md is
-  // exactly 3.4 and the candidate states a later version; after --promote-candidate the
-  // live core.md states that later version (read from the file), never 3.4 or earlier.
+  // Version 3.4 added relations. Until the industry ladder is live the live core.md is
+  // exactly 3.4 and the ladder overlay states a later version; after --promote-candidate
+  // the live core.md states that later version (read from the file), never 3.4 or earlier.
+  // The state is whether the ladder is live, not whether rubric/candidate/ exists: a
+  // later overlay may be cut after promotion, and nothing here pins its core.md.
   const versionOf = (text) => {
     const lines = [...text.matchAll(/^Version (\d+)\.(\d+), /gm)];
     assert.equal(lines.length, 1, "core.md states its version on exactly one line");
@@ -629,9 +632,10 @@ test("rubric and GRADER.md: relations are optional, evidence-bound and printed a
   };
   const after34 = ([major, minor]) => major > 3 || (major === 3 && minor > 4);
   const candCore = join(root, "rubric", "candidate", "core.md");
-  if (existsSync(join(root, "rubric", "candidate"))) {
+  const ladder = ladderState(root);
+  if (!ladder.live) {
     assert.match(core, /^Version 3\.4, /m);
-    if (existsSync(candCore)) assert.ok(after34(versionOf(readFileSync(candCore, "utf8"))), "the candidate core.md states a version after 3.4");
+    if (ladder.ladderOverlay) assert.ok(after34(versionOf(readFileSync(candCore, "utf8"))), "the candidate core.md states a version after 3.4");
   } else {
     const live = versionOf(core);
     assert.ok(after34(live), `the promoted core.md states a version after 3.4 (it states ${live.join(".")})`);

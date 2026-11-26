@@ -3,8 +3,10 @@
 // stay as they were, and the candidate's industry_links reach normalizeGrade
 // only through a candidate replay. PR-C5 runs build-rubric.mjs
 // --promote-candidate, which writes the overlay over the live files and removes
-// rubric/candidate/. Every case here holds in both states, so PR-C5 needs no
-// edit to this file: the state is read from whether rubric/candidate/ exists.
+// rubric/candidate/. Every case here holds in both states, and after promotion
+// with a later, unrelated overlay too, so PR-C5 needs no edit to this file. The
+// state is read from whether the ladder is live (test/helpers/ladder-state.js),
+// never from whether rubric/candidate/ exists.
 // The normalizeGrade cases use a synthetic INDUSTRY map; the bundle cases read
 // the repo's own rubric files, which are public.
 import test from "node:test";
@@ -13,8 +15,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, cpSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { hookJsonImports } from "./helpers/worker-env.js";
+import { REPO, LADDER_SHEETS, LADDER_LINKS, LADDER_INDUSTRY, ladderState } from "./helpers/ladder-state.js";
 import { loadRubric, versionOf, frontMatter } from "../scripts/rubric-hash.mjs";
 import { parseIndustryLinks, ownerSectionsEqual, INDUSTRY_KINDS } from "../scripts/owner-marks.mjs";
 import { parseFloors } from "../worker/src/floors.js";
@@ -23,22 +25,13 @@ hookJsonImports();
 const { normalizeGrade } = await import("../worker/src/lib.js");
 const gen = await import("../worker/src/rubric.generated.js");
 
-const REPO = fileURLToPath(new URL("..", import.meta.url));
 const SCRIPT = join(REPO, "scripts", "build-rubric.mjs");
 const CAND = join(REPO, "rubric", "candidate");
 const read = (...p) => readFileSync(join(REPO, ...p), "utf8");
-const LADDER_SHEETS = ["AUR", "KDK", "PL", "SATL", "SYM"];
-const LADDER_INDUSTRY = {
-  AUR: { av_truck_rules: { core: true } },
-  KDK: { av_truck_rules: { core: true } },
-  PL: { space_licensing: { core: true } },
-  SATL: { space_licensing: { core: true } },
-  SYM: { robotics_trade: { core: false } },
-};
-// Before promotion (PR-C4) the ladder lives in rubric/candidate/; after it (PR-C5) it is live.
-const PROMOTED = !existsSync(CAND);
-const LADDER_DIR = PROMOTED ? ["rubric"] : ["rubric", "candidate"];
-const ladderIndustry = PROMOTED ? gen.INDUSTRY : gen.CANDIDATE_INDUSTRY;
+// Before promotion (PR-C4) the ladder is the candidate overlay; after it (PR-C5) it is live,
+// and any rubric/candidate/ is a later overlay this file pins nothing about.
+const { live: LIVE, ladderOverlay: LADDER_OVERLAY, ladderDir: LADDER_DIR } = ladderState();
+const ladderIndustry = LIVE ? gen.INDUSTRY : gen.CANDIDATE_INDUSTRY;
 
 // --- T12: normalizeGrade against a synthetic INDUSTRY map -----------------------------------------
 const SYN_INDUSTRY = { SYN: { trade_x: { core: false }, rules_y: { core: true } } };
@@ -54,20 +47,32 @@ test("T12: an undeclared industry id is rejected; the ceiling is 69 without core
   assert.equal(check(74, "industry:rules_y").ok, true);
 });
 
-// --- The bundle: candidate bundled (PR-C4) or promoted (PR-C5) --------------------------------
-test("RUBRIC_VERSION is the hash of the live files; INDUSTRY is {} before promotion and the ladder after it", () => {
-  assert.equal(gen.RUBRIC_VERSION, versionOf(loadRubric(REPO)));
-  assert.deepEqual(gen.INDUSTRY, PROMOTED ? LADDER_INDUSTRY : {});
-  for (const t of LADDER_SHEETS) {
-    assert.equal(/^industry_links:/m.test(frontMatter(read("rubric", "companies", `${t}.md`)) || ""), PROMOTED,
-      `live ${t}.md declares industry_links only after promotion`);
-  }
-  assert.equal(read("rubric", "core.md").includes("## 9A."), PROMOTED, "live core.md has section 9A only after promotion");
+// --- The bundle: the ladder bundled as the overlay (PR-C4) or live (PR-C5) --------------------
+test("the ladder is either live or bundled as the candidate overlay", () => {
+  assert.ok(LIVE || LADDER_OVERLAY, "the live core.md has no section 9A and no rubric/candidate/core.md adds it");
 });
 
-test("the candidate is bundled with scope full, the five industry_links and unchanged floors, or nothing is after promotion", () => {
-  if (PROMOTED) {
-    assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+test("RUBRIC_VERSION is the hash of the live files; INDUSTRY is {} before promotion and carries the ladder after it", () => {
+  assert.equal(gen.RUBRIC_VERSION, versionOf(loadRubric(REPO)));
+  if (LIVE) {
+    for (const t of LADDER_SHEETS) {
+      const l = LADDER_LINKS[t];
+      assert.deepEqual(gen.INDUSTRY[t]?.[l.id], { core: l.core }, `the live INDUSTRY carries ${t} ${l.id}`);
+    }
+  } else {
+    assert.deepEqual(gen.INDUSTRY, {});
+  }
+  for (const t of LADDER_SHEETS) {
+    assert.equal(/^industry_links:/m.test(frontMatter(read("rubric", "companies", `${t}.md`)) || ""), LIVE,
+      `live ${t}.md declares industry_links only after promotion`);
+  }
+});
+
+test("the ladder overlay is bundled with scope full, the five industry_links and unchanged floors; after promotion only a later overlay is", () => {
+  if (LIVE) {
+    // A later overlay may exist: it is bundled as itself, and nothing here pins its content.
+    if (!existsSync(CAND)) assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+    else assert.equal(gen.CANDIDATE_VERSION, versionOf(loadRubric(REPO, { overlay: true })));
     return;
   }
   assert.equal(gen.CANDIDATE_VERSION, versionOf(loadRubric(REPO, { overlay: true })));
@@ -77,7 +82,7 @@ test("the candidate is bundled with scope full, the five industry_links and unch
   assert.deepEqual(gen.CANDIDATE_FLOORS, parseFloors(read("rubric", "core.md")), "the 9A edits leave every floor as it is");
 });
 
-test("each ladder sheet declares one filled-in industry_links entry; before promotion it is its live sheet plus that block", () => {
+test("each ladder sheet declares its drafted industry_links entry exactly (C-O2); in the overlay it is its live sheet plus that block", () => {
   const dropBlock = (md) => {
     const lines = md.split("\n");
     const at = lines.findIndex((l) => l.startsWith("industry_links:"));
@@ -85,23 +90,26 @@ test("each ladder sheet declares one filled-in industry_links entry; before prom
     while (j < lines.length && /^\s/.test(lines[j])) j++;
     return lines.slice(0, at).concat(lines.slice(j)).join("\n");
   };
-  if (!PROMOTED) assert.deepEqual(loadRubricOverlayNames().sort(), LADDER_SHEETS);
+  if (LADDER_OVERLAY) assert.deepEqual(loadRubricOverlayNames().sort(), LADDER_SHEETS);
   for (const t of LADDER_SHEETS) {
     const sheet = read(...LADDER_DIR, "companies", `${t}.md`);
-    if (!PROMOTED) {
+    if (LADDER_OVERLAY) {
       const live = read("rubric", "companies", `${t}.md`);
       assert.equal(dropBlock(sheet), live, `${t}: no change outside industry_links`);
       assert.deepEqual(ownerSectionsEqual(live, sheet, frontMatter), [], `${t}: owner sections`);
     }
     const parsed = parseIndustryLinks(frontMatter(sheet));
     assert.deepEqual(parsed.errors, [], `${t}: industry_links parse`);
-    assert.equal(parsed.links.length, 1, `${t}: one entry`);
-    const [link] = parsed.links;
+    // While bundled the drafted entry is the sheet's only one; once live, later entries may join it.
+    if (LADDER_OVERLAY) assert.equal(parsed.links.length, 1, `${t}: one entry`);
+    const drafted = LADDER_LINKS[t];
+    const link = parsed.links.find((l) => l.id === drafted.id);
+    assert.ok(link, `${t}: declares ${drafted.id}`);
     assert.ok(INDUSTRY_KINDS.includes(link.kind));
-    assert.deepEqual({ [link.id]: { core: link.core === true } }, LADDER_INDUSTRY[t], `${t}: id and core`);
-    assert.ok(link.area.length > 40 && link.actors.length > 2, `${t}: area and actors are filled in`);
+    assert.deepEqual({ id: link.id, kind: link.kind, area: link.area, actors: link.actors, core: link.core }, drafted,
+      `${t}: id, kind, area, actors and core as drafted in spec section 5.4`);
   }
-  if (!PROMOTED) assert.deepEqual(JSON.parse(read("rubric", "candidate", "BASE.json")).declared, {}, "no sheet body change is declared");
+  if (LADDER_OVERLAY) assert.deepEqual(JSON.parse(read("rubric", "candidate", "BASE.json")).declared, {}, "no sheet body change is declared");
 });
 function loadRubricOverlayNames() {
   const dir = join(CAND, "companies");
@@ -126,7 +134,7 @@ test("the ladder core.md: section 9A sits between sections 9 and 10, and its cei
   assert.equal(normalizeGrade(grade(69, "industry:robotics_trade"), sym, null, ["SYM"], null, ind).ok, true);
   assert.match(normalizeGrade(grade(70, "industry:robotics_trade"), sym, null, ["SYM"], null, ind).error, /industry ladder ceiling/);
   assert.match(normalizeGrade(grade(50, "industry:robotics_trade"), pl, null, ["PL"], null, ind).error, /unknown industry link robotics_trade for PL/);
-  if (!PROMOTED) {
+  if (!LIVE) {
     assert.match(normalizeGrade(grade(50, "industry:space_licensing"), pl, null, ["PL"], null, { industry: gen.INDUSTRY }).error,
       /unknown industry link/, "the live INDUSTRY {} still rejects the flag");
   }
