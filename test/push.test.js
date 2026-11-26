@@ -490,3 +490,19 @@ test("push (P14): console output over subscribe, a 404, a 429, a timeout, a test
   for (const s of secrets) assert.ok(!all.includes(s), "a capability or key in the logs");
   assert.doesNotMatch(all, /vapid t=|eyJ[A-Za-z0-9_-]{10,}\./);
 });
+
+test("push: scripts/vapid-keys.mjs prints only the public key and 'done', pipes values on stdin only, and writes no file (static scan; never run here)", () => {
+  const code = readFileSync(new URL("../scripts/vapid-keys.mjs", import.meta.url), "utf8");
+  const body = code.replace(/^\s*\/\/.*$/gm, "");
+  const logs = [...body.matchAll(/console\.(log|info|warn|debug)\(([^)]*)\)/g)].map((m) => m[2].trim());
+  assert.deepEqual(logs, ["publicKey", '"done"'], "the only printed values");
+  for (const m of body.matchAll(/console\.error\(([^;]*)\);/g)) assert.doesNotMatch(m[1], /\bjwk\b|\bvalues?\b(?![^"`]*["`])|publicKey|\$\{(value|values|subject|jwk|publicKey)/, "an error line prints a value");
+  assert.doesNotMatch(body, /process\.stdout\.write|process\.stderr\.write/);
+  assert.doesNotMatch(body, /from\s+"(node:)?fs(\/promises)?"|writeFile|appendFile|createWriteStream/, "writes no file");
+  assert.match(body, /stdio: \["pipe", "inherit", "inherit"\]/, "the value goes to the child's stdin");
+  assert.match(body, /child\.stdin\.end\(value\)/);
+  assert.doesNotMatch(body, /cmdArgs = \[[^\]]*value/, "never an argument");
+  // The private value is only ever handed to `put` for zenith-core, never with a config.
+  assert.match(body, /\["VAPID_PRIVATE_KEY", null\]/);
+  assert.doesNotMatch(body, /\["VAPID_PRIVATE_KEY", config\]/);
+});
