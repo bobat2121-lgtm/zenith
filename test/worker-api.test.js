@@ -465,3 +465,29 @@ test("grades: a grade without relations gets an empty warnings list and makes no
   assert.deepEqual([res.accepted, res.warnings], [1, []]);
   assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM expansion_candidates")[0].n, 0);
 });
+
+// Phase 2 (T12b): POST /v1/grades passes the bundled industry_links (INDUSTRY) to
+// normalizeGrade. While INDUSTRY is {} (no sheet declares industry_links) every
+// industry:<id> flag is rejected; with a synthetic INDUSTRY a declared id is
+// accepted up to its ceiling (74 for a core entry, 69 otherwise).
+test("grades: an industry:<id> flag is rejected under the bundled INDUSTRY {} and checked against a synthetic one", async () => {
+  const g = (item_id, score, flag) => ({ item_id, score, why: "w", read_source: true, confidence: 0.7, flags: ["reason:material", flag] });
+  const env = newEnv();
+  const id = addItem(env);
+  const live = (await request(worker, env, "POST", "/v1/grades", { body: { run_id: "run-i", grades: [g(id, 50, "industry:rules_y")] } })).body;
+  assert.equal(live.accepted, 0);
+  assert.match(live.rejected[0].error, /unknown industry link rules_y for RCAT \(core\.md section 9A\)/);
+
+  const { loadWorker } = await import("./helpers/worker.js");
+  const patched = await loadWorker({ patch: (f, code) => (f === "rubric.generated.js"
+    ? code.replace("export const INDUSTRY = {};", 'export const INDUSTRY = {"RCAT":{"rules_y":{"core":true},"trade_x":{"core":false}}};') : code) });
+  const env2 = newEnv();
+  const a = addItem(env2), b = addItem(env2), c = addItem(env2);
+  const res = (await request(patched, env2, "POST", "/v1/grades", { body: { run_id: "run-j", grades: [
+    g(a, 74, "industry:rules_y"), g(b, 70, "industry:trade_x"), g(c, 50, "industry:nope"),
+  ] } })).body;
+  assert.equal(res.accepted, 1);
+  assert.deepEqual(res.results.map((r) => [r.item_id, r.score]), [[a, 74]]);
+  assert.match(res.rejected.find((r) => r.item_id === b).error, /industry ladder ceiling: industry:trade_x for RCAT allows at most 69/);
+  assert.match(res.rejected.find((r) => r.item_id === c).error, /unknown industry link nope for RCAT/);
+});

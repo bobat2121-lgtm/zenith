@@ -283,9 +283,17 @@ export const LATE_SIGHTING_DAYS = 21;
 //   alsoTicker: set for "123#TICKER" covered-to-covered grades.
 //   covered:    the covered ticker list.
 //   floors:     parseFloors(core.md); enables floor enforcement.
+//   industry:   (phase 2, optional 6th argument) the bundled industry_links,
+//               {TICKER: {id: {core}}} (rubric.generated.js INDUSTRY, or a
+//               replay's CANDIDATE_INDUSTRY). When given, every industry:<id>
+//               flag must name an entry of the grade's ticker, and the score
+//               is capped at 74 for a core entry, 69 otherwise (core.md 9A).
+//               With {} every industry: flag is rejected. Left out (null):
+//               not checked.
 // item carries id and ticker, and (for the timing, floor and SEC checks) title,
 // excerpt, source_key, url, published and first_seen when known.
-export function normalizeGrade(raw, item, alsoTicker = null, covered = null, floors = null) {
+export const INDUSTRY_CEILING = { core: 74, other: 69 };
+export function normalizeGrade(raw, item, alsoTicker = null, covered = null, floors = null, { industry = null } = {}) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "grade must be an object" };
   if (!item) return { ok: false, error: "unknown item_id" };
   // "<id>#<the item's own ticker>" is the item's primary grade.
@@ -318,6 +326,19 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
   }
   const why = clip(raw.why, 400);
   if (!why) return { ok: false, error: "why is required" };
+  // Phase 2: the industry ladder (core.md section 9A) is enforced against the
+  // bundled industry_links of the grade's ticker.
+  if (industry) {
+    for (const f of flags) {
+      if (!f.startsWith("industry:")) continue;
+      const id = f.slice(9);
+      const links = Object.hasOwn(industry, ticker) ? industry[ticker] : null;
+      const link = links && Object.hasOwn(links, id) ? links[id] : null;
+      if (!link) return { ok: false, error: `unknown industry link ${id} for ${ticker} (core.md section 9A): flag industry:<id> only with an id from ${ticker}'s industry_links` };
+      const cap = link.core ? INDUSTRY_CEILING.core : INDUSTRY_CEILING.other;
+      if (score != null && score > cap) return { ok: false, error: `industry ladder ceiling: industry:${id} for ${ticker} allows at most ${cap} (core.md section 9A); got ${score}` };
+    }
+  }
   const reason = reasons[0].slice(7);
   // Optional headline and tag; a bad one rejects this grade only.
   const head = normalizeHeadline(raw);
