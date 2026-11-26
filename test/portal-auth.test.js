@@ -223,7 +223,7 @@ test("S6: Access mode: a valid JWT with an email passes; every other credential 
     const otherHash = createHash("sha256").update("someone@example.com").digest("hex");
     const cases = [
       ["wrong AUD", { jwt: await signJwt(KEY, goodClaims(now, { aud: ["other-aud"] })) }, env],
-      ["wrong issuer", { jwt: await signJwt(KEY, goodClaims(now, { iss: "https://other-team.cloudflareaccess.com" })) }, env],
+      ["wrong issuer", { jwt: await signJwt(KEY, goodClaims(now, { iss: "https://example-team-other.cloudflareaccess.com" })) }, env],
       ["expired", { jwt: await signJwt(KEY, goodClaims(now, { exp: Math.floor(now / 1000) - 600 })) }, env],
       ["no email", { jwt: await signJwt(KEY, noEmail) }, env],
       ["pinned to another email", { jwt: good }, { ...env, ACCESS_EMAIL_SHA256: otherHash }],
