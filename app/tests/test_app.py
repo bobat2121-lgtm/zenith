@@ -1058,6 +1058,15 @@ class TuningFunctions(unittest.TestCase):
         for junk in ("x", [], 3, {"armed": "x", "last": []}):
             self.assertEqual(self.replay_lines(junk), [])
         self.assertEqual([x for x in zf.grader_details(OPS) if "replay" in x.lower()], [])
+        # Whole output, not only lines naming "replay": a null, empty or junk replay adds,
+        # drops and changes nothing anywhere in the details.
+        self.assertNotIn("replay", OPS)
+        for base in (OPS, {"grader": {}}):
+            want = zf.grader_details(base)
+            for replay in (None, {}, {"armed": None, "last": None}, "x", [], 3, {"armed": "x", "last": []}):
+                ops = copy.deepcopy(base)
+                ops["replay"] = replay
+                self.assertEqual(zf.grader_details(ops), want, replay)
 
     def test_replay_line_while_armed(self):
         armed = {"kind": "baseline", "scope": "full", "rubric_version": "r-test0000", "n_graded": 7, "n_items": 40}
