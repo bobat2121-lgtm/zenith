@@ -100,7 +100,7 @@ test("T17: one zenith-db batch of at most 5 statements and one NEWS batch of at 
     assert.equal(log.NEWS.prepares, log.NEWS.batches[0], T);
     // Outside the batch: calendar.js's council-agenda read (and its decisions read when an agenda exists), legistar names only.
     const outside = log.DB.prepares - log.DB.batches[0];
-    if (channelsFor(T).legistar.length) assert.ok(outside >= 1 && outside <= 2, `${T}: ${outside}`);
+    if ((await channelsFor(T)).legistar.length) assert.ok(outside >= 1 && outside <= 2, `${T}: ${outside}`);
     else assert.equal(outside, 0, T);
   }
 });

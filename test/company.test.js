@@ -24,12 +24,17 @@ const KA = new Set(["customer", "program", "relationship", "index_event"]);
 
 // The synthetic sheet calendar is built once the calendar ticker is picked, so
 // the modules load from a temp copy with calendar.generated.js replaced.
-async function loadModules(calendar) {
+// asyncRelations: loadRelations becomes async in the copy (the phase 4 seam, spec I6).
+async function loadModules(calendar, { asyncRelations = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "zenith-company-"));
   for (const f of readdirSync(SRC).filter((f) => f.endsWith(".js"))) {
     let code = readFileSync(new URL(f, SRC), "utf8")
       .replace(/from\s+"\.\/([^"]+\.json)"/g, (m, rel) => `from "${new URL(rel, SRC).href}" with { type: "json" }`);
     if (f === "calendar.generated.js") code = `export const CALENDAR_VERSION = "c-test";\nexport const CALENDAR = ${JSON.stringify(calendar)};\n`;
+    if (asyncRelations && f === "relations.js") {
+      assert.match(code, /^export function loadRelations\(/m);
+      code = code.replace(/^export function loadRelations\(/m, "export async function loadRelations(");
+    }
     writeFileSync(join(dir, f), code);
   }
   const imp = (n) => import(pathToFileURL(join(dir, n)).href);
@@ -40,7 +45,10 @@ async function loadModules(calendar) {
 // Picks from the real maps, before the patched load (the channel map does not depend on the calendar).
 const pre = await loadModules([]);
 const relPre = pre.relations.loadRelations();
-const chPre = (t) => pre.company.channelsFor(t);
+// channelsFor is async (it awaits loadRelations); the maps are read once here so the picks stay synchronous.
+const mapsOf = async (company) => new Map(await Promise.all(COV.tickers.map(async (t) => [t, await company.channelsFor(t)])));
+const preMaps = await mapsOf(pre.company);
+const chPre = (t) => preMaps.get(t);
 const pick = (what, fn) => {
   const t = COV.tickers.find(fn);
   assert.ok(t, `no covered ticker ${what}`);
@@ -67,8 +75,10 @@ const CAL = [
   { ticker: SHAPE, kind: "status_event", start: plus(-3), end: plus(-3), precision: "day", text: "Synthetic status event" },
 ];
 const M = await loadModules(CAL);
-const { companyData, companyRoute, channelsFor, filledSections, redactError, parseCompanyQuery, SECTIONS, COMPANY_SQL } = M.company;
+const { companyData, companyRoute, filledSections, redactError, parseCompanyQuery, SECTIONS, COMPANY_SQL } = M.company;
 const rel = M.relations.loadRelations();
+const maps = await mapsOf(M.company);
+const channelsFor = (t) => maps.get(t);
 
 // --- Fixtures -------------------------------------------------------------------------------------------
 
@@ -144,6 +154,23 @@ test("validation: an unknown or malformed ticker returns an error and reads noth
   for (const bad of ["days=1.5", "days=x", "days=31", "days=-1"]) assert.equal(q(`ticker=${SHAPE}&${bad}`).status, 400, bad);
   assert.equal(q("ticker=TST").status, 404);
   assert.deepEqual(SECTIONS, ["own", "filings", "ownership", "registers", "series", "rivals", "key_accounts", "calendar", "source_health"]);
+});
+
+test("I6: companyData and channelsFor await loadRelations, so an async loadRelations (phase 4) changes nothing", async () => {
+  assert.ok(M.company.channelsFor(SHAPE) instanceof Promise);
+  const A = await loadModules(CAL, { asyncRelations: true });
+  assert.ok(A.relations.loadRelations() instanceof Promise, "the patched copy is async");
+  const db = new D1();
+  const ownKey = channelsFor(SHAPE).own[0];
+  const id = await graded(db, SHAPE, { source_key: ownKey, title: "Release" });
+  await graded(db, SHAPE, { source_key: "test_rival_src", role: "rival", title: "Rival" });
+  const a = await A.company.companyData({ DB: db }, SHAPE, { now: NOW });
+  const b = await data({ DB: db }, SHAPE);
+  assert.equal(a.error, undefined);
+  assert.deepEqual(ids(a.sections.own.rows), [id]);
+  assert.deepEqual(a.sections, b.sections);
+  assert.deepEqual(a.reference, b.reference);
+  assert.deepEqual(await A.company.channelsFor(SHAPE), channelsFor(SHAPE));
 });
 
 // --- T3: sections -----------------------------------------------------------------------------------------

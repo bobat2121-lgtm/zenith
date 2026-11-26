@@ -80,12 +80,19 @@ const msOf = (s) => {
 // The name's source keys by group, from covered.json, aux-sources.json and the
 // relations module (0 rows read). First match wins, so every key is in one
 // group. Built on first use and kept per isolate (cron invocations pay nothing);
-// `rel` is for tests and is never cached.
+// `rel` is for tests and is never cached. Async because loadRelations is
+// awaited (spec I6: phase 4 makes it async; callers already await it).
 const channelMemo = new Map();
-export function channelsFor(ticker, rel = null) {
+export async function channelsFor(ticker, rel = null) {
   if (!rel && channelMemo.has(ticker)) return channelMemo.get(ticker);
-  const out = buildChannels(ticker, rel || loadRelations());
-  if (!rel) channelMemo.set(ticker, out);
+  return channelMap(ticker, rel || await loadRelations(), !rel);
+}
+
+// The map from an already loaded relations object; `cache` for the bundled one only.
+function channelMap(T, relations, cache) {
+  if (cache && channelMemo.has(T)) return channelMemo.get(T);
+  const out = buildChannels(T, relations);
+  if (cache) channelMemo.set(T, out);
   return out;
 }
 
@@ -244,8 +251,8 @@ export async function companyData(env, ticker, { days = DEFAULT_DAYS, now = Date
   if (!TICKER_RE.test(T) || !(COVERED.tickers || []).includes(T)) return { error: "unknown ticker", status: 404 };
   if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) return { error: `days must be an integer 1-${MAX_DAYS}`, status: 400 };
   if (section !== null && !SECTIONS.includes(section)) return { error: "unknown section", status: 400 };
-  const relations = rel || loadRelations();
-  const ch = channelsFor(T, rel);
+  const relations = rel || await loadRelations();
+  const ch = channelMap(T, relations, !rel);
   const fromMs = now - days * DAY_MS;
   const from30 = iso(now - MAX_DAYS * DAY_MS);
   const today = etParts(now).date;
