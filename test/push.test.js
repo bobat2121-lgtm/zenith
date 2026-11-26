@@ -13,7 +13,7 @@ import { clearJwksCache } from "../worker/src/mobile.js";
 
 hookJsonImports();
 const { pushTick, pushReady, leadPayload, freshLead, Q7_SQL, MUTED_LITERAL, CURRENT_GRADE_LITERAL, PUSH_FRESH_HOURS, PUSH_MAX_LAG_HOURS,
-  PUSH_DAILY_CAP, PUSH_TICKER_CAP } = await import("../worker/src/push.js");
+  PUSH_DAILY_CAP, PUSH_TICKER_CAP, PUSH_TEST_MAX_AGE_MINUTES } = await import("../worker/src/push.js");
 const { allowedEndpoint, b64uEncode, b64uDecode, pushOn } = await import("../worker/src/push-routes.js");
 const { clearVapidCache } = await import("../worker/src/webpush.js");
 const { portal } = await import("../worker/src/portal.js");
@@ -208,19 +208,43 @@ test("push: four tests in one UTC day give 202, 202, 202, 429; at 00:00Z the nex
     const got = [];
     for (let i = 0; i < 4; i++) got.push((await routeCall(env, "/p/api/push/test", { json: {}, now: day + i * 60_000 })).status);
     assert.deepEqual(got, [202, 202, 202, 429]);
-    assert.equal((await routeCall(env, "/p/api/push/test", { json: {}, now: Date.UTC(2026, 0, 7, 0, 0) })).status, 202);
-    assert.equal(one(env, "SELECT COUNT(*) AS n FROM push_tests").n, 4);
     setCursor(env, iso(NOW));
     const f = stubFetch(201);
     clearVapidCache();
-    const out = await pushTick(env, COVERED, { now: Date.UTC(2026, 0, 7, 0, 5), fetchImpl: f });
-    assert.equal(out.tests, 3, "3 a tick");
+    const out = await pushTick(env, COVERED, { now: day + 5 * 60_000, fetchImpl: f });
+    assert.equal(out.tests, 3);
     assert.deepEqual(f.calls.map((c) => c.u), [EP(1), EP(1), EP(1)], "only the person's live subscription");
     const p = await decrypt(new Uint8Array(f.calls[0].init.body), mine);
     assert.deepEqual(p, { v: 1, title: "Zenith test", body: "Lead alerts work on this device", url: "/p/brief" });
     assert.equal(f.calls[0].init.headers.topic, undefined);
+    assert.equal((await routeCall(env, "/p/api/push/test", { json: {}, now: Date.UTC(2026, 0, 7, 0, 0) })).status, 202);
+    assert.equal(one(env, "SELECT COUNT(*) AS n FROM push_tests").n, 4);
     assert.deepEqual(rows(env, "SELECT status FROM push_tests ORDER BY id").map((r) => r.status), ["sent", "sent", "sent", "pending"]);
+    await pushTick(env, COVERED, { now: Date.UTC(2026, 0, 7, 0, 5), fetchImpl: f });
+    assert.equal(f.calls.length, 4);
+    assert.deepEqual(rows(env, "SELECT status FROM push_tests ORDER BY id").map((r) => r.status), ["sent", "sent", "sent", "sent"]);
   });
+});
+
+test("push: at most 3 tests a tick; a test queued more than an hour before the tick (push was off in between) is failed and never sent", async () => {
+  clearVapidCache();
+  const env = onEnv();
+  setCursor(env, iso(NOW));
+  await addSub(env, 1);
+  const q = env.DB.db.prepare("INSERT INTO push_tests (actor, created_at, status) VALUES ('access:0000000000000000', ?, 'pending')");
+  q.run(iso(NOW - 7 * 24 * HOUR));
+  q.run(iso(NOW - (PUSH_TEST_MAX_AGE_MINUTES + 1) * 60_000));
+  for (let i = 0; i < 3; i++) q.run(iso(NOW - 2 * 60_000));
+  const f = stubFetch(201);
+  const out = await pushTick(env, COVERED, { now: NOW, fetchImpl: f });
+  assert.equal(out.tests, 3, "3 a tick");
+  assert.equal(f.calls.length, 1, "only the fresh test is sent");
+  assert.deepEqual(rows(env, "SELECT status, sent_at FROM push_tests ORDER BY id"), [
+    { status: "failed", sent_at: null }, { status: "failed", sent_at: null }, { status: "sent", sent_at: iso(NOW) },
+    { status: "pending", sent_at: null }, { status: "pending", sent_at: null }]);
+  await pushTick(env, COVERED, { now: NOW + 5 * 60_000, fetchImpl: f });
+  assert.equal(f.calls.length, 3);
+  assert.deepEqual(rows(env, "SELECT status FROM push_tests ORDER BY id").map((r) => r.status), ["failed", "failed", "sent", "sent", "sent"]);
 });
 
 async function sha16(s) {
@@ -416,6 +440,24 @@ test("push: a Lead re-graded to digest before its send is marked stale", async (
   assert.equal(f.calls.length, 1, "no second send");
 });
 
+test("push: a Lead left partial while push was off is stale once it is no longer fresh, and is never sent", async () => {
+  clearVapidCache();
+  const env = onEnv();
+  setCursor(env);
+  await addSub(env, 1);
+  await lead(env);
+  const f = stubFetch(503);
+  await pushTick(env, COVERED, { now: NOW, fetchImpl: f });
+  assert.equal(one(env, "SELECT status FROM push_events").status, "partial");
+  // Push off for a week, then on again: the event is due, still a current Lead, but first seen 7 days ago.
+  const later = NOW + 7 * 24 * HOUR;
+  const ok = stubFetch(201);
+  const out = await pushTick(env, COVERED, { now: later, fetchImpl: ok });
+  assert.equal(ok.calls.length, 0, "no send");
+  assert.equal(out.sent, 0);
+  assert.deepEqual(one(env, "SELECT status, next_at FROM push_events"), { status: "stale", next_at: null });
+});
+
 test("push: the default payload is the ticker, 'new Lead' and the clipped headline, under 512 bytes, with no score", () => {
   const p = leadPayload({ item_id: 7, ticker: "TST", headline: "€".repeat(400), title: "t" });
   assert.ok(new TextEncoder().encode(JSON.stringify(p)).length <= 512);
@@ -457,6 +499,7 @@ test("push (P13): the push modules, brief-sections.js and portal-brief.js reach 
   const sw = readFileSync(new URL("push-sw.js", SRC), "utf8");
   assert.doesNotMatch(sw, /addEventListener\(\s*["']fetch["']|caches\.|cache\.add|cache\.put/);
 });
+
 
 test("push (P14): console output over subscribe, a 404, a 429, a timeout, a test send and a tick holds no endpoint, key, JWT or vapid header", async () => {
   const lines = [];

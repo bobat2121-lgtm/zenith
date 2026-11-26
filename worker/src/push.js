@@ -12,10 +12,13 @@
 //   3. caps per UTC day (PUSH_DAILY_CAP, PUSH_TICKER_CAP): over a cap the event is
 //      stored as 'capped' and never sent;
 //   4. Q10: up to PUSH_PER_TICK due events, each re-checked against the item's
-//      current grade (no longer a Lead -> 'stale'), sent to every live subscription
+//      current grade and the freshness rule at send time (no longer a Lead, or no
+//      longer fresh -> 'stale'), sent to every live subscription
 //      that has no final send yet; 404/410 revoke the subscription, 429/5xx/timeout
 //      retry at +5 and +15 minutes (3 attempts), anything else is final;
-//   5. Q15: up to 3 queued test notifications, each to its own person's devices.
+//   5. Q15: up to 3 queued test notifications, each to its own person's devices;
+//      a test queued more than PUSH_TEST_MAX_AGE_MINUTES ago (push was switched
+//      off in between) is marked 'failed' and never sent.
 // Nothing here grades, claims or releases a row. Logs carry counts and ids only:
 // never an endpoint, a key, a JWT or an Authorization header.
 import { pushOn, allowedEndpoint, PUSH_SUBS_PER_ACTOR } from "./push-routes.js";
@@ -25,6 +28,7 @@ export const PUSH_DAILY_CAP = 5;
 export const PUSH_TICKER_CAP = 2;
 export const PUSH_PER_TICK = 5;
 export const PUSH_TESTS_PER_TICK = 3;
+export const PUSH_TEST_MAX_AGE_MINUTES = 60;
 // The Lead freshness rule (the same values as delivery.js LEAD_FRESH_HOURS and
 // LEAD_MAX_LAG_HOURS; a test keeps them equal without this module importing it).
 export const PUSH_FRESH_HOURS = 72;
@@ -48,8 +52,9 @@ export const Q7_SQL = `SELECT g.id AS grade_id, g.item_id, g.ticker, g.score, g.
  WHERE g.graded_at > ?1 AND g.graded_at <= ?2 AND g.band = 'lead' AND ${CURRENT_GRADE_LITERAL}
    AND i.source_key NOT IN ${MUTED_LITERAL}
  ORDER BY g.graded_at, g.id LIMIT ${Q7_LIMIT}`;
-// The item's current grade for one ticker (idx_grades_item), with the text the payload uses.
-export const CURRENT_SQL = `SELECT g.id AS grade_id, g.band, i.title, i.headline
+// The item's current grade for one ticker (idx_grades_item), with the text the payload
+// uses and the two dates the send-time freshness check reads.
+export const CURRENT_SQL = `SELECT g.id AS grade_id, g.band, i.title, i.headline, i.published, i.nm_first_seen
   FROM items i LEFT JOIN grades p ON p.id = i.grade_id JOIN grades g ON g.item_id = i.id AND g.ticker = ?2
  WHERE i.id = ?1 AND ${CURRENT_GRADE_LITERAL}
  ORDER BY g.id DESC LIMIT 1`;
@@ -61,7 +66,7 @@ const Q8_ALL_SQL = "SELECT id, endpoint, p256dh, auth FROM push_subs WHERE unive
 const Q8_ACTOR_SQL = `SELECT id, endpoint, p256dh, auth FROM push_subs WHERE universe_id = 'u1' AND actor = ? AND revoked_at IS NULL
   ORDER BY id LIMIT ${PUSH_SUBS_PER_ACTOR}`;
 const Q13_SQL = "SELECT sub_id, status, attempts FROM push_sends WHERE event_id = ? LIMIT 100";
-const Q15_SQL = `SELECT id, actor FROM push_tests WHERE status = 'pending' ORDER BY id LIMIT ${PUSH_TESTS_PER_TICK}`;
+const Q15_SQL = `SELECT id, actor, created_at FROM push_tests WHERE status = 'pending' ORDER BY id LIMIT ${PUSH_TESTS_PER_TICK}`;
 
 const iso = (ms) => new Date(ms).toISOString();
 const utcDayStart = (ms) => `${iso(ms).slice(0, 10)}T00:00:00.000Z`;
@@ -163,7 +168,8 @@ export async function pushTick(env, covered, { now, fetchImpl = globalThis.fetch
   let subs = null;
   for (const ev of due) {
     const cur = await env.DB.prepare(CURRENT_SQL).bind(ev.item_id, ev.ticker).first();
-    if (!cur || cur.band !== "lead") {
+    // A Lead left pending or partial across a switch-off is stale once it is no longer fresh.
+    if (!cur || cur.band !== "lead" || !freshLead(cur, now)) {
       await env.DB.prepare("UPDATE push_events SET status = 'stale', next_at = NULL WHERE id = ?").bind(ev.id).run();
       continue;
     }
@@ -197,6 +203,12 @@ export async function pushTick(env, covered, { now, fetchImpl = globalThis.fetch
   // Step 5: queued test notifications, each to its own person's live subscriptions.
   const tests = (await env.DB.prepare(Q15_SQL).all()).results || [];
   for (const tq of tests) {
+    const queued = Date.parse(tq.created_at || "");
+    if (!Number.isFinite(queued) || queued < now - PUSH_TEST_MAX_AGE_MINUTES * 60_000) {
+      await env.DB.prepare("UPDATE push_tests SET status = 'failed', sent_at = NULL WHERE id = ?").bind(tq.id).run();
+      counts.tests++;
+      continue;
+    }
     const own = (await env.DB.prepare(Q8_ACTOR_SQL).bind(tq.actor).all()).results || [];
     let okN = 0;
     for (const sub of own) if (ok2xx(await sendOne(env, sub, TEST_PAYLOAD, { fetchImpl, now, topic: null, counts }))) okN++;
