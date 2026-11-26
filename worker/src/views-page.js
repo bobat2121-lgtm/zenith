@@ -135,9 +135,16 @@ function cardList(items, render) {
 }
 
 const sectionHead = (t, text) => html`<h2><a href="${tickerHref(t)}">${t}</a> · ${text}</h2>`;
-// "+n more" (to the ticker form of the page), else "Only <T>" when no name is picked.
+// "+n more" links to the ticker (and group) form of the page. When that form is
+// the page already shown, a link would lead back here, so it is plain text.
+function moreNote(st, hidden, over) {
+  const href = hrefOf(st, over);
+  if (href === hrefOf(st)) return html`<p class="meta">+${hidden} more; narrow the range or raise the minimum score.</p>`;
+  return html`<p class="meta"><a href="${href}">+${hidden} more</a></p>`;
+}
+// "+n more", else "Only <T>" when no name is picked.
 function moreLine(st, t, hidden, over = {}) {
-  if (hidden > 0) return html`<p class="meta"><a href="${hrefOf(st, { ticker: t, ...over })}">+${hidden} more</a></p>`;
+  if (hidden > 0) return moreNote(st, hidden, { ticker: t, ...over });
   if (!st.ticker) return html`<p class="meta"><a href="${hrefOf(st, { ticker: t })}">Only ${t}</a></p>`;
   return "";
 }
@@ -205,7 +212,7 @@ export async function industryPage(vctx, opts = {}) {
     const items = g.items.slice(0, take(g.items.length));
     const hidden = g.items.length - items.length + g.more;
     return html`<h3>${title} (${g.n})</h3>${items.length ? cardList(items, render) : g.n ? "" : html`<p class="empty">Nothing in this range.</p>`}${
-      hidden > 0 ? html`<p class="meta"><a href="${hrefOf(st, { ticker: t, ...over })}">+${hidden} more</a></p>` : ""}`;
+      hidden > 0 ? moreNote(st, hidden, { ticker: t, ...over }) : ""}`;
   };
   const sections = view.tickers.filter((s) => st.tickers.includes(s.ticker)).map((s) => html`<section data-ticker="${s.ticker}" id="t-${s.ticker}">
 ${sectionHead(s.ticker, `${s.n} in range`)}

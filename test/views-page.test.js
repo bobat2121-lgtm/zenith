@@ -208,6 +208,25 @@ test("G4: at most 50 cards a ticker, the rest behind '+n more' to the ticker for
   assert.equal((one.text.match(/<article /g) || []).length, 50);
 });
 
+test("G4: no '+n more' link leads back to the page it is on; the ticker form says how to see the rest", async () => {
+  const env = { DB: zenithDb() };
+  for (let i = 0; i < 80; i++) {
+    graded(env, {}, { score: 60 + (i % 30) });
+    graded(env, { role: "program", source_key: "prog_z", url: `https://www.tradepress.example/m${i}` }, { score: 60 + (i % 30) });
+  }
+  const moreHrefs = (text) => [...text.matchAll(/<a href="([^"]*)">\+\d+ more<\/a>/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+  const comp = await render(competitorsPage, env, "/p/competitors?ticker=TST");
+  assert.equal((comp.text.match(/<article /g) || []).length, 50);
+  assert.deepEqual(moreHrefs(comp.text), [], "competitors, ticker form");
+  assert.match(comp.text, /<p class="meta">\+30 more; narrow the range or raise the minimum score\.<\/p>/);
+  const named = await render(industryPage, env, "/p/industry?ticker=TST");
+  assert.deepEqual(moreHrefs(named.text), ["/p/industry?ticker=TST&kind=news"], "the ticker form links on to the kind form");
+  const kind = await render(industryPage, env, "/p/industry?ticker=TST&kind=news");
+  assert.equal((kind.text.match(/<article /g) || []).length, 50);
+  assert.deepEqual(moreHrefs(kind.text), [], "industry, ticker and kind form");
+  assert.match(kind.text, /<p class="meta">\+30 more; narrow the range or raise the minimum score\.<\/p>/);
+});
+
 test("G4: a start more than 120 days back falls back to the default range with the notice", async () => {
   const env = { DB: zenithDb() };
   const day = (n) => etParts(NOW - n * DAY).date;
