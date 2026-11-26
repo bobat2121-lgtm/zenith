@@ -289,7 +289,7 @@ test("scheduled: the 5-minute cron ingests auxiliary items after coverage ingest
     console.log = log;
   }
   // Phase 0 gates: the war.gov digest text and the budget release run right after the auxiliary ingest.
-  assert.deepEqual(order, ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "wargov excerpts", "gate budget", "aux text", "expansion backfill", "brief store", "sec parties"]);
+  assert.deepEqual(order, ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "wargov excerpts", "gate budget", "aux text", "expansion backfill", "brief store", "push", "sec parties"]);
   assert.deepEqual(db.rows("SELECT title FROM items").map((x) => x.title), ["Red Cat news"]);
   assert.deepEqual(db.rows("SELECT title FROM aux_items").map((x) => x.title), ["Anduril news"]);
 });

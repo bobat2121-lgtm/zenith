@@ -191,7 +191,7 @@ async function cronRun(now, { dropAux = false } = {}) {
 test("brief store: the cron order and the aux-dropped error list are the same at a fixed in-window and out-of-window time", async () => {
   const inside = await cronRun(TUE_EST);
   const outside = await cronRun(Date.UTC(2026, 0, 4, 15, 0));
-  const ORDER = ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "wargov excerpts", "gate budget", "aux text", "expansion backfill", "brief store", "sec parties"];
+  const ORDER = ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "wargov excerpts", "gate budget", "aux text", "expansion backfill", "brief store", "push", "sec parties"];
   assert.deepEqual(inside.order, ORDER);
   assert.deepEqual(outside.order, ORDER);
   assert.deepEqual([inside.stored, outside.stored], [["ok"], ["outside"]]);

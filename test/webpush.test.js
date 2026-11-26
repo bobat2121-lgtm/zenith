@@ -154,7 +154,7 @@ test("webpush: sendPush posts aes128gcm with TTL, Urgency, Topic and VAPID, redi
 });
 
 test("webpush (W4): the push modules have no node: import, no require( and no Buffer (comments aside)", () => {
-  for (const f of ["webpush.js", "push-routes.js"]) {
+  for (const f of ["webpush.js", "push.js", "push-routes.js", "push-sw.js"]) {
     const code = readFileSync(new URL(f, SRC), "utf8").replace(/^\s*\/\/.*$/gm, "");
     assert.ok(!/from\s+"node:|import\("node:|\brequire\(|\bBuffer\b/.test(code), `${f} uses a Node API`);
   }
