@@ -150,14 +150,25 @@ function rivalByRule(rel, T, key, s) {
 
 // --- Small helpers ------------------------------------------------------------------------------
 
-// Error text from a source adapter, safe to show: query values whose name
-// looks like a key, token, secret, signature or auth are replaced, and so is a
-// bearer token; then clipped to n characters.
+// Error text from a source adapter, safe to show: values whose name looks like
+// a key, token, secret, signature, auth, password or credential are replaced
+// (query `name=value`, percent-encoded `name%3Dvalue`, header `name: value`,
+// JSON `"name":"value"`), and so are URL userinfo and Bearer/Basic
+// credentials; then clipped to n characters. Spec 5.2 asks for the query and
+// Bearer forms; the rest is hardening for future adapters.
+const SECRET_NAME = "(?:key|token|secret|sig|auth|pass|pwd|credential)";
+const REDACT = [
+  [/\/\/[^/@\s]+@/g, "//[redacted]@"],
+  [new RegExp(`("[^"\\s]*${SECRET_NAME}[^"\\s]*"\\s*:\\s*)"[^"]*"`, "gi"), '$1"[redacted]"'],
+  [new RegExp(`(^|[\\s,;{(])([\\w-]*${SECRET_NAME}[\\w-]*\\s*:[ \\t]*)(?:(?:Bearer|Basic)\\s+)?[^\\s,;}"]+`, "gi"), "$1$2[redacted]"],
+  [new RegExp(`(^|[?&;\\s])([^=&\\s#;?]*${SECRET_NAME}[^=&\\s#;?]*)=[^&\\s#;]*`, "gi"), "$1$2=[redacted]"],
+  [new RegExp(`(%3F|%26)([^%&\\s#;?=]*${SECRET_NAME}[^%&\\s#;?=]*)%3D(?:(?!%26)[^&\\s#;])*`, "gi"), "$1$2%3D[redacted]"],
+  [/\b(Bearer|Basic)\s+(?!\[redacted\])\S+/gi, "$1 [redacted]"],
+];
 export function redactError(s, n = 160) {
   if (s === null || s === undefined) return null;
-  const out = String(s)
-    .replace(/(^|[?&;\s])([^=&\s#;?]*(?:key|token|secret|sig|auth)[^=&\s#;?]*)=[^&\s#;]*/gi, "$1$2=[redacted]")
-    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]");
+  let out = String(s);
+  for (const [re, to] of REDACT) out = out.replace(re, to);
   return out.length > n ? `${out.slice(0, Math.max(0, n - 1)).trimEnd()}…` : out;
 }
 

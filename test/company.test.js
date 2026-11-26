@@ -521,6 +521,25 @@ test("T10b: source errors are redacted and clipped", () => {
   assert.equal(redactError("x?token=1&sig=2&access_token=3&q=4"), "x?token=[redacted]&sig=[redacted]&access_token=[redacted]&q=4");
   assert.equal(redactError("y".repeat(200), 80).length, 80);
   assert.equal(redactError(null), null);
+  // Hardening beyond the spec's two forms (future adapters): userinfo, Basic, header, JSON, password and
+  // credential names, percent-encoded queries. No synthetic secret survives; the rest of the text does.
+  const cases = [
+    ["fetch https://user:SYNTHPW@x.example/a", "fetch https://[redacted]@x.example/a"],
+    ["Authorization: Basic U1lOVEg=", "Authorization: [redacted]"],
+    ["got 403, Authorization: Bearer SYNTH", "got 403, Authorization: [redacted]"],
+    ["sent Basic U1lOVEg= and failed", "sent Basic [redacted] and failed"],
+    ["x-api-key: SYNTH rejected", "x-api-key: [redacted] rejected"],
+    ['401 {"token":"SYNTH","error":"bad"}', '401 {"token":"[redacted]","error":"bad"}'],
+    ["https://x.example/a?password=SYNTH&page=2", "https://x.example/a?password=[redacted]&page=2"],
+    ["https://x.example/a?X-Amz-Credential=SYNTH2&X-Amz-Date=1", "https://x.example/a?X-Amz-Credential=[redacted]&X-Amz-Date=1"],
+    ["https://x.example/a%3Ftoken%3DSYNTH%26page%3D2", "https://x.example/a%3Ftoken%3D[redacted]%26page%3D2"],
+    ["html 500 at https://x.example/feed (timeout)", "html 500 at https://x.example/feed (timeout)"],
+  ];
+  for (const [input, want] of cases) {
+    const got = redactError(input);
+    assert.equal(got, want, input);
+    assert.doesNotMatch(got, /SYNTH|U1lOVEg/, input);
+  }
 });
 
 test("T11: series lines (latest, previous, change), the _total line, the 120-day bound and the LIMIT", async () => {
