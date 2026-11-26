@@ -19,6 +19,7 @@ import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
 import { mutedSources } from "./tuning.js";
 import { isOfficialRecord, isFpdsSource, isRegisterSource } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
+import { storyPlanner, storyDedupOn, hasFeedText, storyOfSql, storyOfArgs, swapStatement } from "./story.js";
 
 // Windowing, shared with the auxiliary ingest (auxiliary.js).
 export const BATCH = 400;
@@ -201,10 +202,11 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, held = 0;
+  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, held = 0, storyHeld = 0, storySwapped = 0;
   // A muted source's rows are stored skipped (source prefs, tuning.js).
   const muted = await mutedSources(db);
   const fastCap = budgetSettings(env).fast_cap;
+  const dedupOn = storyDedupOn(env);
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
@@ -228,38 +230,61 @@ export async function ingest(env) {
     // Phase 1: the per-source fast-path cap (budget.js fastPathCounter): the
     // day's stored fast-path rows, both tables, plus this batch's own.
     const fast = await fastPathCounter(db, routed.map((x) => x.r), fastCap);
-    for (const { r, route } of routed) {
+    // Only http(s) links are ever fetched or shown in the feed. Precedence:
+    // bad_url, then the key-account gate (a rival row it drops is labelled
+    // rival_no_key_account whatever its age, so its Auxiliary copy is the
+    // one graded), then the arrival gate, then a muted source, then (phase 2)
+    // story_dup. The gate's skip reason never depends on the fast-path cap.
+    const skipOf = (r, route, gate) => (!isHttpUrl(r.url) ? "bad_url" : route.skip || gate.reason || (muted.has(r.source_key) ? "muted_source" : null));
+    // Phase 2: exact-key story dedup (story.js). Rows skipped on arrival get
+    // no keys and are never held: they keep their own reason.
+    const entries = routed.map(({ r, route }) => {
+      const feed = feedFields(r, route, now);
+      return { r, route, feed, scope: route.ticker, has_text: hasFeedText(feed),
+        live: !skipOf(r, route, arrivalGate(r, gateContext(r, "coverage", first, park))) };
+    });
+    const story = await storyPlanner(db, "coverage", entries, { on: dedupOn });
+    const holds = [], swaps = [];
+    for (const e of entries) {
+      const { r, route, feed } = e;
       // The arrival gate (lib.js arrivalGate): the stale gate, archive bursts,
       // and the admissions held for the daily grading budget (budget.js).
       const gate = arrivalGate(r, gateContext(r, "coverage", first, park, { capped: fast.capped(r) }));
-      // Only http(s) links are ever fetched or shown in the feed. Precedence:
-      // bad_url, then the key-account gate (a rival row it drops is labelled
-      // rival_no_key_account whatever its age, so its Auxiliary copy is the
-      // one graded), then the arrival gate, then a muted source.
-      const reason = !isHttpUrl(r.url) ? "bad_url" : route.skip || gate.reason || (muted.has(r.source_key) ? "muted_source" : null);
+      let reason = skipOf(r, route, gate);
+      // A copy the gate admitted, whose canonical is claimable, takes no budget slot.
+      const d = story.decide(e, reason ? null : gate.admit);
+      if (!reason && d.action === "hold") reason = "story_dup";
       const admit = reason ? null : gate.admit;
       if (reason) skipped++;
       if (admit) held++;
       if (!reason && !admit) fast.add(r);
-      const feed = feedFields(r, route, now);
       if (feed.status) fromFeed++;
+      if (d.action === "hold") holds.push(stmts.length);
       stmts.push(db.prepare(
         `INSERT OR IGNORE INTO items (nm_rowid, source_key, ticker, url, title, published, category, nm_first_seen, nm_notified, ingested_at, state, skip_reason, role, affects,
-           excerpt, excerpt_status, excerpt_at, excerpt_source, excerpt_fallback, admit)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           excerpt, excerpt_status, excerpt_at, excerpt_source, excerpt_fallback, admit, story_key, story_of)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${storyOfSql("items")})`,
       ).bind(r.nm_rowid, r.source_key, route.ticker, r.url, r.title || "(untitled)", r.published, r.category,
         r.first_seen, r.notified, now, reason ? "skipped" : "pending", reason || null, route.role, route.affects,
-        feed.excerpt, feed.status, feed.at, feed.source, feed.fallback, admit));
+        feed.excerpt, feed.status, feed.at, feed.source, feed.fallback, admit, d.keys.story_key, ...storyOfArgs(d)));
+      if (d.action === "swap") {
+        swaps.push(stmts.length);
+        stmts.push(swapStatement(db, "items", r.nm_rowid, d.canonical.nm_rowid));
+      }
     }
     const n = stmts.length;
     stmts.push(setMeta(db, "nm_cursor", win.hi));
     stmts.push(setMeta(db, "last_ingest_at", now));
     const res = await db.batch(stmts);
-    inserted += res.slice(updates, n).reduce((k, r) => k + (r.meta?.changes || 0), 0);
+    const swapSet = new Set(swaps);
+    inserted += res.slice(updates, n).reduce((k, r, j) => k + (swapSet.has(updates + j) ? 0 : r.meta?.changes || 0), 0);
+    storyHeld += holds.reduce((k, j) => k + (res[j]?.meta?.changes || 0), 0);
+    storySwapped += swaps.reduce((k, j) => k + (res[j]?.meta?.changes || 0), 0);
     parkedEarlier += res.slice(0, updates).reduce((k, r) => k + (r.meta?.changes || 0), 0);
     scanned += win.n;
     cursor = win.hi;
     if (win.n < BATCH) break;
   }
-  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held };
+  return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held,
+    story_held: storyHeld, story_swapped: storySwapped };
 }

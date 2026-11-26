@@ -18,9 +18,13 @@
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim),
 //           POST /v1/admin/bill-lines (one pass of the bill autonomy lines; bill-lines.js),
 //           POST /v1/admin/recall (loads the recall events; recall.js),
-//           POST /v1/admin/requeue {mode: "rescue"} (skipped rows back as held rows; budget.js; not before 2026-11-29, dry_run first)
+//           POST /v1/admin/requeue {mode: "rescue"} (skipped rows back as held rows; budget.js; not before 2026-11-29, dry_run first),
+//           POST /v1/admin/requeue {mode: "story_release"} (story_dup copies back as held rows; budget.js; dry_run first),
+//           POST /v1/admin/story-backfill (story keys for the last 14 days' live rows; story.js; run once after the deploy)
 //   budget: rows the arrival gate holds are released by the cron under a daily grading budget,
 //           20 a UTC day, 5 per source, queue guard 60 (budget.js)
+//   dedup : exact-key story copies are stored skipped 'story_dup' at ingest (story.js; secret STORY_DEDUP=off
+//           holds nothing); once a UTC day the 00:00 tick promotes orphaned copies (budget.js storyOrphans)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
@@ -31,6 +35,9 @@ import { json, roleFor, nowIso, universeSql, normalizeGrade, parseItemRef, chunk
 import { audit, whoFor } from "./lib.js";
 // Phase 0 gates: the daily grading budget (held rows) and the admin rescue.
 import { releaseHeld, rescueSkipped } from "./budget.js";
+// Phase 2: exact-key story dedup (story.js): the key backfill, orphaned copies and the copies' rollback.
+import { storyOrphans, storyRelease, isStoryOrphanTick } from "./budget.js";
+import { storyBackfill } from "./story.js";
 import { isOfficialRecord } from "./records.js";
 import { enrichAuxWargov } from "./wargov.js";
 import { deliveryTick } from "./delivery.js";
@@ -62,6 +69,8 @@ const ALLOW = {
   "POST /v1/admin/enrich": ["admin"],
   "POST /v1/admin/requeue": ["admin"],
   "POST /v1/admin/bill-lines": ["admin"],
+  // Phase 2: story keys for the live rows of the last 14 days (story.js).
+  "POST /v1/admin/story-backfill": ["admin"],
   // Auxiliary names (GET /v1/rubric/aux is under GET /v1/rubric).
   "POST /v1/aux/claim": ["grader", "admin"],
   "POST /v1/aux/grades": ["grader", "admin"],
@@ -534,7 +543,12 @@ async function requeue(env, body, who) {
     const r = await rescueSkipped(env, body, { who });
     return json(r, r.error ? 400 : 200);
   }
-  if (body?.mode) return json({ error: "mode must be late_flags, sec_excerpts or rescue (or pass item_ids)" }, 400);
+  // Phase 2: story_dup copies back as held rows (budget.js storyRelease), the dedup rollback; writes its own audit row.
+  if (body?.mode === "story_release") {
+    const r = await storyRelease(env, body, { who });
+    return json(r, r.error ? 400 : 200);
+  }
+  if (body?.mode) return json({ error: "mode must be late_flags, sec_excerpts, rescue or story_release (or pass item_ids)" }, 400);
   const ids = (body?.item_ids || []).map(Number).filter(Number.isInteger).slice(0, 500);
   if (!ids.length) return json({ error: "item_ids required" }, 400);
   const requeued = await requeueIds(env, ids);
@@ -602,6 +616,10 @@ export default {
       case "POST /v1/admin/enrich": return json(await auditRun(env, who, "enrich", await enrich(env)));
       case "POST /v1/admin/requeue": return requeue(env, await readJson(request), who);
       case "POST /v1/admin/bill-lines": return json(await auditRun(env, who, "bill-lines", await billLinesPass(env)));
+      case "POST /v1/admin/story-backfill": {
+        const r = await storyBackfill(env, await readJson(request));
+        return r.error ? json(r, 400) : json(await auditRun(env, who, "story-backfill", r));
+      }
       case "POST /v1/aux/claim": return json(await auxClaim(env, await readJson(request)));
       case "POST /v1/aux/grades": {
         const res = await submitAuxGrades(env, await readJson(request), role);
@@ -649,6 +667,10 @@ export default {
       try { console.log("aux ingest", JSON.stringify(await ingestAux(env))); } catch (e) { console.error("aux ingest failed", e?.stack || e); }
       // Phase 0 gates: war.gov digests get their text from the bulletin feed (wargov.js).
       try { console.log("wargov excerpts", JSON.stringify(await enrichAuxWargov(env))); } catch (e) { console.error("wargov excerpts failed", e?.stack || e); }
+      // Phase 2: orphaned story copies, once a UTC day on the 00:00-00:04 tick (budget.js storyOrphans).
+      if (isStoryOrphanTick(event.scheduledTime)) {
+        try { console.log("story orphans", JSON.stringify(await storyOrphans(env, { now: event.scheduledTime }))); } catch (e) { console.error("story orphans failed", e?.stack || e); }
+      }
       // Phase 0 gates: release held rows under the daily grading budget (budget.js).
       try { console.log("gate budget", JSON.stringify(await releaseHeld(env))); } catch (e) { console.error("gate budget failed", e?.stack || e); }
       // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.

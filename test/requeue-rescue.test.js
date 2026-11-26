@@ -152,7 +152,8 @@ test("rescue: 400 on missing or bad since, unknown reason, kind or fit; admin on
   assert.equal((await rescue(env, { since: "2026-10-01", dry_run: true }, "grader")).status, 403);
   const bad = await request(worker, env, "POST", "/v1/admin/requeue", { body: { mode: "nope" } });
   assert.equal(bad.status, 400);
-  assert.match(bad.body.error, /late_flags, sec_excerpts or rescue/);
+  // Phase 2 (story dedup) adds the story_release mode to the list.
+  assert.match(bad.body.error, /late_flags, sec_excerpts, rescue or story_release/);
 });
 
 test("REGRESSION item_ids, late_flags and sec_excerpts modes behave as before", async () => {

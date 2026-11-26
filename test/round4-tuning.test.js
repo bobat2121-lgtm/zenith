@@ -190,7 +190,9 @@ test("Z3 GET /v1/ops: last run, 24 h count, gaps over 2 h in 7 days, status, hea
     released_by_source_today: [],
     // Phase 1 fast-path cap: today's fast-path rows per capped source, and rows held over the cap.
     fast_path_today: hourAgoIsToday ? [{ source_key: "anduril", n: 1 }, { source_key: "ssti", n: 1 }] : [],
-    source_cap_held: 0 });
+    source_cap_held: 0,
+    // Phase 2 story dedup: story_dup copies held out of the claim, per table, and the STORY_DEDUP switch.
+    story: { held_today: { coverage: 0, aux: 0 }, held_14d: { coverage: 0, aux: 0 }, dedup: "on" } });
 
   addRun(env, "r7", 20 * MIN, 10 * MIN);
   assert.equal((await get(env, "/v1/ops", "admin")).body.grader.status, "ok");
@@ -488,7 +490,8 @@ test("Z9 left out: skipped items newest first with counts; archive_seed only by 
   assert.equal((await get(env, "/v1/left-out", "grader")).status, 403);
   const r = (await get(env, "/v1/left-out?kind=coverage")).body;
   assert.deepEqual(r.items.map((i) => i.id), [stale, rival]);
-  assert.deepEqual(Object.keys(r.items[0]).sort(), ["blocked", "first_seen", "gradeable", "id", "kind", "skip_reason", "source_key", "ticker", "title", "url"]);
+  // Phase 2 (story dedup): each item also carries copy_of (null unless it is a story_dup copy).
+  assert.deepEqual(Object.keys(r.items[0]).sort(), ["blocked", "copy_of", "first_seen", "gradeable", "id", "kind", "skip_reason", "source_key", "ticker", "title", "url"]);
   assert.deepEqual(r.counts, { archive_seed: 1, rival_no_key_account: 1, stale_on_arrival: 1 });
   assert.deepEqual((await get(env, "/v1/left-out?kind=coverage&reason=archive_seed")).body.items.map((i) => i.id), [seed]);
   assert.deepEqual((await get(env, "/v1/left-out?kind=coverage&reason=rival_no_key_account")).body.items.map((i) => i.id), [rival]);
