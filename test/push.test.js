@@ -14,6 +14,7 @@ import { clearJwksCache } from "../worker/src/mobile.js";
 hookJsonImports();
 const { pushTick, pushReady, leadPayload, freshLead, Q7_SQL, MUTED_LITERAL, CURRENT_GRADE_LITERAL, PUSH_FRESH_HOURS, PUSH_MAX_LAG_HOURS,
   PUSH_DAILY_CAP, PUSH_TICKER_CAP, PUSH_TEST_MAX_AGE_MINUTES } = await import("../worker/src/push.js");
+const { SW_SOURCE } = await import("../worker/src/push-sw.js");
 const { allowedEndpoint, b64uEncode, b64uDecode, pushOn } = await import("../worker/src/push-routes.js");
 const { clearVapidCache } = await import("../worker/src/webpush.js");
 const { portal } = await import("../worker/src/portal.js");
@@ -500,6 +501,20 @@ test("push (P13): the push modules, brief-sections.js and portal-brief.js reach 
   assert.doesNotMatch(sw, /addEventListener\(\s*["']fetch["']|caches\.|cache\.add|cache\.put/);
 });
 
+// push-sw.js is browser code held as a string, so it holds the browser's fetch under
+// the name `http` (the S18 scan matches only the literal fetch call). This pins where
+// that alias can go: only the two same-origin push routes, and no other way out.
+test("push: the service worker's only network calls are http(\"/p/api/push/key\") and http(\"/p/api/push/subscribe\"), and it has no other fetch-like call", () => {
+  const calls = [...SW_SOURCE.matchAll(/\bhttp\(\s*([^,)]*)/g)].map((m) => m[1].trim());
+  assert.deepEqual(calls, ['"/p/api/push/key"', '"/p/api/push/subscribe"']);
+  // `http` is defined once, from self.fetch, and used only in those two calls.
+  assert.equal([...SW_SOURCE.matchAll(/\bhttp\b/g)].length, 1 + calls.length);
+  assert.equal([...SW_SOURCE.matchAll(/var http = self\.fetch\.bind\(self\);/g)].length, 1);
+  assert.equal([...SW_SOURCE.matchAll(/\bfetch\b/g)].length, 1, "fetch is named only in the alias");
+  assert.doesNotMatch(SW_SOURCE, /\bfetch\s*\(|importScripts|XMLHttpRequest|sendBeacon|WebSocket|EventSource|\bimport\s*\(|https?:\/\//);
+  // No other alias of a global network API, and no computed property access to one.
+  assert.doesNotMatch(SW_SOURCE, /self\[|globalThis|\beval\b|Function\(/);
+});
 
 test("push (P14): console output over subscribe, a 404, a 429, a timeout, a test send and a tick holds no endpoint, key, JWT or vapid header", async () => {
   const lines = [];
