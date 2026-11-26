@@ -34,10 +34,12 @@ test("P1: Q-V1 (all tickers) starts with SEARCH g USING INDEX idx_grades_graded_
   noRowScans(rows, "Q-V1");
 });
 
-test("P1: Q-V1 ticker form uses idx_grades_ticker", () => {
+test("P1: Q-V1 ticker form uses a ticker index (idx_grades_ticker_graded once 0023 is applied)", () => {
   const rows = plan(SQL(true).coverage, [FROM, TO, "TST"]);
   const t = top(rows);
-  assert.match(t[0], /^SEARCH g USING INDEX idx_grades_ticker \(ticker=\?\)/, t.join(" | "));
+  // Migration 0023 adds grades(ticker, graded_at); the planner then prefers it over the
+  // single-column idx_grades_ticker, and it also bounds the window. Either is a ticker search.
+  assert.match(t[0], /^SEARCH g USING INDEX idx_grades_ticker(_graded \(ticker=\? AND graded_at>\?\)| \(ticker=\?\))/, t.join(" | "));
   assert.match(t[1], /^SEARCH i USING INTEGER PRIMARY KEY/, t.join(" | "));
   noRowScans(rows, "Q-V1 ticker");
 });
