@@ -17,7 +17,7 @@ import { etToUtc } from "../worker/src/et.js";
 hookJsonImports();
 const { loadRelations } = await import("../worker/src/relations.js");
 const store = await import("../worker/src/brief-store.js");
-const { briefStoreTick, capBrief, inStoreWindow, previousWeekday, MAX_STORED_BYTES, Q1_SQL, Q2_SQL } = store;
+const { briefStoreTick, capBrief, briefCounts, inStoreWindow, previousWeekday, MAX_STORED_BYTES, Q1_SQL, Q2_SQL } = store;
 const { default: worker } = await import("../worker/src/index.js");
 
 const BRIEF_DAYS_DDL = `CREATE TABLE IF NOT EXISTS brief_days (
@@ -263,6 +263,46 @@ test("brief store: stored contents have no text key, graded ≤ 40 rows with ful
   assert.equal(out.contents.leads_digests[0].items.length, 40);
   assert.ok(out.contents.leads_digests[0].items.every((x) => x.why.length <= 160));
   assert.ok(out.contents.calendar.length <= 100);
+});
+
+test("brief store: a brief with every list at its cap and long fields stores ok under 64 KB, rows cut from the bottom and named in truncated", async () => {
+  const s = (n, c) => c.repeat(n);
+  const url = (k) => `https://example.com/news/2026/01/05/a-fairly-long-article-slug-about-a-company-${k}?utm_source=feed&utm_medium=rss`;
+  const graded = (k) => ({ grade_id: 100_000 + k, item_id: 50_000 + k, ticker: "TST", score: 99 - k, band: "digest", event_type: "contract_award",
+    why: s(300, "w"), note_hook: s(200, "n"), magnitude_usd: 12_000_000, magnitude_pct: 0.5, read_source: 2, graded_at: "2026-01-05T16:00:00.000Z",
+    title: s(140, "t"), url: url(k), role: null, affects: null, item_ticker: "TST", source_key: `src_${k}`, nm_first_seen: "2026-01-05T15:00:00.000Z",
+    headline: s(100, "h"), headline_tag: "tag" });
+  const aux = (k) => ({ pipeline: "aux", item_id: k, grade_id: k, entity_key: `entity_${k}`, entity_name: s(40, "e"), status: "media", source_key: `aux_${k}`,
+    title: s(140, "t"), headline: s(100, "h"), url: url(k), score: 75, band: "digest", event_type: "x", why: s(300, "w"), graded_at: "2026-01-05T16:00:00.000Z" });
+  const cal = (k) => ({ ticker: "TST", date: "2026-01-07", text: s(120, "c"), kind: "earnings", k });
+  const b = {
+    kind: "brief_am", text: ["x"], leads_digests: [{ ticker: "TST", items: Array.from({ length: 40 }, (_, k) => graded(k)) }],
+    counterparty: Array.from({ length: 15 }, (_, k) => ({ ...graded(k), role: "rival" })),
+    waiting: { count: 20, held: 0, items: Array.from({ length: 20 }, (_, k) => ({ item_id: k, ticker: "TST", title: s(140, "q"), url: url(k) })) },
+    catalysts: Array.from({ length: 25 }, (_, k) => cal(k)), council_outcomes: [], calendar: Array.from({ length: 100 }, (_, k) => cal(k)),
+    health: { news_monitor: { failing: Array.from({ length: 10 }, (_, k) => ({ key: `k${k}`, ticker: "TST", fail_count: 3, last_error: s(90, "e") })) } },
+    to_label: [],
+    competitors: { by_ticker: [{ ticker: "TST", items: Array.from({ length: 25 }, (_, k) => ({ ...aux(k), ticker: "TST", direction: "-" })) }],
+      count: 25, listed: 25, more: 0, below: [], unassigned: 0, waiting: { n: 0, held: 0 }, rival_sources: 3 },
+    industry: { items: Array.from({ length: 25 }, (_, k) => ({ ...aux(k), tag: "media", tickers: ["TST"] })), count: 25, below: [], unassigned: 0,
+      waiting: { n: 0, held: 0 }, registers: [] },
+  };
+  const out = capBrief(b);
+  assert.ok(out.bytes <= MAX_STORED_BYTES, String(out.bytes));
+  assert.equal(out.bytes, Buffer.byteLength(out.json));
+  const t = out.contents.truncated;
+  assert.ok(t && t.calendar === 30 && t.catalysts === 25, JSON.stringify(t));
+  assert.ok(out.contents.leads_digests[0].items.length === 40 && out.contents.counterparty.length === 15, "graded and counterparty rows are cut last");
+  // Rows go from the bottom: what is kept is the top of each list.
+  assert.equal(t.industry, 25, "industry goes before competitors");
+  const kept = out.contents.competitors.by_ticker[0].items.map((x) => x.item_id);
+  assert.ok(kept.length > 0 && kept.length + t.competitors === 25, JSON.stringify(t));
+  assert.deepEqual(kept, Array.from({ length: kept.length }, (_, k) => k));
+  assert.ok(out.contents.leads_digests[0].items.every((x) => x.note_hook.length <= 80 && x.headline.length <= 80));
+  assert.deepEqual(briefCounts(b).calendar, 100, "counts keep the full numbers");
+  // capBrief no longer throws here, so the tick stores ok (it throws only when no list row is left).
+  // A brief under the cap has no truncated key.
+  assert.ok(!("truncated" in capBrief({ ...b, calendar: [], catalysts: [], competitors: { ...b.competitors, by_ticker: [] }, industry: { ...b.industry, items: [] } }).contents));
 });
 
 test("brief store: BRIEF_STORE=0 makes zero prepare calls", async () => {
