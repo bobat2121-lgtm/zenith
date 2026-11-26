@@ -465,14 +465,17 @@ export async function searchRows(env, params, deps = {}) {
   }
 
   // Labels for the shown ids (one statement, both tables; latest label first).
+  // Each table has its own id sequence, so each arm has its own LIMIT (M20).
   const labels = new Map();
   if (shown.length) {
     const ids = (p) => JSON.stringify(shown.filter((r) => r.pipeline === p).map((r) => r.item_id));
     const r = await env.DB.prepare(
-      `SELECT 'coverage' AS pipeline, id, item_id, ticker, label FROM feedback WHERE item_id IN (SELECT value FROM json_each(?1))
+      `SELECT * FROM (SELECT 'coverage' AS pipeline, id, item_id, ticker, label FROM feedback
+         WHERE item_id IN (SELECT value FROM json_each(?1)) ORDER BY id DESC LIMIT ${LABEL_ROWS})
        UNION ALL
-       SELECT 'aux' AS pipeline, id, item_id, '' AS ticker, label FROM aux_feedback WHERE item_id IN (SELECT value FROM json_each(?2))
-       ORDER BY id DESC LIMIT ${LABEL_ROWS}`,
+       SELECT * FROM (SELECT 'aux' AS pipeline, id, item_id, '' AS ticker, label FROM aux_feedback
+         WHERE item_id IN (SELECT value FROM json_each(?2)) ORDER BY id DESC LIMIT ${LABEL_ROWS})
+       ORDER BY pipeline, id DESC`,
     ).bind(ids("coverage"), ids("aux")).all();
     cost.statements++;
     cost.rows_read += Number(r.meta?.rows_read) || 0;

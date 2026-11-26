@@ -494,6 +494,21 @@ test("S15: searching writes nothing", async () => {
   assert.equal(last.results.find((x) => x.pipeline === "coverage").label, "high", "labels shown");
   assert.equal(last.results.find((x) => x.pipeline === "aux").label, "noise");
   assert.equal(last.cost.statements, 4, "muted list, two search statements, labels");
+
+  // feedback and aux_feedback have separate id sequences: many coverage relabels
+  // (higher ids) do not push an aux label out of the cap.
+  const d2 = zenithDb();
+  const c2 = await addCov(d2, { title: "Widget relabelled" });
+  const a2 = await addAux(d2, { title: "Widget aux labelled" });
+  await d2.prepare("INSERT INTO aux_feedback (item_id, label, created_at) VALUES (?, 'noise', 'x')").bind(a2).run();
+  for (let k = 0; k < 230; k++) {
+    await d2.prepare("INSERT INTO feedback (item_id, label, grade_id, ticker, created_at) VALUES (?, ?, NULL, 'TST', 'x')")
+      .bind(c2, k === 229 ? "high" : "noise").run();
+  }
+  const many = await search(d2, { q: "widget" });
+  assert.equal(many.results.find((x) => x.pipeline === "aux").label, "noise", "the aux label survives");
+  assert.equal(many.results.find((x) => x.pipeline === "coverage").label, "high", "the latest coverage label wins");
+  assert.equal(many.cost.statements, 4, "labels stay one statement");
 });
 
 // --- S16 ------------------------------------------------------------------------------------
