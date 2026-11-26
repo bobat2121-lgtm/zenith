@@ -20,7 +20,9 @@ import { BATCH, MAX_BATCHES, newsRows, feedFields, getMeta, setMeta, initialCurs
 import { isOfficialRecord } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
 import { WARGOV_HOLD_MINUTES } from "./wargov.js";
-import { textClass, visibleBudgets, LEGACY_BUDGET } from "./text-class.js";
+import { textClass, visibleBudgets, classBudgets, auxTextShown, LEGACY_BUDGET } from "./text-class.js";
+import { AUX_TEXT_HOLD_MINUTES } from "./aux-text.js";
+import { pickText, EXCERPT_CHARS, LEAD_CHARS } from "./excerpt.js";
 import { storyPlanner, storyDedupOn, hasFeedText, storyOfSql, storyOfArgs, swapStatement } from "./story.js";
 import { json, nowIso, bandFor, chunk, isHttpUrl, archiveGroupKey, archiveSeedGroups, arrivalGate, sightingAgeDays,
   olderEventDate, normalizeHeadline, normalizeRelations, labelReason, ownerRank, ownerPick, rivalDroppedSql, rivalOnCoverageSql, auxBandShownSql, LABELS, LEASE_MINUTES, MAX_ATTEMPTS, TO_LABEL_DAYS, TO_LABEL_ORDER,
@@ -41,8 +43,10 @@ const STATS_ENTITY_DAYS = 30;
 // rowid cursor (meta aux_nm_cursor; the first run backfills 14 days). Windowing,
 // skip reasons and archive parking are the coverage ingest's (ingest.js); the
 // excerpt is the feed's own text when it carries the release itself (sized by
-// the row's text class, text-class.js: 2,500 unless TEXT_BUDGETS=class), and
-// an auxiliary page is never fetched.
+// the row's text class, text-class.js: 2,500 unless TEXT_BUDGETS=class).
+// Phase 2: record and issuer pages are read once in shadow by aux-text.js into
+// the page_* columns, never into excerpt; the grader sees that text only with
+// AUX_TEXT_SHOW=1 (auxClaim).
 //
 // One pipeline per item (Phase 0 gates (d), ingest.js coverageOwner): a row
 // Coverage owns (a covered source's, or a counterparty row routed to a ticker
@@ -281,8 +285,17 @@ const CLAIM_COLS = `i.id AS item_id, i.source_key, i.entity_key, i.entity_name, 
 export const AUX_OLD_HOURS = 72;
 const CLAIM_ORDER = "(i.nm_first_seen >= ?1), CASE WHEN i.nm_first_seen < ?1 THEN i.nm_first_seen END, i.nm_first_seen DESC, i.id DESC";
 
+// Phase 2, only with AUX_TEXT_SHOW=1 (and the reader on): a row with no feed
+// text and no page read yet waits up to AUX_TEXT_HOLD_MINUTES after it became
+// claimable (released, else ingested) for the shadow reader (aux-text.js).
+// p: the bound parameter holding the cutoff.
+const textHoldSql = (a, p) => `(${a}excerpt_status IS NULL AND ${a}page_status IS NULL AND ${a}source_key != 'wargov_contracts'
+  AND COALESCE(${a}released_at, ${a}ingested_at) > ${p})`;
+
 // Same lease rules as the coverage claim: a 45-minute lease, attempts + 1, and
 // items that failed grading MAX_ATTEMPTS times leave the queue.
+// With AUX_TEXT_SHOW unset (the default) the claim's SQL and payload are the
+// feed text only, as before phase 2's shadow reader.
 export async function auxClaim(env, body) {
   const limit = Math.max(1, Math.min(AUX_MAX_CLAIM, Math.trunc(Number(body?.limit)) || AUX_DEFAULT_CLAIM));
   const runId = String(body?.run_id || crypto.randomUUID()).slice(0, 80);
@@ -297,16 +310,31 @@ export async function auxClaim(env, body) {
   // pending or with an expired lease. A war.gov digest without its text waits
   // WARGOV_HOLD_MINUTES after first sighting for the bulletin (excerpt.js enrichAuxWargov).
   const old = nowIso(Date.now() - AUX_OLD_HOURS * 3_600_000);
+  const show = auxTextShown(env);
+  const holdFrom = nowIso(Date.now() - AUX_TEXT_HOLD_MINUTES * 60_000);
   await env.DB.prepare(
     `UPDATE aux_items SET state='claimed', claim_id=?2, claimed_until=?3, attempts=attempts+1
       WHERE id IN (SELECT i.id FROM aux_items i WHERE (i.state='pending' OR (i.state='claimed' AND i.claimed_until < ?4))
                       AND NOT ${HELD_SQL("i.")}
-                      AND NOT (i.source_key = 'wargov_contracts' AND i.excerpt_status IS NULL AND i.nm_first_seen > ?6)
+                      AND NOT (i.source_key = 'wargov_contracts' AND i.excerpt_status IS NULL AND i.nm_first_seen > ?6)${show ? `
+                      AND NOT ${textHoldSql("i.", "?7")}` : ""}
                     ORDER BY ${CLAIM_ORDER} LIMIT ?5)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?4))`,
-  ).bind(old, claimId, until, now, limit, nowIso(Date.now() - WARGOV_HOLD_MINUTES * 60_000)).run();
-  let items = (await env.DB.prepare(`SELECT ${CLAIM_COLS} FROM aux_items i WHERE i.claim_id = ?2 ORDER BY ${CLAIM_ORDER}`)
+  ).bind(old, claimId, until, now, limit, nowIso(Date.now() - WARGOV_HOLD_MINUTES * 60_000), ...(show ? [holdFrom] : [])).run();
+  let items = (await env.DB.prepare(`SELECT ${CLAIM_COLS}${show ? ", i.page_excerpt, i.page_status" : ""} FROM aux_items i WHERE i.claim_id = ?2 ORDER BY ${CLAIM_ORDER}`)
     .bind(old, claimId).all()).results || [];
+  // AUX_TEXT_SHOW=1: a row without feed text shows its page text (cut to 2,500
+  // while TEXT_BUDGETS is legacy); the page_* keys never reach the payload.
+  if (show) {
+    for (const it of items) {
+      if (it.excerpt == null && it.page_excerpt) {
+        it.excerpt = classBudgets(env) ? it.page_excerpt : pickText(it.page_excerpt, EXCERPT_CHARS, LEAD_CHARS);
+        it.excerpt_status = it.page_status;
+      }
+      delete it.page_excerpt;
+      delete it.page_status;
+    }
+  }
   // Phase 2 (claim text budget): with max_chars, keep items in CLAIM_ORDER (the
   // SELECT's order) while their excerpts (+200 a frame) fit, always at least one;
   // the rest go back to the queue with the attempt refunded. No added read.
@@ -340,7 +368,9 @@ export async function auxClaim(env, body) {
     // Phase 0 gates: whether it is an official record (admit says why the gate let it in).
     it.record = isOfficialRecord(it);
   }
-  const pending = await env.DB.prepare(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
+  const pending = show
+    ? await env.DB.prepare(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()} AND NOT ${textHoldSql("", "?1")}`).bind(holdFrom).first()
+    : await env.DB.prepare(`SELECT COUNT(*) AS n FROM aux_items WHERE state IN ('pending','claimed') AND NOT ${HELD_SQL()}`).first();
   return { claim_id: claimId, run_id: runId, lease_minutes: LEASE_MINUTES, rubric_version: AUX_RUBRIC_VERSION, items,
     remaining: Math.max(0, (pending?.n || 0) - items.length), trimmed };
 }
