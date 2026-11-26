@@ -432,20 +432,26 @@ export async function searchRows(env, params, deps = {}) {
   } else {
     // Newest: merge by (first_seen, pipeline, item_id) descending. A dropped copy
     // before the page edge is consumed (its cursor moves past it) but not shown.
+    // A pipeline that hit LIMIT+1 has unfetched rows that may sort ahead of the
+    // other pipeline's remaining rows, so the merge stops once its last fetched
+    // row is consumed; only a pipeline that returned at most `limit` rows and
+    // had all of them consumed is at its end.
     const rows = [...fetched.coverage, ...fetched.aux];
     rows.sort((x, y) => (x.first_seen < y.first_seen ? 1 : x.first_seen > y.first_seen ? -1 : 0)
       || (x.pipeline === y.pipeline ? y.item_id - x.item_id : x.pipeline === "coverage" ? -1 : 1));
     const consumed = { coverage: [], aux: [] };
+    const more = (p) => fetched[p].length > q.limit;
     for (const r of rows) {
       if (shown.length >= q.limit) break;
       consumed[r.pipeline].push(r);
       if (!dropped.has(r)) shown.push(r);
+      if (more(r.pipeline) && consumed[r.pipeline].length === fetched[r.pipeline].length) break;
     }
     const next = {};
     for (const [pipeline, key] of [["coverage", "cc"], ["aux", "ca"]]) {
       const got = fetched[pipeline], used = consumed[pipeline];
       const incoming = q.cursors[key];
-      if (!ran.has(pipeline) || got.length <= used.length) next[key] = "end";
+      if (!ran.has(pipeline) || (!more(pipeline) && got.length === used.length)) next[key] = "end";
       else if (!used.length) next[key] = incoming && incoming !== "end" ? `${incoming.at}~${incoming.id}` : null;
       else { const last = used[used.length - 1]; next[key] = `${last.first_seen}~${last.item_id}`; }
       truncated[pipeline] = next[key] !== "end";

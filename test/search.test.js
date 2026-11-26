@@ -325,6 +325,33 @@ test("S10: newest paging over shared timestamps shows every row exactly once", a
       assert.ok(a.first_seen > b.first_seen || (a.first_seen === b.first_seen && a.item_id > b.item_id), `${p} order at ${k}`);
     }
   }
+  // Copies in both pipelines on one timestamp: every news-monitor row is shown exactly once
+  // (while both copies are fetched on one page; copies on different pages are §13's case).
+  for (const limit of ["5", "3"]) {
+    const d2 = zenithDb();
+    const at = ago(3 * DAY);
+    const rowids = [];
+    for (let k = 0; k < 8; k++) {
+      const nm_rowid = 700_000 + k;
+      rowids.push(nm_rowid);
+      await addCov(d2, { nm_rowid, title: `Widget c${k}`, nm_first_seen: at });
+      if (k >= 5) await gradeAux(d2, await addAux(d2, { nm_rowid, title: `Widget c${k}`, nm_first_seen: at }), { score: 60 });
+    }
+    const shown = [];
+    let c = {};
+    for (let page = 0; page < 30; page++) {
+      const r = await search(d2, { q: "widget", sort: "newest", limit, ...c });
+      shown.push(...r.results);
+      if (!r.cursors) break;
+      c = Object.fromEntries(Object.entries(r.cursors).filter(([, v]) => v !== null));
+    }
+    const nm = new Map((await d2.prepare("SELECT 'coverage' AS p, id, nm_rowid FROM items UNION ALL SELECT 'aux', id, nm_rowid FROM aux_items")
+      .all()).results.map((x) => [`${x.p}:${x.id}`, x.nm_rowid]));
+    const got = shown.map((x) => nm.get(`${x.pipeline}:${x.item_id}`)).sort((a, b) => a - b);
+    assert.deepEqual(got, rowids, `limit ${limit}: every nm_rowid exactly once`);
+    assert.ok(shown.filter((x) => x.pipeline === "aux").length === 3, `limit ${limit}: the graded aux copies are the ones shown`);
+  }
+
   const s = spy(d1);
   for (const cc of ["2026-06-01~5", "x", "2026-06-01T00:00:00.000Z~", "2026-06-01T00:00:00.000Z~1234567890"]) {
     const r = await S.searchRows({ DB: s.db }, params({ q: "widget", sort: "newest", cc }), deps());
