@@ -100,7 +100,10 @@ test("html: escapes every interpolation, joins arrays, drops null/undefined/fals
 test("safeReturn keeps /p/ paths only", () => {
   assert.equal(safeReturn("/p/today?range=7d"), "/p/today?range=7d");
   assert.equal(safeReturn("/p/c/TST#i5"), "/p/c/TST#i5");
-  for (const bad of ["https://example.com/x", "//x", "/p//x", "/p/\\evil", "/p/%0d%0aSet-Cookie:x", "/p/%0Ax", "/p/%5cx", "/m", "", null, `/p/${"a".repeat(201)}`, "/p/a b"]) {
+  assert.equal(safeReturn("/p/c/TST.A"), "/p/c/TST.A", "a dot inside a segment is fine");
+  assert.equal(safeReturn("/p/search?q=a%2Fb&x=../y"), "/p/search?q=a%2Fb&x=../y", "the query is not a path");
+  for (const bad of ["https://example.com/x", "//x", "/p//x", "/p/\\evil", "/p/%0d%0aSet-Cookie:x", "/p/%0Ax", "/p/%5cx", "/m", "", null, `/p/${"a".repeat(201)}`, "/p/a b",
+    "/p/../m", "/p/..", "/p/.", "/p/./../health", "/p/%2e%2e/v1/feed", "/p/%2E./x", "/p/.%2e", "/p/c/../../m?x=1", "/p/%2f%2fexample.com"]) {
     assert.equal(safeReturn(bad), "/p/today", String(bad));
   }
 });

@@ -51,6 +51,10 @@ export function safeReturn(s) {
   const v = typeof s === "string" ? s : "";
   if (!/^\/p\/[A-Za-z0-9._~/?=&%#-]{0,200}$/.test(v)) return "/p/today";
   if (v.includes("//") || v.includes("\\") || /%(0d|0a|5c)/i.test(v)) return "/p/today";
+  // No "." or ".." segment and no encoded "/" (plain or percent-encoded) in the path part,
+  // so the target cannot leave /p/. The query may hold anything above.
+  const path = v.split(/[?#]/, 1)[0];
+  if (/%2f/i.test(path) || /(^|\/)(\.|%2e){1,2}(\/|$)/i.test(path)) return "/p/today";
   return v;
 }
 
