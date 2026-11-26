@@ -10,7 +10,9 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadRubric, versionOf } from "../scripts/rubric-hash.mjs";
+import { loadRubric, versionOf, frontMatter } from "../scripts/rubric-hash.mjs";
+import { parseIndustryLinks } from "../scripts/owner-marks.mjs";
+import { ladderState } from "./helpers/ladder-state.js";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/build-rubric.mjs", import.meta.url));
 const SHEET = "---\nbase_usd: 100000000\ntiny_usd: 100000\nthesis_drivers: [a]\nopen_items: []\nterms: [Symbotic]\n---\n# SYM\n";
@@ -144,11 +146,34 @@ test("T1: no overlay gives null CANDIDATE_* and INDUSTRY {}; rubric-hash.mjs giv
   }
 }));
 
-test("T1: the committed rubric.generated.js matches rubric-hash.mjs on the repo's rubric and bundles no candidate", async () => {
+test("T1: the committed rubric.generated.js matches rubric-hash.mjs on the repo's rubric, and bundles a candidate only with rubric/candidate/", async () => {
   const gen = await import("../worker/src/rubric.generated.js");
-  assert.equal(versionOf(loadRubric(fileURLToPath(new URL("..", import.meta.url)))), gen.RUBRIC_VERSION);
-  assert.deepEqual(gen.INDUSTRY, {});
-  assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+  const repo = fileURLToPath(new URL("..", import.meta.url));
+  assert.equal(versionOf(loadRubric(repo)), gen.RUBRIC_VERSION);
+  // Until the industry ladder is live no live sheet declares industry_links, so INDUSTRY
+  // is {}. After --promote-candidate the live sheets carry them, and INDUSTRY is exactly
+  // their map, read here from the live sheets themselves ({T: {id: {core}}}). The state
+  // is whether the ladder is live, not whether rubric/candidate/ exists: a later overlay
+  // may be cut after promotion.
+  if (!ladderState(repo).live) {
+    assert.deepEqual(gen.INDUSTRY, {});
+  } else {
+    const live = {};
+    for (const [t, md] of Object.entries(loadRubric(repo).companies)) {
+      const parsed = parseIndustryLinks(frontMatter(md) || "");
+      if (!parsed) continue;
+      assert.deepEqual(parsed.errors, [], `${t}: industry_links parse`);
+      if (parsed.links.length) live[t] = Object.fromEntries(parsed.links.map((l) => [l.id, { core: l.core }]));
+    }
+    assert.ok(Object.keys(live).length > 0, "after promotion some live sheet declares industry_links");
+    assert.deepEqual(gen.INDUSTRY, live);
+  }
+  if (existsSync(join(repo, "rubric", "candidate"))) {
+    assert.equal(gen.CANDIDATE_VERSION, versionOf(loadRubric(repo, { overlay: true })));
+    assert.notEqual(gen.CANDIDATE_VERSION, gen.RUBRIC_VERSION);
+  } else {
+    assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+  }
 });
 
 test("T1: an overlay adds CANDIDATE_VERSION and floors, leaves RUBRIC_VERSION alone, and --promote-candidate makes it live", () => withRoot((root) => {
