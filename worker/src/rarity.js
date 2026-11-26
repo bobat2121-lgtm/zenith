@@ -10,7 +10,8 @@
 //             lane, an outside company's own channel
 //   wire      a wire or syndication copy (WIRE_HOSTS)
 //
-// rareRoute is GET /v1/rare, the data for the Rare finds shelf (phase 3).
+// rareData reads the Rare finds rows (the /p/rare page, phase 3); rareRoute is
+// GET /v1/rare over it.
 import COVERED from "./covered.json";
 import AUX from "./aux-sources.json";
 import { OFFICIAL_HOST_RE } from "./records.js";
@@ -76,38 +77,75 @@ const SCAN = 200;
 const DAY_MS = 86_400_000;
 
 // A query parameter as an integer in [lo, hi]; missing or not a number gives def.
-function bounded(q, name, def, lo, hi) {
+export function bounded(q, name, def, lo, hi) {
   const raw = q.get(name);
   const n = raw === null || raw === "" ? NaN : Math.trunc(Number(raw));
   return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def;
 }
 
-// GET /v1/rare?days=14&floor=60 (days 1-30, floor 40-100). The latest grade
-// of each row at or above the floor, highest score first: coverage
-// rows graded in the window (in the universe, not muted), aux rows first seen
-// in the window and graded (not muted, shown on the aux feed). Then the rarity
-// class keeps register and original rows, the top 50 of each pipeline.
-// Rarity only filters; the order is the score's. muted: tuning.js MUTED_SQL.
-export async function rareRoute(env, url, { muted, universe = universeSql(COVERED.tickers), now = Date.now() } = {}) {
-  const q = url.searchParams;
-  const days = bounded(q, "days", 14, 1, 30);
-  const floor = bounded(q, "floor", 60, 40, 100);
-  const since = nowIso(now - days * DAY_MS);
+// A ticker for /v1/rare and the Rare finds page: upper-cased, then it must be a
+// covered ticker. Returns the ticker, null when absent, or false when unknown.
+export function rareTicker(raw, tickers = COVERED.tickers) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const t = String(raw).trim().toUpperCase();
+  return (tickers || []).includes(t) ? t : false;
+}
+
+// The Rare finds rows. The latest grade of each row at or above the floor,
+// highest score first: coverage rows graded in [since, until) (in the
+// universe, not muted), aux rows first seen in [since, until) and graded (not
+// muted, shown on the aux feed). Then the rarity class keeps register and
+// original rows, the top 50 of each pipeline. Rarity only filters; the order
+// is the score's. muted: tuning.js MUTED_SQL (the portal passes vctx.muted).
+// ticker (a covered ticker, checked here before any statement): coverage rows
+// graded for it, aux rows whose affects or reads_through names it. It is bound,
+// never spliced, and filters in SQL before the scan limit, so other tickers'
+// higher scores cannot cut its rows. Coverage still joins only the primary
+// grade, so a cross-ticker (#T) grade is never a Rare find for T.
+// until: an exclusive upper bound (a custom date range), or null for now.
+export async function rareData(env, { since, until = null, floor, ticker = null, muted, universe = universeSql(COVERED.tickers), now = Date.now() } = {}) {
+  if (ticker !== null && rareTicker(ticker) !== ticker) throw new RangeError("rareData: unknown ticker");
   const notMuted = (a) => (muted ? `AND ${a}.source_key NOT IN ${muted}` : "");
+  const covBinds = [since, floor];
+  let covExtra = "";
+  if (until) { covExtra += " AND g.graded_at < ?"; covBinds.push(until); }
+  if (ticker) { covExtra += " AND g.ticker = ?"; covBinds.push(ticker); }
   const coverage = (await env.DB.prepare(
     `SELECT i.id AS item_id, COALESCE(g.ticker, i.ticker) AS ticker, i.source_key, i.url, i.title, i.headline, i.headline_tag,
         i.nm_first_seen AS first_seen, g.id AS grade_id, g.score, g.band, g.graded_at
        FROM grades g JOIN items i ON i.id = g.item_id AND i.grade_id = g.id
-      WHERE g.graded_at >= ? AND g.score >= ? AND COALESCE(g.ticker, i.ticker) IN ${universe} ${notMuted("i")}
+      WHERE g.graded_at >= ? AND g.score >= ?${covExtra} AND COALESCE(g.ticker, i.ticker) IN ${universe} ${notMuted("i")}
       ORDER BY g.score DESC, i.id DESC LIMIT ${SCAN}`,
-  ).bind(since, floor).all()).results || [];
+  ).bind(...covBinds).all()).results || [];
+  const auxBinds = [since, floor];
+  let auxExtra = "";
+  if (until) { auxExtra += " AND a.nm_first_seen < ?"; auxBinds.push(until); }
+  if (ticker) {
+    auxExtra += ` AND ((',' || COALESCE(a.affects, '') || ',') LIKE '%,' || ? || ',%'
+        OR EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(g.reads_through) THEN g.reads_through END) r WHERE json_extract(r.value, '$.ticker') = ?))`;
+    auxBinds.push(ticker, ticker);
+  }
   const aux = (await env.DB.prepare(
     `SELECT a.id AS item_id, COALESCE(g.entity, a.entity_name) AS entity, a.entity_key, a.source_key, a.url, a.title, a.headline, a.headline_tag,
-        a.nm_first_seen AS first_seen, g.id AS grade_id, g.score, g.band, g.graded_at
+        a.nm_first_seen AS first_seen, g.id AS grade_id, g.score, g.band, g.graded_at, g.reads_through, a.affects
        FROM aux_items a JOIN aux_grades g ON g.id = a.grade_id
-      WHERE a.state = 'graded' AND a.nm_first_seen >= ? AND g.score >= ? ${notMuted("a")} AND ${auxBandShownSql("a", "g.band")}
+      WHERE a.state = 'graded' AND a.nm_first_seen >= ? AND g.score >= ?${auxExtra} ${notMuted("a")} AND ${auxBandShownSql("a", "g.band")}
       ORDER BY g.score DESC, a.id DESC LIMIT ${SCAN}`,
-  ).bind(since, floor).all()).results || [];
+  ).bind(...auxBinds).all()).results || [];
   const keep = (rows) => rows.map((r) => ({ ...r, rarity: rarityClass(r) })).filter((r) => RARE.includes(r.rarity)).slice(0, RARE_TOP);
-  return json({ coverage: keep(coverage), aux: keep(aux), floor, days });
+  return { coverage: keep(coverage), aux: keep(aux), floor, as_of: nowIso(now) };
+}
+
+// GET /v1/rare?days=14&floor=60&ticker=T (days 1-30, floor 40-100; ticker a
+// covered ticker, else 400 with no statement run). The fields of rareData plus
+// days; as_of is when the rows were read.
+export async function rareRoute(env, url, { muted, universe = universeSql(COVERED.tickers), now = Date.now() } = {}) {
+  const q = url.searchParams;
+  const ticker = rareTicker(q.get("ticker"));
+  if (ticker === false) return json({ error: "unknown ticker" }, 400);
+  const days = bounded(q, "days", 14, 1, 30);
+  const floor = bounded(q, "floor", 60, 40, 100);
+  const since = nowIso(now - days * DAY_MS);
+  const { coverage, aux, as_of } = await rareData(env, { since, floor, ticker, muted, universe, now });
+  return json({ coverage, aux, floor, days, as_of });
 }
