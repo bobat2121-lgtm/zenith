@@ -44,6 +44,7 @@ import { storyOrphans, storyRelease, isStoryOrphanTick } from "./budget.js";
 import { storyBackfill } from "./story.js";
 import { isOfficialRecord } from "./records.js";
 import { enrichAuxWargov } from "./wargov.js";
+import { enrichAuxText } from "./aux-text.js";
 import { deliveryTick } from "./delivery.js";
 import { isReportCron, runReportSlots, briefRoute, calendarRoute, calibrationRoute } from "./brief.js";
 import { mobile } from "./mobile.js";
@@ -731,6 +732,8 @@ export default {
       }
       // Phase 0 gates: release held rows under the daily grading budget (budget.js).
       try { console.log("gate budget", JSON.stringify(await releaseHeld(env))); } catch (e) { console.error("gate budget failed", e?.stack || e); }
+      // Phase 2 Part A: shadow read of aux record and issuer pages (aux-text.js); AUX_TEXT_PER_TICK=0 stops it.
+      try { console.log("aux text", JSON.stringify(await enrichAuxText(env))); } catch (e) { console.error("aux text failed", e?.stack || e); }
       // One-time aux-entity backfill into the expansion queue (D4); a no-op once done.
       try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
       // SEC party extraction into the expansion queue (Part B), last: it takes the
