@@ -249,3 +249,17 @@ test("GET /v1/brief without sections has exactly the old top-level keys and text
   const anon = await worker.fetch(new Request("https://zenith.test/v1/brief?sections=full"), env);
   assert.equal(anon.status, 401);
 });
+
+test("brief sections: the transitive import graph of brief-sections.js (static and dynamic imports) reaches none of tuning.js, delivery.js, discord.js, brief.js", () => {
+  const SRC = new URL("../worker/src/", import.meta.url);
+  const seen = new Set();
+  const walk = (f) => {
+    if (seen.has(f)) return;
+    seen.add(f);
+    const src = readFileSync(new URL(f, SRC), "utf8");
+    for (const m of src.matchAll(/(?:from\s+|import\(\s*)"\.\/([^"]+\.js)"/g)) walk(m[1]);
+  };
+  walk("brief-sections.js");
+  assert.ok(seen.has("relations.js") && seen.has("lib.js"), [...seen].join(", "));
+  for (const f of ["tuning.js", "delivery.js", "discord.js", "brief.js", "index.js"]) assert.ok(!seen.has(f), `${f} in ${[...seen].join(", ")}`);
+});
