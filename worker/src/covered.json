@@ -1,5 +1,5 @@
 {
-  "generated_from": "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js)",
+  "generated_from": "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js) and registry/rivals.json",
   "tickers": [
     "AGLT",
     "ASST",
@@ -1272,7 +1272,9 @@
     "avav": {
       "role": "rival",
       "affects": [
-        "MRLN"
+        "MRLN",
+        "ONDS",
+        "PUSA"
       ]
     },
     "beta": {
@@ -1304,6 +1306,120 @@
       "affects": [
         "UMAC"
       ]
+    },
+    "metaplanet": {
+      "role": "rival",
+      "affects": [
+        "ASST",
+        "MSTR"
+      ]
+    },
+    "twentyone": {
+      "role": "rival",
+      "affects": [
+        "ASST",
+        "MSTR"
+      ]
+    },
+    "coreweave": {
+      "role": "rival",
+      "affects": [
+        "GRRR"
+      ]
+    },
+    "nebius": {
+      "role": "rival",
+      "affects": [
+        "GRRR",
+        "SERV"
+      ]
+    },
+    "bitmine": {
+      "role": "rival",
+      "affects": [
+        "MSTR"
+      ]
+    },
+    "aevex": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "epirus": {
+      "role": "rival",
+      "affects": [
+        "ONDS",
+        "PUSA"
+      ]
+    },
+    "gecko": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "perennial": {
+      "role": "rival",
+      "affects": [
+        "ONDS",
+        "PUSA"
+      ]
+    },
+    "ratel": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "droneshield": {
+      "role": "rival",
+      "affects": [
+        "ONDS",
+        "PUSA"
+      ]
+    },
+    "spaceeyes": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "spaceeyes_sec": {
+      "role": "rival",
+      "affects": [
+        "ONDS"
+      ]
+    },
+    "neros": {
+      "role": "rival",
+      "affects": [
+        "PUSA"
+      ]
+    },
+    "avride": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "coco": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "robotcom": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
+    },
+    "starship": {
+      "role": "rival",
+      "affects": [
+        "SERV"
+      ]
     }
   },
   "records": [
@@ -1332,5 +1448,234 @@
     "edgar_umac",
     "strive_sec_northland",
     "unusual"
-  ]
+  ],
+  "channels": {
+    "aevex": "aevex.com",
+    "agco_humanoid": "nasdaq.com",
+    "agility": "agilityrobotics.com",
+    "aglt_events": "agilityrobotics.com",
+    "aglt_presentations": "agilityrobotics.com",
+    "aglt_press": "agilityrobotics.com",
+    "aglt_releases": "agilityrobotics.com",
+    "airo": "theairogroup.com",
+    "anduril": "anduril.com",
+    "apld": "applieddigital.com",
+    "appliedintuition": "appliedintuition.com",
+    "apptronik": "apptronik.com",
+    "archer": "archer.com",
+    "arkelectronics": "arkelectron.com",
+    "arriveai": "arriveai.com",
+    "atlas": "atlas.energy",
+    "aumovio": "aumovio.com",
+    "aur_presentations": "aurora.tech",
+    "aurora": "aurora.tech",
+    "auterion": "auterion.com",
+    "autostore": "autostoresystem.com",
+    "avav": "avinc.com",
+    "avride": "medium.com",
+    "axon": "axon.com",
+    "axon_ir_docs": "axon.com",
+    "axon_nasdaq": "nasdaq.com",
+    "beta": "beta.team",
+    "bitmine": "bitminetech.io",
+    "blacksky": "blacksky.com",
+    "bostondynamics": "bostondynamics.com",
+    "bot_news": "robostrategy.co",
+    "bot_portfolio": "robostrategy.co",
+    "bot_press": "nasdaq.com",
+    "botauto": "bot.auto",
+    "brinc": "brincdrones.com",
+    "coco": "cocodelivery.com",
+    "coreweave": "coreweave.com",
+    "daimler_newsroom": "daimlertruck.com",
+    "dematic": "elastic-cloud.com",
+    "detmar_av": "detmarlogistics.com",
+    "dexterity_sc": "dexterity-sc.ai",
+    "diu": "diu.mil",
+    "doordash": "doordash.com",
+    "draganfly": "nasdaq.com",
+    "draganfly_decks": "draganfly.com",
+    "draganfly_wp": "draganfly.com",
+    "droneshield": "droneshield.com",
+    "duos": "duostechnologies.com",
+    "dxyz": "nasdaq.com",
+    "eaglenxt": "eaglenxt.com",
+    "ehang": "ehang.com",
+    "einride": "einride.tech",
+    "electra": "electrabrain.ai",
+    "epirus": "epirusinc.com",
+    "equinix": "equinix.com",
+    "eve": "nasdaq.com",
+    "evlv_nasdaq": "nasdaq.com",
+    "evolv": "evolvtechnology.com",
+    "exol_press": "exol.com",
+    "exotec": "exotec.com",
+    "exyn": "exyn.com",
+    "figure": "figure.ai",
+    "firmus": "firmus.co",
+    "flock": "flocksafety.com",
+    "fort": "fortrobotics.com",
+    "forterra": "forterra.com",
+    "gatik": "gatik.ai",
+    "gecko": "geckorobotics.com",
+    "geekplus": "geekplus.com",
+    "gorilla": "gorilla-technology.com",
+    "gorilla_decks": "b2i.us",
+    "greyorange": "greyorange.com",
+    "grrr_decks": "gorilla-technology.com",
+    "gxo_humanoid": "nasdaq.com",
+    "havoc": "medium.com",
+    "heo": "heospace.com",
+    "iceye": "iceye.com",
+    "index_nasdaq100": "nasdaq.com",
+    "index_spdji": "nasdaq.com",
+    "international": "international.com",
+    "intrinsic": "intrinsic.ai",
+    "joby": "jobyaviation.com",
+    "kdk_events": "kodiak.ai",
+    "kdk_newsroom": "kodiak.ai",
+    "kdk_presentations": "kodiak.ai",
+    "knapp": "knapp.com",
+    "knightscope": "nasdaq.com",
+    "kodiak": "kodiak.ai",
+    "kopin": "kopin.com",
+    "kratos": "kratosdefense.com",
+    "lambda": "lambda.com",
+    "lantronix": "lantronix.com",
+    "larsentoubro": "larsentoubro.com",
+    "leidos_strike": "nasdaq.com",
+    "libertydefense": "nasdaq.com",
+    "locus": "locusrobotics.com",
+    "lucid": "lucidmotors.com",
+    "mach": "machindustries.com",
+    "matternet": "matternet.com",
+    "maymobility_ir": "maymobility.com",
+    "maymobility_news": "maymobility.com",
+    "mbai_b2i": "b2i.us",
+    "mbody": "nasdaq.com",
+    "mbody_decks": "b2i.us",
+    "medline": "nasdaq.com",
+    "meli_robotics": "nasdaq.com",
+    "merlin": "merlinlabs.com",
+    "merlin_news": "merlinlabs.com",
+    "metaplanet": "metaplanet.jp",
+    "mobileye": "mobileye.com",
+    "mobilicom": "mobilicom.com",
+    "motive": "gomotive.com",
+    "motorola": "motorolasolutions.com",
+    "mrln_events": "merlinlabs.com",
+    "mrln_presentations": "merlinlabs.com",
+    "mujin": "mujin-corp.com",
+    "mythos": "mythos-ai.com",
+    "nauticus": "nauticusrobotics.com",
+    "nebius": "nebius.com",
+    "neros": "neros.tech",
+    "neura": "neura-robotics.com",
+    "neutradc": "neutradc.com",
+    "nga": "nga.mil",
+    "nslr": "nasdaq.com",
+    "nuro": "nuro.ai",
+    "ocado": "ocadogroup.com",
+    "ondas": "ondas.com",
+    "ondas_decks": "ondas.com",
+    "opengate": "ceia-usa.com",
+    "overland": "overland.ai",
+    "paccar_nasdaq": "nasdaq.com",
+    "palladyne": "palladyneai.com",
+    "palladyne_wp": "palladyneai.com",
+    "parrot": "parrot.com",
+    "pdw": "pdw.ai",
+    "pdyn_events": "palladyneai.com",
+    "pdyn_presentations": "palladyneai.com",
+    "perennial": "perennialautonomy.com",
+    "pi": "physicalintelligence.company",
+    "pixxel": "pixxel.space",
+    "pl_pulse": "planet.com",
+    "planet": "planet.com",
+    "planet_decks": "planet.com",
+    "plus": "plus.ai",
+    "pony": "pony.ai",
+    "powerus": "power.us",
+    "powerus_decks": "power.us",
+    "powerus_ir": "power.us",
+    "pusa_press": "nasdaq.com",
+    "qumulus": "qumulusai.com",
+    "ratel": "robots.com.ua",
+    "redcat": "redcatholdings.com",
+    "redcat_decks": "redcatholdings.com",
+    "redwire": "rdw.com",
+    "rekor": "rekor.ai",
+    "richtech": "richtechrobotics.com",
+    "robotcom": "robot.com",
+    "rocketlab": "rocketlabcorp.com",
+    "roush": "roush.com",
+    "safepro": "safeprogroup.com",
+    "saildrone": "saildrone.com",
+    "sanctuary": "sanctuary.ai",
+    "saronic": "medium.com",
+    "satellogic": "satellogic.com",
+    "satl_events": "satellogic.com",
+    "satl_presentations": "satellogic.com",
+    "satl_press": "nasdaq.com",
+    "satl_releases": "satellogic.com",
+    "serv_blog": "serverobotics.com",
+    "serv_case_studies": "serverobotics.com",
+    "serv_diligent": "diligentrobots.com",
+    "serv_events": "serverobotics.com",
+    "serve": "serverobotics.com",
+    "sharonai_news": "sharonai.com",
+    "shieldai": "shield.ai",
+    "silvia": "cfosilvia.com",
+    "skild": "skild.ai",
+    "skydio": "skydio.com",
+    "skyryse": "skyryse.com",
+    "spaceeyes": "mckinleyspac.com",
+    "spai_decks": "safeprogroup.com",
+    "spire": "spire.com",
+    "starship": "starship.xyz",
+    "strategy": "contentstack.io",
+    "strive": "strive.com",
+    "strive_decks": "strive.com",
+    "surfair": "surfair.com",
+    "surfair_decks": "surfair.com",
+    "sym_events": "symbotic.com",
+    "sym_presentations": "symbotic.com",
+    "symbotic": "symbotic.com",
+    "symbotic_news": "symbotic.com",
+    "teradyne": "universal-robots.com",
+    "tesla": "nasdaq.com",
+    "tfvector": "tfvector.com",
+    "torc": "torc.ai",
+    "twentyone": "xxi.money",
+    "umac_events": "mziq.com",
+    "umac_presentations": "mziq.com",
+    "unusual_press": "unusualmachines.com",
+    "vatn": "vatn.com",
+    "verkada": "verkada.com",
+    "verkada_updates": "verkada.com",
+    "volatus": "volatusaerospace.com",
+    "volvo": "volvogroup.com",
+    "volvo_autonomous": "volvoautonomoussolutions.com",
+    "waabi": "waabi.ai",
+    "walmart": "walmart.com",
+    "walmart_sym": "walmart.com",
+    "wargov_contracts": "war.gov",
+    "wayve": "wayve.ai",
+    "weride": "weride.ai",
+    "wing": "wing.com",
+    "wrap": "wrap.com",
+    "xtech_announcements": "army.mil",
+    "xtend": "xtend.me",
+    "xtend_jfb": "xtend.me",
+    "xti": "xtiaerospace.com",
+    "xtractone": "xtractone.com",
+    "xtractone_news": "xtractone.com",
+    "xtraf_events": "xtractone.com",
+    "xtraf_presentations": "xtractone.com",
+    "yotta": "yotta.com",
+    "zenatech": "zenatech.com",
+    "zeroeyes": "zeroeyes.com",
+    "zipline": "zipline.com",
+    "zoox": "zoox.com"
+  }
 }

@@ -8,7 +8,9 @@
 // e.g. hourly deck and IR-event feeds, keep that field).
 // Counterparty sources: every source that declares role and affects (any
 // source file), plus the hand-maintained COUNTERPARTY_EXISTING routing for
-// sources that predate those fields.
+// sources that predate those fields, plus the rivals listed in
+// registry/rivals.json. Channels: each source's own registrable domain
+// (buildChannels).
 //
 // Also writes worker/src/aux-sources.json: every other polled company or program
 // source (auxiliary names, graded on their own page) with its entity, display
@@ -27,6 +29,7 @@ import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 import { buildSiteSources } from "./site-sources.mjs";
+import { regDomain, hostOf } from "../worker/src/domain.js";
 
 export const ROLES = ["relationship", "customer", "program", "rival", "index_event"];
 const upper = (t) => String(t ?? "").trim().toUpperCase();
@@ -38,9 +41,20 @@ const tickerList = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.spli
 // unknown key would otherwise be routed to the auxiliary pass by name).
 export const shadowKeys = (sourceList) => new Set(sourceList.filter((s) => s?.shadow === true).map((s) => s.key));
 
+// The host of a source's endpoint (or url), "" when it is not a URL.
+const endpointHost = (s) => {
+  try { return new URL(s?.endpoint || s?.url || "").hostname; } catch { return ""; }
+};
+
 // sources: news-monitor's SOURCES after priority.js ran. existing: { key: { role, affects } }.
+// rivals: registry/rivals.json, { TICKER: [key or { key }, ...] }: sources
+// news-monitor already polls, declared rivals of that ticker here in Zenith
+// (news-monitor's own routing is unchanged). Applied after the other three
+// declarations; a listed key that is not polled, is a covered company's own
+// source, is a shadow source, is a Bing search or already holds another role
+// is skipped with a warning and keeps its old entry.
 // Returns { tickers, sources, counterparty, warnings }.
-export function buildCovered(sourceList, { counterpartySources = [], existing = {} } = {}) {
+export function buildCovered(sourceList, { counterpartySources = [], existing = {}, rivals = {} } = {}) {
   const warnings = [];
   const shadow = shadowKeys(sourceList);
   for (const key of shadow) warnings.push(`${key}: shadow source (shadow: true), left out of covered.json and excluded in aux-sources.json`);
@@ -69,6 +83,21 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
   for (const s of sourceList) add(s.key, s.role, s.affects, "source");
   for (const s of counterpartySources) add(s.key, s.role, s.affects, "counterparty-sources");
   for (const [key, v] of Object.entries(existing || {})) add(key, v?.role, v?.affects, "counterparty-existing");
+  const byKey = new Map(sourceList.map((s) => [s.key, s]));
+  for (const [ticker, list] of Object.entries(rivals || {})) {
+    for (const entry of Array.isArray(list) ? list : []) {
+      const key = typeof entry === "string" ? entry : entry?.key;
+      if (!key) continue;
+      const why = shadow.has(key) ? "is a shadow source"
+        : !polled.has(key) ? "is not a polled source"
+        : sources[key] ? "is a covered company's own source"
+        : endpointHost(byKey.get(key)) === "www.bing.com" ? "is a Bing search"
+        : decl.get(key)?.role && decl.get(key).role !== "rival" ? `already has role ${decl.get(key).role}`
+        : null;
+      if (why) { warnings.push(`${key}: registry/rivals.json lists it for ${upper(ticker)} but it ${why}; skipped`); continue; }
+      add(key, "rival", [ticker], "rivals");
+    }
+  }
   const counterparty = {};
   for (const [key, d] of decl) {
     if (shadow.has(key)) continue;                    // warned once above
@@ -205,6 +234,25 @@ export function buildAux(sourceList, covered, peers = []) {
   return { sources, exclude: sortedExclude };
 }
 
+// covered.json channels: each source's own channel, { key: registrable domain
+// of its endpoint host }, so the Worker can tell a company's own page from a
+// copy elsewhere. Left out: filter adapters (third-party feeds filtered for a
+// company), ops sources, probe_* and site_* keys, Bing and Google searches,
+// and sources with no endpoint URL. Keys sorted.
+const SEARCH_DOMAINS = ["bing.com", "google.com"];
+export function buildChannels(sourceList) {
+  const out = {};
+  for (const s of sourceList || []) {
+    const key = s?.key;
+    if (!key || /^(probe|site)_/.test(key)) continue;
+    if (FILTER_ADAPTERS.includes(s.adapter) || OPS_ADAPTERS.includes(s.adapter)) continue;
+    const domain = regDomain(hostOf(s.endpoint || s.url));
+    if (!domain || SEARCH_DOMAINS.includes(domain)) continue;
+    out[key] = domain;
+  }
+  return Object.fromEntries(Object.keys(out).sort().map((k) => [k, out[k]]));
+}
+
 // The FPDS program, or a covered ticker's co-mention search; else null.
 function programName(entity, named, tickers) {
   if (entity === FPDS.entity) return FPDS.name;
@@ -221,12 +269,15 @@ async function main(repo) {
   const cpPath = join(repo, "src", "counterparty-sources.js");
   const { COUNTERPARTY_SOURCES = [], COUNTERPARTY_EXISTING = {} } = existsSync(cpPath)
     ? await import(pathToFileURL(cpPath).href).catch(() => ({})) : {};
-  const { tickers, sources, counterparty, records, warnings } = buildCovered(SOURCES, { counterpartySources: COUNTERPARTY_SOURCES, existing: COUNTERPARTY_EXISTING });
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const rivalsPath = join(root, "registry", "rivals.json");
+  const rivals = existsSync(rivalsPath) ? JSON.parse(readFileSync(rivalsPath, "utf8")) : {};
+  const { tickers, sources, counterparty, records, warnings } = buildCovered(SOURCES, { counterpartySources: COUNTERPARTY_SOURCES, existing: COUNTERPARTY_EXISTING, rivals });
   for (const t of tickers) if (!existsSync(join(root, "rubric", "companies", `${t}.md`))) warnings.push(`${t}: covered but has no rubric/companies/${t}.md sheet`);
   const out = {
-    generated_from: "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js)",
+    generated_from: "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js) and registry/rivals.json",
     tickers, sources, counterparty, records,
+    channels: buildChannels(SOURCES),
   };
   const target = join(root, "worker", "src", "covered.json");
   writeFileSync(target, JSON.stringify(out, null, 2) + "\n");

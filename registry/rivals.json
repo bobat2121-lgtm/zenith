@@ -1,0 +1,41 @@
+{
+  "ASST": [
+    { "key": "metaplanet", "basis": "rubric/peers.json" },
+    { "key": "twentyone", "basis": "rubric/peers.json" }
+  ],
+  "GRRR": [
+    { "key": "coreweave", "basis": "rubric/companies/GRRR.md Competitors & read-through" },
+    { "key": "nebius", "basis": "rubric/companies/GRRR.md Competitors & read-through" }
+  ],
+  "MSTR": [
+    { "key": "bitmine", "basis": "rubric/peers.json" },
+    { "key": "metaplanet", "basis": "rubric/peers.json" },
+    { "key": "twentyone", "basis": "rubric/peers.json" }
+  ],
+  "ONDS": [
+    { "key": "aevex", "basis": "rubric/peers.json" },
+    { "key": "epirus", "basis": "rubric/peers.json" },
+    { "key": "gecko", "basis": "rubric/peers.json" },
+    { "key": "perennial", "basis": "rubric/peers.json" },
+    { "key": "ratel", "basis": "rubric/peers.json" },
+    { "key": "avav", "basis": "rubric/peers.json" },
+    { "key": "droneshield", "basis": "rubric/peers.json" },
+    { "key": "spaceeyes", "basis": "rubric/peers.json" },
+    { "key": "spaceeyes_sec", "basis": "rubric/peers.json spaceeyes" }
+  ],
+  "PUSA": [
+    { "key": "epirus", "basis": "rubric/peers.json" },
+    { "key": "neros", "basis": "rubric/peers.json" },
+    { "key": "perennial", "basis": "rubric/peers.json" },
+    { "key": "avav", "basis": "rubric/peers.json" },
+    { "key": "droneshield", "basis": "rubric/peers.json" }
+  ],
+  "SERV": [
+    { "key": "avride", "basis": "rubric/peers.json" },
+    { "key": "coco", "basis": "rubric/peers.json" },
+    { "key": "robotcom", "basis": "rubric/peers.json" },
+    { "key": "starship", "basis": "rubric/peers.json" },
+    { "key": "nebius", "basis": "rubric/peers.json" }
+  ],
+  "SPAI": []
+}
