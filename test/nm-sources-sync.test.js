@@ -113,3 +113,73 @@ test("new FPDS keys: Coverage owns their seed rows under the key's ticker and ho
   for (const [k, t] of Object.entries(FPDS_KEYS)) assert.deepEqual(cov[k], [t, "customer", "pending", "seed_fresh"], k);
   assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM aux_items WHERE source_key IN (${keys.map(() => "?").join(",")})`, ...keys)[0].n, 0);
 });
+
+// Phase 2 registers (plans Part E §5.2, Z6-Z8): the TxDMV register key, synced
+// from news-monitor by scripts/sync-covered.mjs. The two LDA keys follow in a
+// later sync with news-monitor's LDA adapters. Key names and tickers only;
+// titles, names, dates and counts below are synthetic, in the card format of
+// news-monitor's txdmv_av_report adapter.
+const { MATCH } = await import("../worker/src/rubric.generated.js");
+const { routeCounterparty } = await import("../worker/src/lib.js");
+const { isRegisterSource } = await import("../worker/src/records.js");
+const { default: worker } = await import("../worker/src/index.js");
+const { request } = await import("./helpers/worker-env.js");
+const REGISTER_KEYS = { txdmv_av_authorizations: ["AUR", "KDK"] };
+
+test("the TxDMV register key is a program counterparty and a register record entry, a coverage subject with its tickers (Z7)", () => {
+  for (const [k, affects] of Object.entries(REGISTER_KEYS)) {
+    assert.deepEqual(COVERED.counterparty[k], { role: "program", affects }, `${k} counterparty`);
+    assert.ok(!Object.hasOwn(COVERED.sources, k), `${k} is not a covered own-lane source`);
+    assert.ok(!Object.hasOwn(COVERED.channels, k), `${k} is not a company channel`);
+    assert.deepEqual(AUX.sources[k], { entity: "txdmv_av", name: "Texas DMV AV authorizations", status: "program", lane: "strategic_noncompany",
+      coverage_subject: true, affects, record: true, register: true }, `${k} in aux-sources.json`);
+    assert.ok(!Object.hasOwn(AUX.exclude, k), `${k} is not excluded`);
+    assert.equal(isRecordSource(k), true, `${k} is a record source`);
+    assert.equal(isRegisterSource(k), true, `${k} is a register source`);
+  }
+});
+
+const REPORT = "https://vehicles.example/AV_Program_Report_";
+const KDK_CARD = `[KDK] TxDMV AV authorizations 11/24/2026: "${MATCH.KDK.terms[0]}" 10 -> 12; "Testco Freight LLC" (customer) 4 -> 6; Texas total 100 -> 110`;
+const txdmvRows = (env) => {
+  nm(env, { source_key: "txdmv_av_authorizations", title: `[KDK] TxDMV AV authorizations baseline as of 11/10/2026: "${MATCH.KDK.terms[0]}" 10; Texas total 100`,
+    published: ago(1), url: "https://vehicles.example/AVprogram#baseline-kdk" });
+  nm(env, { source_key: "txdmv_av_authorizations", title: KDK_CARD, published: ago(1, LATER), first_seen: LATER, url: `${REPORT}20261124.pdf#kdk` });
+};
+
+test("TxDMV rows on Coverage: the key's first row is held seed_fresh, a later one is held register under KDK; none is stored on Auxiliary (Z6)", async () => {
+  const env = newEnv();
+  txdmvRows(env);
+  await ingest(env);
+  await ingestAux(env);
+  const rows = env.DB.rows("SELECT ticker, role, state, admit, skip_reason, released_at FROM items WHERE source_key = 'txdmv_av_authorizations' ORDER BY nm_first_seen")
+    .map((x) => [x.ticker, x.role, x.state, x.admit, x.skip_reason, x.released_at]);
+  assert.deepEqual(rows, [["KDK", "program", "pending", "seed_fresh", null, null], ["KDK", "program", "pending", "register", null, null]]);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'txdmv_av_authorizations'")[0].n, 0);
+});
+
+test("a TxDMV row after the key's first row is held 'register': not claimable until releaseHeld runs, and claimable after (Z6)", async () => {
+  const claim = async (e) => (await request(worker, e, "POST", "/v1/queue/claim", { role: "grader", body: { limit: 20 } })).body.items;
+  const env = newEnv();
+  txdmvRows(env);
+  await ingest(env);
+  const [later] = env.DB.rows("SELECT id, state, admit, released_at FROM items WHERE title = ?", KDK_CARD);
+  assert.deepEqual([later.state, later.admit, later.released_at], ["pending", "register", null]);
+  assert.equal((await claim(env)).length, 0, "held: nothing is claimable");
+  await releaseHeld(env);
+  const it = (await claim(env)).find((i) => i.item_id === later.id);
+  assert.ok(it, "claimable once released");
+  assert.deepEqual([it.admit, it.record], ["register", true]);
+});
+
+test("TxDMV cards route to the ticker they are for (Z8): by the company named, else by the leading tag", () => {
+  const tx = COVERED.counterparty.txdmv_av_authorizations;
+  const cards = {
+    KDK: KDK_CARD,
+    AUR: `[AUR] TxDMV AV authorizations 11/24/2026: "${MATCH.AUR.terms[0]}" 20 unchanged; Texas total 100 -> 110`,
+  };
+  for (const [t, title] of Object.entries(cards)) assert.equal(routeCounterparty(title, tx, MATCH)?.ticker, t, title);
+  // A register spelling that no MATCH term covers: the card's tag decides.
+  assert.equal(routeCounterparty(`[KDK] TxDMV AV authorizations 11/24/2026: "Testco Autonomy LLC" 10 -> 12; Texas total 100 -> 110`, tx, MATCH)?.ticker, "KDK");
+  assert.equal(routeCounterparty(`[AUR] TxDMV AV authorizations baseline as of 11/10/2026: "Testco Trucking Inc" 20; Texas total 100`, tx, MATCH)?.ticker, "AUR");
+});

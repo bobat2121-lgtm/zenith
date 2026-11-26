@@ -1062,6 +1062,13 @@
         "PL"
       ]
     },
+    "txdmv_av_authorizations": {
+      "role": "program",
+      "affects": [
+        "AUR",
+        "KDK"
+      ]
+    },
     "grrr_policy": {
       "role": "program",
       "affects": [
