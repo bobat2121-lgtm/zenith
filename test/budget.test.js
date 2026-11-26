@@ -329,6 +329,36 @@ test("vote rows are released before older held rows, still at most 5 per source 
   assert.equal(rel("SELECT COUNT(*) AS n FROM aux_items WHERE admit = 'rescue' AND released_at IS NOT NULL"), 1, "the oldest held row (a rescue) still goes before newer record_late rows");
 });
 
+// Phase 2 (Part E §5.1, PR-EG): register rows sit in the second tier, oldest first; budget.js is unchanged.
+test("Z3 register rows are released in the second tier: after a seed_fresh row, at most 5 a source and 20 a day; an older record_late row goes first", async () => {
+  const env = newEnv();
+  // Six register rows of source B, older than one seed_fresh row of source A, all on one UTC day.
+  const base = utcDayStart(Date.now());
+  const at = (min) => new Date(Date.parse(base) + min * MIN).toISOString();
+  const regs = [];
+  for (let k = 0; k < 6; k++) regs.push(addItem(env, held({ source_key: "reg_src_b", admit: "register", nm_first_seen: at(k) })));
+  const seedA = addItem(env, held({ source_key: "seed_src_a", admit: "seed_fresh", nm_first_seen: at(30) }));
+  const r = await releaseHeld(env, { now: Date.parse(base) + 60 * MIN });
+  assert.ok(env.DB.rows("SELECT released_at FROM items WHERE id = ?", seedA)[0].released_at, "the seed_fresh row is released");
+  const relB = env.DB.rows("SELECT id FROM items WHERE source_key = 'reg_src_b' AND released_at IS NOT NULL").map((x) => x.id).sort((a, b) => a - b);
+  assert.deepEqual(relB, regs.slice(0, 5), "at most 5 of the register source, oldest first");
+  assert.equal(r.released.coverage, 6);
+  assert.ok(r.released.coverage + r.released.aux <= 20);
+  // With room for one row only, the seed_fresh row wins over the older register rows (first tier first).
+  const one = newEnv({ GATE_BUDGET_TOTAL: "1" });
+  for (let k = 0; k < 6; k++) addItem(one, held({ source_key: "reg_src_b", admit: "register", nm_first_seen: at(k) }));
+  const seedOne = addItem(one, held({ source_key: "seed_src_a", admit: "seed_fresh", nm_first_seen: at(30) }));
+  assert.equal((await releaseHeld(one, { now: Date.parse(base) + 60 * MIN })).released.coverage, 1);
+  assert.ok(one.DB.rows("SELECT released_at FROM items WHERE id = ?", seedOne)[0].released_at, "seed_fresh first");
+  // One source, a register row and an older record_late row, room for one: the older goes first (second tier, oldest first).
+  const tie = newEnv({ GATE_BUDGET_PER_SOURCE: "1" });
+  const newer = addItem(tie, held({ source_key: "reg_src_c", admit: "register", nm_first_seen: at(20) }));
+  const older = addItem(tie, held({ source_key: "reg_src_c", admit: "record_late", nm_first_seen: at(5) }));
+  assert.equal((await releaseHeld(tie, { now: Date.parse(base) + 60 * MIN })).released.coverage, 1);
+  assert.ok(tie.DB.rows("SELECT released_at FROM items WHERE id = ?", older)[0].released_at, "the older record_late row");
+  assert.equal(tie.DB.rows("SELECT released_at FROM items WHERE id = ?", newer)[0].released_at, null, "the register row waits");
+});
+
 test("muting a source parks its held rows with admit cleared, so a Left out grade after unmuting is claimable at once, not held again", async () => {
   const env = newEnv();
   const app = (method, path, body) => request(worker, env, method, path, { role: "app", body });
