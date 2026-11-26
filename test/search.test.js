@@ -273,6 +273,41 @@ test("S8: one news-monitor row in both pipelines shows once, by state", async ()
     "coverage", "both skipped");
 });
 
+test("S8b: sort=best keeps the higher-ranked copy of a row graded in both pipelines", async () => {
+  // One news-monitor row graded Reject on coverage and Lead on aux, behind 50 newer
+  // coverage Borderline matches: the Reject copy ranks 51st, so keeping it would
+  // drop the Lead from the results altogether.
+  const d1 = zenithDb();
+  const nm_rowid = 950_001;
+  const at = ago(5 * DAY);
+  const cov = await addCov(d1, { nm_rowid, title: "Sprocket twin", nm_first_seen: at });
+  await gradeCov(d1, cov, { score: 10 });
+  const aux = await addAux(d1, { nm_rowid, title: "Sprocket twin", nm_first_seen: at });
+  await gradeAux(d1, aux, { score: 91 });
+  for (let k = 0; k < 50; k++) await gradeCov(d1, await addCov(d1, { title: `Sprocket note ${k}`, nm_first_seen: ago(k * HOUR + HOUR) }), { score: 50 });
+  const r = await search(d1, { q: "sprocket" });
+  assert.equal(r.results.length, 50);
+  assert.deepEqual([r.results[0].pipeline, r.results[0].item_id, r.results[0].band], ["aux", aux, "lead"], "the Lead copy is kept and ranks first");
+  assert.ok(!r.results.some((x) => x.pipeline === "coverage" && x.item_id === cov), "the Reject copy is dropped");
+
+  // The same pair alone, both ways round: best keeps the higher tier; equal rank goes to coverage.
+  const d2 = zenithDb();
+  const pair = async (rowid, covScore, auxScore) => {
+    const c = await addCov(d2, { nm_rowid: rowid, title: `Cog twin ${rowid}`, nm_first_seen: at });
+    await gradeCov(d2, c, { score: covScore });
+    const a = await addAux(d2, { nm_rowid: rowid, title: `Cog twin ${rowid}`, nm_first_seen: at });
+    await gradeAux(d2, a, { score: auxScore });
+    const best = await search(d2, { q: `twin ${rowid}` });
+    const newest = await search(d2, { q: `twin ${rowid}`, sort: "newest" });
+    assert.equal(best.results.length, 1);
+    assert.equal(newest.results.length, 1);
+    return [best.results[0].pipeline, newest.results[0].pipeline];
+  };
+  assert.deepEqual(await pair(950_002, 10, 91), ["aux", "coverage"], "best keeps the aux Lead; newest is unchanged (graded tie to coverage)");
+  assert.deepEqual(await pair(950_003, 91, 10), ["coverage", "coverage"], "best keeps the coverage Lead");
+  assert.deepEqual(await pair(950_004, 50, 55), ["coverage", "coverage"], "same tier: coverage");
+});
+
 // --- S9 -------------------------------------------------------------------------------------
 test("S9: ranking finds an old Lead behind many newer skipped matches", async () => {
   const d1 = zenithDb();

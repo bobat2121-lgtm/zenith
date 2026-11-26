@@ -356,14 +356,20 @@ const copyRank = (r) => (r.state === "graded" ? 0 : r.state === "skipped" ? 2 : 
 const lc = (s) => String(s ?? "").toLowerCase();
 
 // One news-monitor row stored in both pipelines: keep graded, then waiting or
-// held, then skipped; ties go to coverage. Returns the set of dropped rows.
-function droppedCopies(cov, aux) {
+// held, then skipped; ties go to coverage. Under sort=best, `cmp` (the best
+// order) picks instead, so the higher-ranked copy is kept: a graded Lead copy is
+// never dropped for a graded Reject copy that then falls outside the top 50. The
+// best order ranks by tier first, which already puts graded before waiting or
+// held before skipped, and its last tiebreak puts coverage first.
+// Returns the set of dropped rows.
+function droppedCopies(cov, aux, cmp = null) {
   const byRowid = new Map(cov.map((r) => [r.nm_rowid, r]));
   const dropped = new Set();
   for (const r of aux) {
     const c = byRowid.get(r.nm_rowid);
     if (!c) continue;
-    dropped.add(copyRank(r) < copyRank(c) ? c : r);
+    const auxWins = cmp ? cmp(r, c) < 0 : copyRank(r) < copyRank(c);
+    dropped.add(auxWins ? c : r);
   }
   return dropped;
 }
@@ -400,6 +406,11 @@ function shape(r, q, labels) {
 // Every term in the title, headline or entity: ranked first within a tier.
 const strongHit = (r, terms) => terms.every((t) => [r.title, r.headline, r.entity].some((f) => lc(f).includes(lc(t))));
 
+// The sort=best order: tier, then a strong hit, then newest, then coverage first.
+const bestOrder = (terms) => (x, y) => x.tier - y.tier || (strongHit(y, terms) - strongHit(x, terms))
+  || (x.first_seen < y.first_seen ? 1 : x.first_seen > y.first_seen ? -1 : 0)
+  || (x.pipeline === y.pipeline ? y.item_id - x.item_id : x.pipeline === "coverage" ? -1 : 1);
+
 export async function searchRows(env, params, deps = {}) {
   const d = depsOf(deps);
   const q = parseQuery(params, d);
@@ -420,17 +431,16 @@ export async function searchRows(env, params, deps = {}) {
       fetched[s.pipeline] = (res[k]?.results || []).map((r) => ({ ...r, pipeline: s.pipeline }));
     });
   }
-  const dropped = droppedCopies(fetched.coverage, fetched.aux);
+  const best = q.sort === "best" ? bestOrder(q.terms) : null;
+  const dropped = droppedCopies(fetched.coverage, fetched.aux, best);
   const ran = new Set(stmts.map((s) => s.pipeline));
 
   let shown = [];
   let cursors = null;
   const truncated = { coverage: false, aux: false };
-  if (q.sort === "best") {
+  if (best) {
     const rows = [...fetched.coverage, ...fetched.aux].filter((r) => !dropped.has(r));
-    rows.sort((x, y) => x.tier - y.tier || (strongHit(y, q.terms) - strongHit(x, q.terms))
-      || (x.first_seen < y.first_seen ? 1 : x.first_seen > y.first_seen ? -1 : 0)
-      || (x.pipeline === y.pipeline ? y.item_id - x.item_id : x.pipeline === "coverage" ? -1 : 1));
+    rows.sort(best);
     shown = rows.slice(0, SEARCH_LIMIT);
     truncated.coverage = fetched.coverage.length > SEARCH_LIMIT;
     truncated.aux = fetched.aux.length > SEARCH_LIMIT;
