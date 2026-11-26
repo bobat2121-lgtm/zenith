@@ -507,3 +507,19 @@ test("T21: portal-company.js reaches no Discord, tuning, auxiliary, brief or ind
   assert.match(portal, /^ {2}company: companyView,$/m);
   assert.equal(portalMod.VIEWS.company, view.companyView);
 });
+
+test("the truncation note: Q2e feeds own items and registers; 'newest' only when every cut read is ordered newest first", () => {
+  const note = (name, truncated) => String(view.truncatedNote(name, { truncated }));
+  const NEWEST = "More rows are stored than one read returns; showing the newest.";
+  const SOME = "More rows are stored than one read returns; some are not shown.";
+  for (const name of ["own", "registers", "rivals"]) {
+    assert.ok(note(name, { q2e: true }).includes(SOME), `${name}: q2e`);
+    assert.ok(!note(name, { q2e: true }).includes("newest"), `${name}: q2e is not ordered`);
+    assert.ok(note(name, { q1: true }).includes(NEWEST), `${name}: q1`);
+    assert.ok(note(name, { q1: true, q2e: true }).includes(SOME), `${name}: mixed`);
+  }
+  assert.equal(note("filings", { q2e: true }), "", "Q2e does not feed filings");
+  assert.equal(note("own", {}), "");
+  assert.ok(note("source_health", { q4: true }).includes(SOME));
+  assert.ok(note("key_accounts", { q3: true }).includes(NEWEST));
+});

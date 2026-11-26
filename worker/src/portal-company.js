@@ -31,10 +31,13 @@ export const SECTION_TITLES = {
 };
 const GROUP_LABELS = { own: "own channels", sec: "SEC", registers: "registers", key_accounts: "key accounts", rivals: "rivals" };
 // Which read feeds which section, for the "more stored than one read returns" note.
+// Q2e feeds own items and registers too: a covered-band row about T (company.js step 10).
 const TRUNCATES = {
-  own: ["q1", "q2"], filings: ["q1"], ownership: ["q1"], registers: ["q1", "q2"], series: ["q6"], rivals: ["q1", "q2", "q2e"],
+  own: ["q1", "q2", "q2e"], filings: ["q1"], ownership: ["q1"], registers: ["q1", "q2", "q2e"], series: ["q6"], rivals: ["q1", "q2", "q2e"],
   key_accounts: ["q1", "q2", "q3"], calendar: ["q1"], source_health: ["q4", "q4m"],
 };
+// The reads ordered newest first; a cut on any other read (Q2e, Q4, Q4m, Q6) keeps rows in index order.
+const NEWEST_FIRST = new Set(["q1", "q2", "q3"]);
 const STATUS_TEXT = { ok: "OK", failing: "failing", disabled: "disabled", overdue: "overdue", never: "never polled" };
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -112,9 +115,13 @@ function moreLinks(name, s, ctx) {
   return "";
 }
 
-function truncatedNote(name, data) {
-  const hit = (TRUNCATES[name] || []).some((k) => data.truncated?.[k] === true);
-  return hit ? html`<p class="meta">More rows are stored than one read returns; showing the newest.</p>` : "";
+// Exported for tests.
+export function truncatedNote(name, data) {
+  const hits = (TRUNCATES[name] || []).filter((k) => data.truncated?.[k] === true);
+  if (!hits.length) return "";
+  return hits.every((k) => NEWEST_FIRST.has(k))
+    ? html`<p class="meta">More rows are stored than one read returns; showing the newest.</p>`
+    : html`<p class="meta">More rows are stored than one read returns; some are not shown.</p>`;
 }
 
 function emptyText(name, data, ctx) {
