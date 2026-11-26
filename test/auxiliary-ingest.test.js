@@ -32,6 +32,9 @@ async function offline(run) {
   globalThis.fetch = async () => new Response("offline", { status: 404 });
   try { return await run(); } finally { globalThis.fetch = real; }
 }
+// Phase 3 Part E: a fixed cron time, a Sunday 15:00Z (outside the stored brief's weekday window, not the 00:00 tick),
+// so these tests no longer depend on the wall clock.
+const SUNDAY_15Z = Date.UTC(2026, 0, 4, 15, 0);
 const meta = (db, key) => db.rows("SELECT value FROM meta WHERE key = ?", key)[0]?.value ?? null;
 const atStart = (db, key = "aux_nm_cursor") => db.db.prepare("INSERT INTO meta (key, value) VALUES (?, '0')").run(key);
 
@@ -275,18 +278,18 @@ test("scheduled: the 5-minute cron ingests auxiliary items after coverage ingest
   try {
     await offline(async () => {
       const waits = [];
-      await worker.scheduled({ cron: "0 11,12 * * *", scheduledTime: Date.now() }, env, { waitUntil: (p) => waits.push(p) });
+      await worker.scheduled({ cron: "0 11,12 * * *", scheduledTime: SUNDAY_15Z }, env, { waitUntil: (p) => waits.push(p) });
       await Promise.all(waits);
       assert.equal(meta(db, "aux_nm_cursor"), null, "report crons only send reports");
       order.length = 0;
-      await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: Date.now() }, env, { waitUntil: (p) => waits.push(p) });
+      await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: SUNDAY_15Z }, env, { waitUntil: (p) => waits.push(p) });
       await Promise.all(waits);
     });
   } finally {
     console.log = log;
   }
   // Phase 0 gates: the war.gov digest text and the budget release run right after the auxiliary ingest.
-  assert.deepEqual(order, ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "wargov excerpts", "gate budget", "aux text", "expansion backfill", "sec parties"]);
+  assert.deepEqual(order, ["ingest", "delivery", "enrich", "bill lines", "aux ingest", "wargov excerpts", "gate budget", "aux text", "expansion backfill", "brief store", "sec parties"]);
   assert.deepEqual(db.rows("SELECT title FROM items").map((x) => x.title), ["Red Cat news"]);
   assert.deepEqual(db.rows("SELECT title FROM aux_items").map((x) => x.title), ["Anduril news"]);
 });
@@ -304,7 +307,7 @@ test("scheduled: an auxiliary ingest failure is logged and leaves the coverage i
   try {
     const waits = [];
     await offline(async () => {
-      await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: Date.now() }, { DB: db, NEWS: news, ...TOKENS }, { waitUntil: (p) => waits.push(p) });
+      await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: SUNDAY_15Z }, { DB: db, NEWS: news, ...TOKENS }, { waitUntil: (p) => waits.push(p) });
       await Promise.all(waits);
     });
   } finally {

@@ -503,7 +503,8 @@ test("cron: the pass runs last and logs its result as sec parties", async () => 
   globalThis.fetch = async () => { throw new Error("offline"); };
   try {
     const waits = [];
-    await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: Date.now() }, env, { waitUntil: (p) => waits.push(p) });
+    // Phase 3 Part E: a fixed Sunday 15:00Z, outside the stored brief's window, so the test does not depend on the wall clock.
+    await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: Date.UTC(2026, 0, 4, 15, 0) }, env, { waitUntil: (p) => waits.push(p) });
     await Promise.all(waits);
   } finally {
     console.log = log;
