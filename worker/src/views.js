@@ -173,7 +173,9 @@ const entityOfKey = (aux) => (key) => (own(aux?.sources, key) && aux.sources[key
 
 // Per covered ticker T (or only `ticker`): its coverage rival rows and the aux
 // rows the placement rule puts under T (rel.rivalTickers, the one rivals rule),
-// newest-first or by score. rows: windowRows' { coverage, aux }.
+// newest-first or by score. rows: windowRows' { coverage, aux }. aux: the
+// aux-sources map `rel` was built from (both default to the bundle); a
+// coverage rival card's entity is its source key's entity in it.
 export function competitorsView(rows, rel, { ticker = null, minScore = 0, direction = null, sort = "score", limitPer = 50, aux = AUX } = {}) {
   const order = sort === "newest" ? newestFirst : byScore;
   const dir = DIRECTIONS.includes(direction) ? direction : null;

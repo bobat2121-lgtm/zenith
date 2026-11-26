@@ -129,7 +129,9 @@ const auxRow = (over) => {
 const covRow = (over) => norm({ item_id: ++rowid, nm_rowid: rowid, ticker: "SYN", source_key: "synco", role: null, affects: null, url: "https://news.example.com/c",
   title: "A synthetic story", published: iso(DAY), first_seen: iso(DAY), grade_ticker: over.ticker ?? "SYN", score: 72, band: "digest", rung: null,
   event_type: null, flags: '["reason:material"]', ...over }, "coverage", REL);
-const inCompetitors = (row, t) => ids(section(competitorsView({ coverage: [], aux: [row] }, REL), t).items).includes(row.item_id);
+// Every competitorsView call passes the aux map REL was built from (synAux).
+const compView = (rows, opts = {}) => competitorsView(rows, REL, { aux: synAux, ...opts });
+const inCompetitors = (row, t) => ids(section(compView({ coverage: [], aux: [row] }), t).items).includes(row.item_id);
 const industryIds = (rows, t) => {
   const v = industryView(rows, REL);
   const s = t ? section(v.tickers, t) : v.sector_wide;
@@ -139,7 +141,7 @@ const industryIds = (rows, t) => {
 // --- V1 -----------------------------------------------------------------------------------------
 test("V1: an aux row of a competitor's entity shows with the relation's sign; reads_through places a non-competitor; bad reads_through is []", () => {
   const peer = auxRow({ source_key: "widget_corp" });
-  const v = competitorsView({ coverage: [], aux: [peer] }, REL);
+  const v = compView({ coverage: [], aux: [peer] });
   const card = section(v, "SYN").items.find((r) => r.item_id === peer.item_id);
   assert.ok(card, "a competitor's row is under its ticker");
   assert.equal(card.direction, "-", "the peer note's sign (U+2212 normalised)");
@@ -147,7 +149,7 @@ test("V1: an aux row of a competitor's entity shows with the relation's sign; re
 
   const readThrough = auxRow({ source_key: "other_co", reads_through: reads(["QXZ", "+"]) });
   assert.deepEqual(readThrough.reads, [{ ticker: "QXZ", direction: "+" }]);
-  const v2 = section(competitorsView({ coverage: [], aux: [readThrough] }, REL), "QXZ");
+  const v2 = section(compView({ coverage: [], aux: [readThrough] }), "QXZ");
   assert.deepEqual(ids(v2.items), [readThrough.item_id]);
   assert.equal(v2.items[0].direction, "+", "the grader's sign wins");
 
@@ -174,7 +176,7 @@ test("V2: a kept rival row and its aux twin give one coverage card; key account 
 
   const rows = await load(env);
   assert.ok(!ids(rows.aux).includes(twinA), "the aux copy of a rival row on Coverage is hidden");
-  const syn = section(competitorsView(rows, REL), "SYN");
+  const syn = section(compView(rows), "SYN");
   const cards = syn.items.filter((r) => r.nm_rowid === aRow);
   assert.equal(cards.length, 1);
   assert.equal(cards[0].pipeline, "coverage");
@@ -194,7 +196,7 @@ test("V3: a gate-dropped rival row plus its aux twin graded covered give one aux
   const rows = await load(env);
   assert.deepEqual(ids(rows.coverage), []);
   assert.deepEqual(ids(rows.aux), [twin]);
-  const syn = section(competitorsView(rows, REL), "SYN");
+  const syn = section(compView(rows), "SYN");
   assert.deepEqual(syn.items.map((r) => [r.item_id, r.pipeline]), [[twin, "aux"]]);
 });
 
@@ -299,7 +301,7 @@ test("V8: the placement table through both views, one case per row", () => {
   add("other public company", auxRow({ source_key: "other_co" }), {});
 
   const all = { coverage: [], aux: cases.map((c) => c.row) };
-  const comp = competitorsView(all, REL);
+  const comp = compView(all);
   const ind = industryView(all, REL);
   const indIn = (s) => [...s.groups.flatMap((g) => g.items)].map((r) => r.item_id);
   for (const { name, row, where } of cases) {
@@ -365,7 +367,7 @@ test("V9: low rows, minScore, direction and sort", () => {
   const mid = auxRow({ source_key: "plus_co", score: 60, first_seen: iso(DAY) });
   const lo = auxRow({ source_key: "widget_corp", score: 20, first_seen: iso(2 * DAY) });
   const rows = { coverage: [], aux: [hi, mid, lo] };
-  const syn = (opts) => section(competitorsView(rows, REL, opts), "SYN");
+  const syn = (opts) => section(compView(rows, opts), "SYN");
   assert.deepEqual(ids(syn().items), [hi.item_id, mid.item_id, lo.item_id], "score order");
   assert.deepEqual(syn().items.map((r) => r.low), [false, false, true]);
   assert.deepEqual(ids(syn({ sort: "newest" }).items), [mid.item_id, lo.item_id, hi.item_id]);
@@ -387,7 +389,7 @@ test("V9: low rows, minScore, direction and sort", () => {
 });
 
 test("competitorsView: section header counts and the rivals-only quiet line", () => {
-  const v = competitorsView({ coverage: [], aux: [auxRow({ source_key: "widget_corp" })] }, REL);
+  const v = compView({ coverage: [], aux: [auxRow({ source_key: "widget_corp" })] });
   const syn = section(v, "SYN");
   const comps = REL.competitorsOf("SYN");
   assert.equal(syn.rival_sources, REL.rivalSourceCount("SYN"));
@@ -396,9 +398,30 @@ test("competitorsView: section header counts and the rivals-only quiet line", ()
   assert.ok(!syn.quiet.names.includes("Widget Corp"), "a competitor with a row is not quiet");
   assert.equal(syn.quiet.count, comps.size - 1);
   assert.equal(section(v, "QXZ").rival_sources, 0, "a ticker with no rival source");
-  assert.deepEqual(competitorsView({ coverage: [], aux: [] }, REL, { ticker: "ACM" }).map((s) => s.ticker), ["ACM"]);
-  assert.deepEqual(competitorsView({ coverage: [], aux: [] }, REL, { ticker: "ZZZQ" }), []);
-  assert.deepEqual(competitorsView({ coverage: [], aux: [] }, REL).map((s) => s.ticker), TICKERS);
+  assert.deepEqual(compView({ coverage: [], aux: [] }, { ticker: "ACM" }).map((s) => s.ticker), ["ACM"]);
+  assert.deepEqual(compView({ coverage: [], aux: [] }, { ticker: "ZZZQ" }), []);
+  assert.deepEqual(compView({ coverage: [], aux: [] }).map((s) => s.ticker), TICKERS);
+});
+
+test("competitorsView: a coverage rival card takes its entity from the aux map, the peer sign else '-', and is not quiet", () => {
+  // plus_co reads through SYN with '+'; rival_x is a counterparty rival with no peer sign;
+  // acme_rival_src is a source of the entity acme_rival (a key that is not its entity).
+  const plus = covRow({ role: "rival", source_key: "plus_co", ticker: "SYN", grade_ticker: "SYN" });
+  const rival = covRow({ role: "rival", source_key: "rival_x", ticker: "SYN", grade_ticker: "SYN" });
+  const acme = covRow({ role: "rival", source_key: "acme_rival_src", ticker: "ACM", grade_ticker: "ACM" });
+  const v = compView({ coverage: [plus, rival, acme], aux: [] });
+  const card = (t, row) => section(v, t).items.find((r) => r.item_id === row.item_id);
+  assert.deepEqual([card("SYN", plus).entity_key, card("SYN", plus).direction], ["plus_co", "+"]);
+  assert.deepEqual([card("SYN", rival).entity_key, card("SYN", rival).direction], ["rival_x", "-"]);
+  assert.deepEqual([card("ACM", acme).entity_key, card("ACM", acme).direction], ["acme_rival", "-"]);
+  const quietOf = (t) => section(v, t).quiet;
+  const synComps = REL.competitorsOf("SYN");
+  assert.ok(!quietOf("SYN").names.includes(synComps.get("plus_co").name) && !quietOf("SYN").names.includes(synComps.get("rival_x").name));
+  assert.equal(quietOf("SYN").count, synComps.size - 2);
+  const acmComps = REL.competitorsOf("ACM");
+  assert.ok(acmComps.has("acme_rival"));
+  assert.deepEqual(quietOf("ACM"), { names: [...acmComps].filter(([k]) => k !== "acme_rival").map(([, e]) => e.name), count: acmComps.size - 1 });
+  assert.equal(section(compView({ coverage: [plus], aux: [] }, { direction: "+" }), "SYN").n, 1, "the direction filter reads the coverage card's sign");
 });
 
 // --- V10 ----------------------------------------------------------------------------------------
