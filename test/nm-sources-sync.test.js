@@ -174,12 +174,20 @@ test("a TxDMV row after the key's first row is held 'register': not claimable un
 
 test("TxDMV cards route to the ticker they are for (Z8): by the company named, else by the leading tag", () => {
   const tx = COVERED.counterparty.txdmv_av_authorizations;
-  const cards = {
-    KDK: KDK_CARD,
-    AUR: `[AUR] TxDMV AV authorizations 11/24/2026: "${MATCH.AUR.terms[0]}" 20 unchanged; Texas total 100 -> 110`,
-  };
-  for (const [t, title] of Object.entries(cards)) assert.equal(routeCounterparty(title, tx, MATCH)?.ticker, t, title);
-  // A register spelling that no MATCH term covers: the card's tag decides.
-  assert.equal(routeCounterparty(`[KDK] TxDMV AV authorizations 11/24/2026: "Testco Autonomy LLC" 10 -> 12; Texas total 100 -> 110`, tx, MATCH)?.ticker, "KDK");
-  assert.equal(routeCounterparty(`[AUR] TxDMV AV authorizations baseline as of 11/10/2026: "Testco Trucking Inc" 20; Texas total 100`, tx, MATCH)?.ticker, "AUR");
+  // Each case runs under both orders of affects, so the affects[0] default
+  // never decides it: the name or the tag must.
+  const orders = [tx, { ...tx, affects: [...tx.affects].reverse() }];
+  assert.deepEqual(orders.map((cp) => cp.affects[0]).sort(), ["AUR", "KDK"]);
+  const cases = [
+    ["KDK", KDK_CARD],
+    ["AUR", `[AUR] TxDMV AV authorizations 11/24/2026: "${MATCH.AUR.terms[0]}" 20 unchanged; rival counts changed`],
+    // A register spelling that no MATCH term covers: the card's tag decides.
+    ["KDK", `[KDK] TxDMV AV authorizations 11/24/2026: "Testco Autonomy LLC" 10 -> 12; Texas total 100 -> 110`],
+    ["AUR", `[AUR] TxDMV AV authorizations baseline as of 11/10/2026: "Testco Trucking Inc" 20; Texas total 100`],
+  ];
+  for (const cp of orders) {
+    for (const [t, title] of cases) assert.equal(routeCounterparty(title, cp, MATCH)?.ticker, t, `${title} (affects ${cp.affects})`);
+  }
+  // The company named wins over the tag: an untagged card naming AUR goes to AUR.
+  for (const cp of orders) assert.equal(routeCounterparty(`TxDMV AV authorizations 11/24/2026: "${MATCH.AUR.terms[0]}" 20 -> 21`, cp, MATCH)?.ticker, "AUR");
 });
