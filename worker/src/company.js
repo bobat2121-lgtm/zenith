@@ -366,7 +366,9 @@ export async function companyData(env, ticker, { days = DEFAULT_DAYS, now = Date
         if (affectsOf(r.affects).includes(T)) fill[isRecordSource(r.source_key) ? "registers" : group].lenient = true;
         continue;
       }
-      sec = isRival ? "rivals" : isRecordSource(r.source_key) ? "registers" : "own";
+      // In registers for a record source, else in own items ("about <T>, via <source>"); a row the
+      // rivals rule gives T (a competitor's SEC feed, say) goes to own items, never registers (T25).
+      sec = isRecordSource(r.source_key) && !isRival ? "registers" : "own";
     } else if (isRival) {
       // The one rivals rule (relations.js rivalTickers): a competitor row shows under rivals and only there.
       sec = "rivals";

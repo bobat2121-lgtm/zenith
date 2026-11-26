@@ -245,6 +245,28 @@ test("T3c: a covered-band row shows only on its covered name's page; an ungraded
   void wait;
 });
 
+test("T3f: a covered-band row about this name from a competitor's channel goes to own items, marked about (step 10), not rivals or registers", async () => {
+  let T, key;
+  for (const t of COV.tickers) {
+    key = channelsFor(t).rivals.find((k) => {
+      const s = AUX.sources[k];
+      return s && rel.rivalTickers({ source_key: k, entity_key: s.entity || k, status: s.status ?? null, coverage_subject: s.coverage_subject ? 1 : 0 }, "aux").includes(t);
+    });
+    if (key) { T = t; break; }
+  }
+  assert.ok(T, "a rival aux key the rivals rule places with its ticker");
+  const s = AUX.sources[key];
+  const db = new D1();
+  const a = await addAux(db, { source_key: key, entity_key: s.entity || key, status: s.status ?? null, coverage_subject: s.coverage_subject ? 1 : 0 },
+    { band: "covered", score: 55, covered_ticker: T });
+  const plain = await addAux(db, { source_key: key, entity_key: s.entity || key, status: s.status ?? null, coverage_subject: s.coverage_subject ? 1 : 0 });
+  const d = await data({ DB: db }, T);
+  assert.deepEqual(ids(d.sections.own.rows), [a.id]);
+  assert.equal(d.sections.own.rows[0].about, `about ${T}, via ${key}`);
+  assert.deepEqual(ids(d.sections.rivals.rows), [plain.id], "the same channel's other rows stay under rivals");
+  assert.deepEqual(d.sections.registers.rows, []);
+});
+
 test("T3d: a counterparty key-account twin whose entity is also a competitor stays under key accounts (channel group, not entity)", async () => {
   let T, key;
   for (const t of COV.tickers) {
