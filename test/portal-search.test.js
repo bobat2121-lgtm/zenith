@@ -78,7 +78,7 @@ test("V1: no data and no item read without auth, in session and Access mode", as
     for (const [label, opts] of [
       ["key not in the JWKS", { jwt: await signJwt(OTHER_KEY, goodClaims(now)) }],
       ["wrong aud", { jwt: await signJwt(KEY, goodClaims(now, { aud: ["other-aud"] })) }],
-      ["wrong iss", { jwt: await signJwt(KEY, goodClaims(now, { iss: "https://example-team-other.cloudflareaccess.com" })) }],
+      ["wrong iss", { jwt: await signJwt(KEY, goodClaims(now, { iss: "https://issuer.example.com" })) }],
       ["expired", { jwt: await signJwt(KEY, goodClaims(now, { exp: Math.floor(now / 1000) - 600 })) }],
       ["session cookie, no JWT", { cookie: await sessionCookie(aenv0, now) }],
     ]) {
