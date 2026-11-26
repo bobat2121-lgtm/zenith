@@ -143,7 +143,8 @@ export function roleFor(request, env) {
 //   Access token with no email), "unknown" (a handler called without who: a
 //   wiring bug). via: "token" | "access" | "internal".
 export const AUDIT_ACTIONS = ["label", "source_pref", "left_out_grade", "expansion_approve", "expansion_reject", "expansion_reopen",
-  "expansion_compiled", "requeue", "rescue", "recall_load", "admin_run", "grade_override"];
+  "expansion_compiled", "requeue", "rescue", "recall_load", "admin_run", "grade_override",
+  "golden_load"];
 export const AUDIT_MAX_LIST = 500;
 export const AUDIT_MAX_BYTES = 8192;
 const rayOf = (request) => {

@@ -25,6 +25,10 @@
 //           20 a UTC day, 5 per source, queue guard 60 (budget.js)
 //   dedup : exact-key story copies are stored skipped 'story_dup' at ingest (story.js; secret STORY_DEDUP=off
 //           holds nothing); once a UTC day the 00:00 tick promotes orphaned copies (budget.js storyOrphans)
+//   replay: the golden-set replay (replay.js; phase 2): grader POST /v1/replay/claim, POST /v1/replay/grades
+//           (idle runs only, own caps REPLAY_DAILY 20 and REPLAY_WEEKLY 100; never a live grade);
+//           app GET /v1/replay (counts and a verdict); admin POST /v1/admin/replay {action: arm|abort},
+//           POST /v1/admin/golden (the golden set; expectations live only in zenith-db)
 import COVERED from "./covered.json";
 import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION, INDUSTRY } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
@@ -54,6 +58,8 @@ import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrad
 // Zenith show (phase 0)
 import { newsOps } from "./source-signals.js";
 import { recallRoute, recallLoad } from "./recall.js";
+// Phase 2: the golden-set replay harness (migration 0018).
+import { replayClaim, replaySubmit, replayRoute, adminReplay, goldenLoad } from "./replay.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -103,6 +109,13 @@ const ALLOW = {
   // Zenith show (phase 0): the recall scoreboard (recall.js); the event list is loaded by admin only.
   "GET /v1/recall": ["app", "admin"],
   "POST /v1/admin/recall": ["admin"],
+  // Phase 2: the golden-set replay (replay.js). The grader claims and grades frozen
+  // test items in idle runs; the app sees counts and a verdict only.
+  "POST /v1/replay/claim": ["grader", "admin"],
+  "POST /v1/replay/grades": ["grader", "admin"],
+  "GET /v1/replay": ["app", "admin"],
+  "POST /v1/admin/replay": ["admin"],
+  "POST /v1/admin/golden": ["admin"],
 };
 
 async function readJson(request) {
@@ -681,6 +694,12 @@ export default {
       case "GET /v1/news-ops": return newsOps(env);
       case "GET /v1/recall": return recallRoute(env, url, role);
       case "POST /v1/admin/recall": return recallLoad(env, await readJson(request), who);
+      // Phase 2: the golden-set replay (replay.js).
+      case "POST /v1/replay/claim": return json(await replayClaim(env, await readJson(request)));
+      case "POST /v1/replay/grades": return replaySubmit(env, await readJson(request), role);
+      case "GET /v1/replay": return replayRoute(env, url, role);
+      case "POST /v1/admin/replay": return adminReplay(env, await readJson(request), who);
+      case "POST /v1/admin/golden": return goldenLoad(env, await readJson(request), who);
     }
     return json({ error: "not found" }, 404);
   },

@@ -17,6 +17,8 @@ import { json, nowIso, universeSql, HELD_SQL, LEASE_MINUTES, audit } from "./lib
 import { budgetSettings, releasedToday, heldCounts, utcDayStart, fastPathCounts } from "./budget.js";
 import { isRecordSource } from "./records.js";
 import { storyKeys, storyDedupOn, STORY_WINDOW_DAYS } from "./story.js";
+// Phase 2: the golden-set replay line (replay.js replayOps).
+import { replayOps } from "./replay.js";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -485,5 +487,9 @@ export async function ops(env, { now = Date.now() } = {}) {
       story,
     },
   };
-  return json({ grader, as_of: nowIso(now) });
+  // Phase 2: the golden-set replay, one SELECT on replays_status (at most 2 rows):
+  // {armed: {kind, scope, rubric_version, n_graded, n_items} | null,
+  //  last: {kind, status, finished_at, verdict} | null}; null before migration 0018.
+  const replay = await replayOps(db);
+  return json({ grader, replay, as_of: nowIso(now) });
 }
