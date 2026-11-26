@@ -3,7 +3,7 @@
 // token's reach, feed order, the requeue modes and excerpt retries.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { hookJsonImports, zenithDb, TOKENS, request } from "./helpers/worker-env.js";
 
 hookJsonImports();
@@ -467,11 +467,16 @@ test("grades: a grade without relations gets an empty warnings list and makes no
 });
 
 // Phase 2 (T12b): POST /v1/grades passes the bundled industry_links (INDUSTRY) to
-// normalizeGrade. While INDUSTRY is {} (no sheet declares industry_links) every
-// industry:<id> flag is rejected; with a synthetic INDUSTRY a declared id is
-// accepted up to its ceiling (74 for a core entry, 69 otherwise).
-test("grades: an industry:<id> flag is rejected under the bundled INDUSTRY {} and checked against a synthetic one", async () => {
+// normalizeGrade. The bundled INDUSTRY has no RCAT entry, both while it is {} (before
+// --promote-candidate) and after promotion (the ladder sheets only), so every
+// industry:<id> flag on an RCAT item is rejected; with a synthetic INDUSTRY a declared
+// id is accepted up to its ceiling (74 for a core entry, 69 otherwise). The synthetic
+// map replaces whatever INDUSTRY export the bundle has, and the test checks it did.
+test("grades: an industry:<id> flag is rejected under the bundled INDUSTRY and checked against a synthetic one", async () => {
   const g = (item_id, score, flag) => ({ item_id, score, why: "w", read_source: true, confidence: 0.7, flags: ["reason:material", flag] });
+  const gen = await import("../worker/src/rubric.generated.js");
+  if (existsSync(new URL("../rubric/candidate", import.meta.url))) assert.deepEqual(gen.INDUSTRY, {});
+  assert.equal(Object.hasOwn(gen.INDUSTRY, "RCAT"), false, "the bundled INDUSTRY has no RCAT entry");
   const env = newEnv();
   const id = addItem(env);
   const live = (await request(worker, env, "POST", "/v1/grades", { body: { run_id: "run-i", grades: [g(id, 50, "industry:rules_y")] } })).body;
@@ -479,8 +484,17 @@ test("grades: an industry:<id> flag is rejected under the bundled INDUSTRY {} an
   assert.match(live.rejected[0].error, /unknown industry link rules_y for RCAT \(core\.md section 9A\)/);
 
   const { loadWorker } = await import("./helpers/worker.js");
-  const patched = await loadWorker({ patch: (f, code) => (f === "rubric.generated.js"
-    ? code.replace("export const INDUSTRY = {};", 'export const INDUSTRY = {"RCAT":{"rules_y":{"core":true},"trade_x":{"core":false}}};') : code) });
+  const SYN = 'export const INDUSTRY = {"RCAT":{"rules_y":{"core":true},"trade_x":{"core":false}}};';
+  const INDUSTRY_LINE = /^export const INDUSTRY = [^\r\n]*;/m;
+  let patchedCode = null;
+  const patched = await loadWorker({ patch: (f, code) => {
+    if (f !== "rubric.generated.js") return code;
+    assert.equal(code.match(new RegExp(INDUSTRY_LINE.source, "gm"))?.length, 1, "the bundle has exactly one INDUSTRY export line");
+    patchedCode = code.replace(INDUSTRY_LINE, SYN);
+    return patchedCode;
+  } });
+  assert.ok(patchedCode, "the patch saw rubric.generated.js");
+  assert.equal(patchedCode.match(new RegExp(INDUSTRY_LINE.source, "gm"))[0], SYN, "the synthetic INDUSTRY replaced the bundled one");
   const env2 = newEnv();
   const a = addItem(env2), b = addItem(env2), c = addItem(env2);
   const res = (await request(patched, env2, "POST", "/v1/grades", { body: { run_id: "run-j", grades: [

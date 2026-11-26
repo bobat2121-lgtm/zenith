@@ -619,7 +619,23 @@ test("rubric and GRADER.md: relations are optional, evidence-bound and printed a
     assert.match(s, /evidence/);
     assert.match(s, /`WARN` line/);
   }
-  assert.match(core, /^Version 3\.4, /m);
+  // Version 3.4 added relations. While rubric/candidate/ exists the live core.md is
+  // exactly 3.4 and the candidate states a later version; after --promote-candidate the
+  // live core.md states that later version (read from the file), never 3.4 or earlier.
+  const versionOf = (text) => {
+    const lines = [...text.matchAll(/^Version (\d+)\.(\d+), /gm)];
+    assert.equal(lines.length, 1, "core.md states its version on exactly one line");
+    return [Number(lines[0][1]), Number(lines[0][2])];
+  };
+  const after34 = ([major, minor]) => major > 3 || (major === 3 && minor > 4);
+  const candCore = join(root, "rubric", "candidate", "core.md");
+  if (existsSync(join(root, "rubric", "candidate"))) {
+    assert.match(core, /^Version 3\.4, /m);
+    if (existsSync(candCore)) assert.ok(after34(versionOf(readFileSync(candCore, "utf8"))), "the candidate core.md states a version after 3.4");
+  } else {
+    const live = versionOf(core);
+    assert.ok(after34(live), `the promoted core.md states a version after 3.4 (it states ${live.join(".")})`);
+  }
   assert.match(auxMd, /^Version 1\.4, /m);
   const sec10 = core.slice(core.indexOf("## 10. Output contract"), core.indexOf("## 11."));
   assert.match(sec10, /^- \*\*relations:\*\* optional/m);
