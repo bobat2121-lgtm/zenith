@@ -213,6 +213,16 @@ test("T-6: Coming up lists a sheet entry dated tomorrow; one open makes exactly 
       assert.doesNotMatch(coming, /Outside the universe/);
       assert.match(coming, /<a href="\/p\/brief">Full calendar<\/a>/);
     }
+    // The same four statements when no reject is in range.
+    const clean = sessionEnv();
+    await item(clean, {}, { score: 75 });
+    for (const path of ["/p/today", "/p/today?rejects=1"]) {
+      const spy = spyDb(clean.DB);
+      const r = await open({ ...clean, DB: spy }, path);
+      assert.equal(r.status, 200, path);
+      assert.match(r.text, /No rejects in this range/, path);
+      assert.equal(spy.seen.length, 4, `${path} (no rejects): ${spy.seen.length} statements`);
+    }
   } finally {
     CALENDAR.splice(CALENDAR.indexOf(entry), 2);
   }
