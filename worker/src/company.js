@@ -420,11 +420,16 @@ export async function companyData(env, ticker, { days = DEFAULT_DAYS, now = Date
   if (cal.counted > 0) fill.calendar = { strict: true, strict_no_reject: true, lenient: true };
   else if (cal.lenient > 0) fill.calendar.lenient = true;
 
-  // Order, collapse copies, cut to size.
+  // Order, collapse copies, cut to size. The 24-hour count reads every shown
+  // row before the cut, so it is the same whatever `section` asks for.
   const cap = (name) => (section === name ? SECTION_ROWS_ALL : SECTION_ROWS);
+  const since24 = now - DAY_MS;
+  const newBy = {};
   for (const name of ROW_SECTIONS) {
     const s = sections[name];
     s.shown = s.rows.length;
+    const n = s.rows.filter((r) => !r.on_record && (msOf(r.nm_first_seen) ?? 0) >= since24).length;
+    if (n) newBy[name] = n;
     const sorted = sortRows(s.rows, name === "rivals" || name === "key_accounts");
     const top = collapse(sorted);
     s.total = top.length;
@@ -437,7 +442,7 @@ export async function companyData(env, ticker, { days = DEFAULT_DAYS, now = Date
   sections.calendar.rows = cal.rows.slice(0, cap("calendar"));
 
   // Source health and the "all quiet" line.
-  const quiet = quietLine(T, ch, news, { managedKeys, entitySources, now, sections });
+  const quiet = quietLine(T, ch, news, { managedKeys, entitySources, now, newBy });
   sections.source_health = { rows: quiet.rows, shown: quiet.rows.length, total: quiet.rows.length, left_out: { n: 0, reasons: {} }, filled: false,
     available: news !== null };
   delete quiet.rows;
@@ -483,8 +488,6 @@ export function filledSections(data, rule = "strict") {
   if (!RULES.includes(rule)) throw new RangeError(`filledSections: rule must be one of ${RULES.join(", ")}`);
   return FILL_SECTIONS.filter((name) => data?.sections?.[name]?.fill?.[rule] === true);
 }
-
-const flatRows = (rows) => (rows || []).flatMap((r) => [r, ...(r.copies || [])]);
 
 // --- Rows -------------------------------------------------------------------------------------------
 
@@ -618,18 +621,13 @@ function healthOf(row, managed, now) {
   return "ok";
 }
 
-function quietLine(T, ch, news, { managedKeys, entitySources, now, sections }) {
+// newBy: per row section, the shown rows first seen in the last 24 hours (counted before the display cut).
+function quietLine(T, ch, news, { managedKeys, entitySources, now, newBy }) {
   const groupKeys = {
     own: ch.own, sec: ch.sec, registers: ch.registers, key_accounts: ch.key_accounts,
     rivals: [...new Set([...ch.rivals, ...entitySources, ...managedKeys])],
   };
-  // New in the last 24 hours: shown rows first seen since now - 24 h.
   const since = now - DAY_MS;
-  const newBy = {};
-  for (const name of ROW_SECTIONS) {
-    const n = flatRows(sections[name].rows).filter((r) => !r.on_record && (msOf(r.nm_first_seen) ?? 0) >= since).length;
-    if (n) newBy[name] = n;
-  }
   const new24 = Object.values(newBy).reduce((a, b) => a + b, 0);
   const lead = new24
     ? `New for ${T} in the last 24 hours: ${new24} (${Object.entries(newBy).map(([k, n]) => `${SECTION_LABELS[k]} ${n}`).join(", ")}).`

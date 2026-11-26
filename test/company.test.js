@@ -447,6 +447,25 @@ test("T10: the all-quiet line names every group and every channel that was not c
   }
 });
 
+test("T10: the 24-hour count reads every shown row, not only the rows left after the cut to 8, and does not depend on section", async () => {
+  const db = new D1();
+  const own = channelsFor(SHAPE).own[0];
+  for (let i = 0; i < 12; i++) await graded(db, SHAPE, { source_key: own, title: `New release ${i}`, nm_first_seen: ago((i + 1) / 48) });
+  // Nine older rival rows score above one new low-score rival row, so the new one sorts last and is cut.
+  for (let i = 0; i < 9; i++) await graded(db, SHAPE, { source_key: "test_rival_src", role: "rival", title: `Old rival ${i}`, nm_first_seen: ago(5) }, { score: 80 });
+  const fresh = await graded(db, SHAPE, { source_key: "test_rival_src", role: "rival", title: "New rival", nm_first_seen: ago(2 / 24) }, { score: 45 });
+  const d = await data({ DB: db }, SHAPE);
+  assert.equal(d.sections.own.rows.length, 8);
+  assert.ok(!ids(d.sections.rivals.rows).includes(fresh), "the new rival row is past the cut");
+  assert.equal(d.quiet.new_24h, 13);
+  assert.match(d.quiet.text, new RegExp(`^New for ${SHAPE.replace(".", "\\.")} in the last 24 hours: 13 \\(own 12, rivals 1\\)\\.`));
+  for (const section of ["own", "rivals", "calendar"]) {
+    const s = await data({ DB: db }, SHAPE, { section });
+    assert.equal(s.quiet.new_24h, d.quiet.new_24h, `section=${section}`);
+    assert.equal(s.quiet.text, d.quiet.text, `section=${section}`);
+  }
+});
+
 test("T10b: source errors are redacted and clipped", () => {
   assert.equal(redactError("html 500 https://x.example/a?api_key=SYNTH&page=2"), "html 500 https://x.example/a?api_key=[redacted]&page=2");
   assert.equal(redactError("auth failed: Bearer abc.def"), "auth failed: Bearer [redacted]");
