@@ -245,24 +245,9 @@ export const REASONS = ["material", "primary_source", "new_information", "calend
   "late_repost", "already_covered", "duplicate", "insufficient_evidence", "source_quality", "off_entity", "out_of_scope", "promotional"];
 
 // --- Floors (core.md section 6) -----------------------------------------------
-// Reads the floor table from the bundled core.md, so the API enforces exactly
-// the floors the grader reads: { id: { floor, fixed, undisclosed } }.
-//   fixed:       "75 fixed" (the score is the floor, not a minimum)
-//   undisclosed: the lower floor that applies while the value V is undisclosed
-export function parseFloors(coreMd) {
-  const text = String(coreMd || "").replace(/\r\n/g, "\n");
-  const start = text.search(/^## 6\.[^\n]*floors/im);
-  if (start === -1) return {};
-  const rest = text.slice(start + 1);
-  const end = rest.search(/^## /m);
-  const section = end === -1 ? rest : rest.slice(0, end);
-  const floors = {};
-  for (const m of section.matchAll(/^\|\s*`([a-z0-9_]+)`\s*\|([^\n]*)\|\s*(\d{1,3})\s*(fixed)?\s*\|\s*$/gm)) {
-    const undisclosed = /\((\d{1,3}) while V is undisclosed\)/i.exec(m[2]);
-    floors[m[1]] = { floor: Number(m[3]), fixed: Boolean(m[4]), undisclosed: undisclosed ? Number(undisclosed[1]) : null };
-  }
-  return floors;
-}
+// parseFloors lives in floors.js (no imports), so scripts/build-rubric.mjs can
+// use it to bundle a candidate rubric's floors; re-exported here unchanged.
+export { parseFloors } from "./floors.js";
 
 // Floors never rescue these (core.md section 6), and a late first sighting is
 // capped at 79 instead (section 8), so no floor is enforced for them.

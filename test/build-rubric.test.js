@@ -4,12 +4,13 @@
 // the file both are null (GET /v1/rubric/aux answers 503).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, cpSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadRubric, versionOf } from "../scripts/rubric-hash.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/build-rubric.mjs", import.meta.url));
 const SHEET = "---\nbase_usd: 100000000\ntiny_usd: 100000\nthesis_drivers: [a]\nopen_items: []\nterms: [Symbotic]\n---\n# SYM\n";
@@ -98,3 +99,133 @@ test("COVERED_NAMES: the sheet's name: or, without one, its first terms entry, p
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// --- Phase 2, golden-set replay: the candidate overlay (rubric/candidate/) ---------------------
+// Synthetic rubric only. T1, T1b and T1c of the replay harness.
+const CORE_FLOORS = "# Core rubric\n\n## 6. Event floors\n\n| Floor | When | Score |\n|---|---|---|\n| `calendar` | a dated notice | 75 fixed |\n\n## 7. Next\n";
+const LINK = "industry_links:\n  - {id: rules_y, kind: regulator, area: \"synthetic rules\", actors: \"Agency\", core: true}";
+const SHEET2 = (extra = "", body = "# SYM\n\n## Notes\nPlain text.\n") =>
+  `---\nbase_usd: 100000000\ntiny_usd: 100000\nthesis_drivers: [a]\nopen_items: []\nterms: [Symbotic]\naliases: [SYM Co]${extra ? "\n" + extra : ""}\n---\n${body}`;
+function overlayRoot() {
+  const root = tempRoot();
+  writeFileSync(join(root, "rubric", "core.md"), CORE_FLOORS);
+  writeFileSync(join(root, "rubric", "companies", "SYM.md"), SHEET2());
+  writeFileSync(join(root, "rubric", "key-accounts.json"), JSON.stringify({ SYM: [{ name: "Acme", terms: ["Acme Stores"] }] }));
+  return root;
+}
+const cand = (root, ...p) => join(root, "rubric", "candidate", ...p);
+function putOverlay(root, files) {
+  for (const [rel, text] of Object.entries(files)) {
+    mkdirSync(dirname(cand(root, rel)), { recursive: true });
+    writeFileSync(cand(root, rel), text);
+  }
+}
+const runScript = (root, ...flags) => spawnSync(process.execPath, [SCRIPT, `--root=${root}`, ...flags], { encoding: "utf8" });
+function withRoot(fn) {
+  const root = overlayRoot();
+  try { return fn(root); } finally { rmSync(root, { recursive: true, force: true }); }
+}
+
+test("T1: no overlay gives null CANDIDATE_* and INDUSTRY {}; rubric-hash.mjs gives the generated version, CRLF included", () => withRoot((root) => {
+  const none = build(root);
+  assert.deepEqual([none.CANDIDATE_VERSION, none.CANDIDATE_FLOORS, none.CANDIDATE_INDUSTRY, none.CANDIDATE_SCOPE], [null, null, null, null]);
+  assert.deepEqual(none.INDUSTRY, {});
+  assert.equal(versionOf(loadRubric(root)), none.RUBRIC_VERSION);
+  const crlf = mkdtempSync(join(tmpdir(), "zenith-crlf-"));
+  try {
+    cpSync(root, crlf, { recursive: true });
+    for (const f of ["core.md", "peers.md", join("companies", "SYM.md")]) {
+      const p = join(crlf, "rubric", f);
+      writeFileSync(p, readFileSync(p, "utf8").replace(/\n/g, "\r\n"));
+    }
+    assert.equal(versionOf(loadRubric(crlf)), none.RUBRIC_VERSION, "a CRLF checkout hashes the same");
+  } finally {
+    rmSync(crlf, { recursive: true, force: true });
+  }
+}));
+
+test("T1: the committed rubric.generated.js matches rubric-hash.mjs on the repo's rubric and bundles no candidate", async () => {
+  const gen = await import("../worker/src/rubric.generated.js");
+  assert.equal(versionOf(loadRubric(fileURLToPath(new URL("..", import.meta.url)))), gen.RUBRIC_VERSION);
+  assert.deepEqual(gen.INDUSTRY, {});
+  assert.deepEqual([gen.CANDIDATE_VERSION, gen.CANDIDATE_FLOORS, gen.CANDIDATE_INDUSTRY, gen.CANDIDATE_SCOPE], [null, null, null, null]);
+});
+
+test("T1: an overlay adds CANDIDATE_VERSION and floors, leaves RUBRIC_VERSION alone, and --promote-candidate makes it live", () => withRoot((root) => {
+  const before = build(root);
+  putOverlay(root, { "core.md": CORE_FLOORS.replace("## 7. Next", "## 7. Next\n\nA candidate line.") });
+  assert.equal(runScript(root, "--rebase-candidate").status, 0);
+  const base = JSON.parse(readFileSync(cand(root, "BASE.json"), "utf8"));
+  assert.deepEqual(Object.keys(base.live).sort(), ["companies/SYM.md", "core.md", "key-accounts.json", "peers.md"]);
+  const one = build(root);
+  assert.equal(one.RUBRIC_VERSION, before.RUBRIC_VERSION, "the live version never moves for an overlay");
+  assert.notEqual(one.CANDIDATE_VERSION, one.RUBRIC_VERSION);
+  assert.equal(one.CANDIDATE_VERSION, versionOf(loadRubric(root, { overlay: true })));
+  assert.deepEqual(one.CANDIDATE_FLOORS, { calendar: { floor: 75, fixed: true, undisclosed: null } });
+  assert.deepEqual(one.CANDIDATE_SCOPE, { scope: "full", tickers: [] });
+  assert.equal(one.CORE, CORE_FLOORS, "the candidate text is not bundled");
+  assert.equal(runScript(root, "--strict").status, 0);
+  const promoted = runScript(root, "--promote-candidate", "--strict");
+  assert.equal(promoted.status, 0, promoted.stdout);
+  assert.equal(existsSync(cand(root)), false, "rubric/candidate/ is deleted");
+  const after = build(root);
+  assert.equal(after.RUBRIC_VERSION, one.CANDIDATE_VERSION);
+  assert.equal(after.CANDIDATE_VERSION, null);
+}));
+
+test("T1b: a live edit after BASE.json fails --strict until --rebase-candidate, which re-applies industry_links", () => withRoot((root) => {
+  putOverlay(root, { "companies/SYM.md": SHEET2(LINK) });
+  assert.equal(runScript(root, "--rebase-candidate").status, 0);
+  const one = build(root);
+  assert.equal(runScript(root, "--strict").status, 0);
+  writeFileSync(join(root, "rubric", "companies", "SYM.md"), SHEET2("", "# SYM\n\n## Notes\nPlain text, edited live.\n"));
+  const drift = runScript(root, "--strict");
+  assert.equal(drift.status, 1);
+  assert.match(drift.stdout, /live rubric\/companies\/SYM\.md changed after the overlay was cut/);
+  assert.equal(runScript(root, "--rebase-candidate", "--strict").status, 0);
+  const merged = readFileSync(cand(root, "companies", "SYM.md"), "utf8");
+  assert.match(merged, /edited live/);
+  assert.match(merged, /industry_links:\n  - \{id: rules_y/);
+  assert.notEqual(build(root).CANDIDATE_VERSION, one.CANDIDATE_VERSION);
+  // key-accounts.json is a hash input (MATCH): changing it fails until rebased.
+  writeFileSync(join(root, "rubric", "key-accounts.json"), JSON.stringify({ SYM: [{ name: "Acme", terms: ["Acme Stores", "Acme Depot"] }] }));
+  assert.match(runScript(root, "--strict").stdout, /key-accounts\.json changed after the overlay was cut/);
+  assert.equal(runScript(root, "--rebase-candidate", "--strict").status, 0);
+}));
+
+test("T1b: an undeclared sheet-body change, a stray overlay file and an overlay core.md on a moved live core are refused", () => withRoot((root) => {
+  putOverlay(root, { "companies/SYM.md": SHEET2("", "# SYM\n\n## Notes\nA candidate body line.\n") });
+  assert.equal(runScript(root, "--rebase-candidate").status, 0);
+  const undeclared = runScript(root, "--strict");
+  assert.equal(undeclared.status, 1);
+  assert.match(undeclared.stdout, /SYM: the overlay sheet differs from the live sheet outside industry_links/);
+  assert.equal(runScript(root, "--rebase-candidate", "--declare=SYM=body", "--strict").status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(cand(root, "BASE.json"), "utf8")).declared, { SYM: "body" });
+  putOverlay(root, { "notes.txt": "x" });
+  assert.match(runScript(root, "--strict").stdout, /notes\.txt is not core\.md or companies/);
+  rmSync(cand(root, "notes.txt"));
+  putOverlay(root, { "core.md": CORE_FLOORS + "\nCandidate.\n" });
+  assert.equal(runScript(root, "--rebase-candidate", "--strict").status, 0);
+  writeFileSync(join(root, "rubric", "core.md"), CORE_FLOORS + "\nLive edit.\n");
+  const refused = runScript(root, "--rebase-candidate");
+  assert.equal(refused.status, 1);
+  assert.match(refused.stdout, /an overlay core\.md is never merged automatically/);
+  assert.equal(runScript(root, "--rebase-candidate", "--core-reapplied", "--strict").status, 0);
+}));
+
+test("T1c: CANDIDATE_SCOPE is full for core, sheets for a body or industry_links change, guards for other front matter", () => withRoot((root) => {
+  const scopeOf = (files, ...flags) => {
+    rmSync(cand(root), { recursive: true, force: true });
+    putOverlay(root, files);
+    const r = runScript(root, "--rebase-candidate", "--strict", ...flags);
+    assert.equal(r.status, 0, r.stdout);
+    return build(root).CANDIDATE_SCOPE;
+  };
+  assert.deepEqual(scopeOf({ "core.md": CORE_FLOORS + "\nMore.\n" }), { scope: "full", tickers: [] });
+  assert.deepEqual(scopeOf({ "companies/SYM.md": SHEET2("", "# SYM\n\n## Notes\nChanged.\n") }, "--declare=SYM=body"), { scope: "sheets", tickers: ["SYM"] });
+  assert.deepEqual(scopeOf({ "companies/SYM.md": SHEET2(LINK) }), { scope: "sheets", tickers: ["SYM"] });
+  assert.deepEqual(build(root).CANDIDATE_INDUSTRY, { SYM: { rules_y: { core: true } } });
+  assert.deepEqual(build(root).INDUSTRY, {}, "the live INDUSTRY is untouched by the overlay");
+  assert.deepEqual(scopeOf({ "companies/SYM.md": SHEET2().replace("aliases: [SYM Co]", "aliases: [SYM Co, Sym Inc]") }, "--declare=SYM=front_matter"),
+    { scope: "guards", tickers: ["SYM"] });
+}));
