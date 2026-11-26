@@ -97,14 +97,15 @@ export function rareTicker(raw, tickers = COVERED.tickers) {
 // muted, shown on the aux feed). Then the rarity class keeps register and
 // original rows, the top 50 of each pipeline. Rarity only filters; the order
 // is the score's. muted: tuning.js MUTED_SQL (the portal passes vctx.muted).
-// ticker (a covered ticker, checked here before any statement): coverage rows
-// graded for it, aux rows whose affects or reads_through names it. It is bound,
-// never spliced, and filters in SQL before the scan limit, so other tickers'
-// higher scores cannot cut its rows. Coverage still joins only the primary
-// grade, so a cross-ticker (#T) grade is never a Rare find for T.
+// ticker (one of tickers, by default the covered list; checked here before any
+// statement): coverage rows graded for it, aux rows whose affects or
+// reads_through names it. It is bound, never spliced, and filters in SQL before
+// the scan limit, so other tickers' higher scores cannot cut its rows.
+// Coverage still joins only the primary grade, so a cross-ticker (#T) grade is
+// never a Rare find for T.
 // until: an exclusive upper bound (a custom date range), or null for now.
-export async function rareData(env, { since, until = null, floor, ticker = null, muted, universe = universeSql(COVERED.tickers), now = Date.now() } = {}) {
-  if (ticker !== null && rareTicker(ticker) !== ticker) throw new RangeError("rareData: unknown ticker");
+export async function rareData(env, { since, until = null, floor, ticker = null, tickers = COVERED.tickers, muted, universe = universeSql(tickers), now = Date.now() } = {}) {
+  if (ticker !== null && rareTicker(ticker, tickers) !== ticker) throw new RangeError("rareData: unknown ticker");
   const notMuted = (a) => (muted ? `AND ${a}.source_key NOT IN ${muted}` : "");
   const covBinds = [since, floor];
   let covExtra = "";
