@@ -11,8 +11,22 @@
 // VAPID_PUBLIC_KEY and VAPID_SUBJECT on zenith-core (wrangler.toml); with
 // -c <config> (the separate portal Worker) it also sets the same two public values
 // there, never the private key. It prints only the public key and "done".
-// Each secret put creates a new Worker version. It writes no file.
-// PUSH_ENABLED is set by hand afterwards (npx wrangler secret put PUSH_ENABLED, value 1).
+// It writes no file.
+//
+// Afterwards the owner sets PUSH_ENABLED by hand, value 1, on every Worker the
+// script touched:
+//   npx wrangler secret put PUSH_ENABLED                            (zenith-core)
+//   npx wrangler secret put PUSH_ENABLED -c wrangler.portal.toml    (with -c only)
+// Without PUSH_ENABLED on the portal Worker its pushOn stays false, so its /s/sw.js
+// and push routes stay 404 (spec I13: the switch and the two public values go on
+// both Workers, the private key on zenith-core only).
+//
+// Each secret put (3 here, 5 with -c, plus each PUSH_ENABLED put) creates and deploys
+// a new Worker version, so each one is a Worker-affecting step (spec I9): its own
+// deploy-log row with the version id from `npx wrangler deployments list` (and
+// `-c <config>` for the portal Worker), and check R after the script finishes and
+// after each PUSH_ENABLED put. wrangler prints one line per put naming the secret
+// (never its value); the script stops at the first put that fails.
 import { spawn } from "node:child_process";
 
 const args = process.argv.slice(2);
@@ -23,7 +37,9 @@ const opt = (names) => {
 const subject = opt(["--subject"]);
 const config = opt(["-c", "--config"]);
 if (!subject || !/^https:\/\/[^\s/]+\/$/.test(subject)) {
-  console.error("usage: node ../scripts/vapid-keys.mjs --subject https://<worker host>/ [-c wrangler.portal.toml]");
+  console.error("usage: node ../scripts/vapid-keys.mjs --subject https://<worker host>/ [-c wrangler.portal.toml]\n" +
+    "then: npx wrangler secret put PUSH_ENABLED (value 1), and with -c also npx wrangler secret put PUSH_ENABLED -c <config>.\n" +
+    "Each secret put is its own deploy-log row. Run check R when the script finishes.");
   process.exit(2);
 }
 if (config !== undefined && !/^[\w.-]+\.toml$/.test(config)) {
