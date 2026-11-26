@@ -6,7 +6,7 @@
     "sync:covered": "node scripts/sync-covered.mjs ../news-monitor-repo",
     "build:rubric": "node scripts/build-rubric.mjs",
     "build:calendar": "node scripts/build-calendar.mjs",
-    "test": "node scripts/build-rubric.mjs && node scripts/build-calendar.mjs && node --test",
+    "test": "node scripts/build-rubric.mjs && node scripts/build-calendar.mjs && node scripts/build-relations.mjs && node --test",
     "check:rubric": "node scripts/build-rubric.mjs --strict"
   }
 }
