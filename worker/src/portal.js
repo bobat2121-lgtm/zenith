@@ -18,10 +18,11 @@ import { html, safeReturn, TICKER_RE } from "./portal-html.js";
 import { page, htmlResponse, messagePage, errorPage, newNonce, portalHeaders } from "./portal-shell.js";
 import { staticResponse } from "./portal-static.js";
 import { stub, companiesIndex } from "./portal-stub.js";
+import { todayView } from "./portal-today.js";
 
 // One line per view; each later part replaces its own line (and adds one import).
 export const VIEWS = {
-  today: stub("today"),
+  today: todayView,
   companies: companiesIndex,
   company: stub("company"),
   competitors: stub("competitors"),
