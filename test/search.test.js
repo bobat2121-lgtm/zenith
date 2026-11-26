@@ -455,6 +455,16 @@ test("S14: query plans of the built SQL", () => {
   const src = stmts({ q: "widget", source: "tst_ir" });
   assert.match(planOf(d1, src.coverage), /idx_items_source \(source_key=\?\)/);
   assert.match(planOf(d1, src.aux), /aux_items_source \(source_key=\?\)/);
+  // status=graded under a scope keeps the scope's own index (not aux_items_state over 400 days).
+  for (const sort of ["best", "newest"]) {
+    const eg = planOf(d1, stmts({ q: "widget", entity: "widgetco", status: "graded", sort }).aux);
+    assert.match(eg, /aux_items_entity \(entity_key=\?\)/, `entity graded ${sort}`);
+    assert.doesNotMatch(eg, /aux_items_state/);
+    const sg = stmts({ q: "widget", source: "tst_ir", status: "graded", sort });
+    assert.match(planOf(d1, sg.aux), /aux_items_source \(source_key=\?\)/, `source graded ${sort}`);
+    assert.doesNotMatch(planOf(d1, sg.aux), /aux_items_state/);
+    assert.match(planOf(d1, sg.coverage), /idx_items_source \(source_key=\?\)/, `coverage source graded ${sort}`);
+  }
   for (const keys of [[], ["k1", "k2", "k3"]]) {
     for (const s of Object.values(stmts({ q: "widget" }, keys))) assert.doesNotMatch(s.sql, /source_prefs/);
   }

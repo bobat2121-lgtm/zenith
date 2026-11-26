@@ -235,8 +235,10 @@ function statement(pipeline, q, d, cursor) {
   else if (q.source) where.push(`${a}.source_key = ${pScope}`);
   // status=graded: coverage's idx_items_state has no date column, so the planner
   // would read every graded row ever; the unary + keeps the window index. Aux's
-  // aux_items_state(state, nm_first_seen) is itself windowed, so it may be used.
-  if (q.status === "graded") where.push(cov ? "+i.state = 'graded'" : "a.state = 'graded'");
+  // aux_items_state(state, nm_first_seen) is itself windowed, so an unscoped
+  // (90-day) search may use it; under an entity or source scope the + keeps the
+  // scope's own index instead of every graded aux row in a 400-day window.
+  if (q.status === "graded") where.push(cov || q.entity || q.source ? `+${a}.state = 'graded'` : "a.state = 'graded'");
   if (pCur) where.push(`(${a}.nm_first_seen < ${pCur[0]} OR (${a}.nm_first_seen = ${pCur[0]} AND ${a}.id < ${pCur[1]}))`);
 
   const select = cov
