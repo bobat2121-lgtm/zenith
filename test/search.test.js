@@ -10,6 +10,7 @@ import { NOW, HOUR, DAY, ago, deps, MUTED_FIX, addCov, gradeCov, addAux, gradeAu
 hookJsonImports();
 const { default: worker } = await import("../worker/src/index.js");
 const S = await import("../worker/src/search.js");
+const PH = await import("../worker/src/portal-html.js");
 const { MUTED_SQL, mutedSources } = await import("../worker/src/tuning.js");
 const { default: COVERED } = await import("../worker/src/covered.json");
 
@@ -189,7 +190,16 @@ test("S5: the window: from is in, to is out; long unscoped spans fall back to 30
   assert.equal((await search(d1, { q: "widget", range: "1y" })).range.key, "30d", "1y is over the unscoped maximum");
   assert.equal((await search(d1, { q: "widget", range: "90d" })).range.key, "90d");
   assert.equal((await search(d1, { q: "widget", range: "1y", ticker: "TST" })).range.key, "1y");
-  // A custom deps.parseRange (Part A's, when it lands) is the one used.
+  // The range is Part A's parseRange (portal-html.js): the same keys, labels and window.
+  const partA = (params, maxDays) => PH.parseRange(new URL(`https://x.invalid/?${new URLSearchParams(params)}`), { now: NOW, def: "30d", maxDays });
+  for (const [params, got, maxDays] of [[{ range: "7d" }, r, 90], [{}, def, 90], [long, scoped, 400]]) {
+    const want = partA(params, maxDays);
+    assert.deepEqual([got.range.key, got.range.label, got.range.fromIso, got.range.toIso, got.range.days],
+      [want.key, want.label, want.fromIso, want.toIso, want.days], JSON.stringify(params));
+  }
+  assert.equal(def.range.label, PH.RANGE_PRESETS.find(([k]) => k === "30d")[2], "Part A's preset label");
+  assert.match(scoped.range.label, /2013/, "Part A's custom label (an en dash)");
+  // A custom deps.parseRange overrides it.
   const seen = [];
   const pr = (url, opts) => { seen.push([url.searchParams.get("q"), opts]); return { key: "7d", fromIso: from, toIso: to, label: "x", days: 7 }; };
   await search(d1, { q: "widget", ticker: "TST" }, { parseRange: pr });

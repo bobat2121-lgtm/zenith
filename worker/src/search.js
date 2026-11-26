@@ -32,8 +32,8 @@
 import COVERED from "./covered.json";
 import AUX from "./aux-sources.json";
 import { COVERED_NAMES } from "./rubric.generated.js";
-import { json, nowIso, universeSql } from "./lib.js";
-import { etParts, etToUtc, addDays, fmtDay, DAY_MS } from "./et.js";
+import { json, universeSql } from "./lib.js";
+import { parseRange } from "./portal-html.js";
 
 export const SEARCH_DEFAULT_RANGE = "30d";
 export const SEARCH_MAX_DAYS = 90;
@@ -53,42 +53,6 @@ const SORTS = ["best", "newest"];
 const ENTITY_RE = /^[a-z0-9_]{1,60}$/;
 const SOURCE_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 const CURSOR_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)~(\d{1,9})$/;
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-// --- Date range ------------------------------------------------------------------------------
-// Part A's parseRange(url, { now, def, maxDays }) -> { key, fromIso, toIso, label, days } is the
-// portal's one range parser (portal-html.js, PR-PA2). Until PR-PA2 is on main this module
-// carries the same contract here, and deps.parseRange overrides it; when PR-PA2 merges, this
-// block is replaced by `import { parseRange } from "./portal-html.js"` and nothing else changes.
-const PRESET_DAYS = { "24h": 1, "3d": 3, "7d": 7, "14d": 14, "30d": 30, "90d": 90, "1y": 365 };
-const PRESET_LABEL = { today: "Today", "24h": "Last 24 hours", "3d": "Last 3 days", "7d": "Last 7 days", "14d": "Last 14 days",
-  "30d": "Last 30 days", "90d": "Last 90 days", "1y": "Last year" };
-const validDate = (d) => DATE_RE.test(d || "") && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
-function preset(key, nowMs, maxDays) {
-  if (key === "today") return { key, fromIso: nowIso(etToUtc(etParts(nowMs).date)), toIso: nowIso(nowMs), label: "Today (ET)", days: 1 };
-  const days = PRESET_DAYS[key];
-  if (!days || days > maxDays) return null;
-  return { key, fromIso: nowIso(nowMs - days * DAY_MS), toIso: nowIso(nowMs), label: PRESET_LABEL[key], days };
-}
-function rangeShim(url, { now, def = "today", maxDays = 30 } = {}) {
-  const p = url.searchParams;
-  const nowMs = Number.isFinite(now) ? now : Date.parse(now) || Date.now();
-  const start = p.get("start"), end = p.get("end");
-  if (start || end) {
-    const today = etParts(nowMs).date;
-    if (validDate(start) && validDate(end) && end >= start && end <= today) {
-      const days = Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS) + 1;
-      if (days <= maxDays) {
-        return { key: "custom", fromIso: nowIso(etToUtc(start)), toIso: nowIso(etToUtc(addDays(end, 1))),
-          label: `${fmtDay(start)} to ${fmtDay(end)} (ET)`, days, start, end };
-      }
-    }
-  } else if (p.get("range")) {
-    const r = preset(p.get("range"), nowMs, maxDays);
-    if (r) return r;
-  }
-  return preset(def, nowMs, maxDays) || preset("today", nowMs, maxDays);
-}
 
 // --- Parse -----------------------------------------------------------------------------------
 const depsOf = (deps = {}) => ({
@@ -98,7 +62,7 @@ const depsOf = (deps = {}) => ({
   covered: deps.covered || COVERED,
   muted: deps.muted,
   now: deps.now ?? Date.now(),
-  parseRange: deps.parseRange || rangeShim,
+  parseRange: deps.parseRange || parseRange,
 });
 
 // "quoted phrases" stay whole, the rest splits on whitespace; terms under 2
