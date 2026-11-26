@@ -9,7 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseOwnerMarks, checkOwnerMarks, validMark } from "../scripts/owner-marks.mjs";
+import { parseOwnerMarks, checkOwnerMarks, validMark, parseFlowMap, parseFlowList, parseIndustryLinks, ownerSectionsEqual } from "../scripts/owner-marks.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../scripts/build-rubric.mjs", import.meta.url));
 const COMPANIES = fileURLToPath(new URL("../rubric/companies/", import.meta.url));
@@ -114,4 +114,63 @@ test("parse: blank and comment lines inside the list, duplicates, and junk after
   assert.ok(checkOwnerMarks("## A (owner:2026-11-24)\n", dup).some((p) => /duplicate entry for "A"/.test(p)));
   assert.match(parseOwnerMarks('owner_marks:\n  - {line: "A" junk, mark: "owner:2026-11-24", overrides: "x"}').errors[0], /not a \{line, mark, overrides\} flow map/);
   assert.match(parseOwnerMarks('owner_marks:\n  - {line: "A", mark: "owner:2026-11-24", overrides: "x"}\n  stray text').errors[0], /not a "- \{line, mark, overrides\}" list item/);
+});
+
+// --- Phase 2, golden-set replay: parseFlowList, industry_links and owner-marked sections (T2) ---
+test("T2: parseFlowList returns the same marks as parseOwnerMarks on the existing fixtures", () => {
+  const fm = 'x: 1\nowner_marks:\n  - {line: "Driver lines", mark: "owner:2026-11-24", overrides: "core 1, core 9 and core 4.5"}\n  - {line: \'Other\', mark: "owner:2026-01-02", overrides: "a \\"quoted\\" rule"}\nnext: 2';
+  for (const text of [fm, frontMatterOf(readFileSync(join(COMPANIES, "GRRR.md"), "utf8"))]) {
+    assert.deepEqual(parseFlowList(text, "owner_marks", ["line", "mark", "overrides"]).entries, parseOwnerMarks(text).marks);
+  }
+  assert.equal(parseFlowList("a: 1", "owner_marks", ["line"]), null);
+  assert.equal(typeof parseFlowMap, "function");
+});
+
+test("T2: industry_links core \"true\" (quoted or bare) is true; core: yes and an unknown kind are errors", () => {
+  const ok = parseIndustryLinks('industry_links:\n  - {id: rules_y, kind: regulator, area: "a", actors: "b", core: "true"}\n  - {id: trade_x, kind: policy, area: "a", actors: "b", core: false}');
+  assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.links.map((l) => [l.id, l.core]), [["rules_y", true], ["trade_x", false]]);
+  assert.match(parseIndustryLinks('industry_links:\n  - {id: z, kind: regulator, area: "a", actors: "b", core: yes}').errors[0], /core "yes" must be true or false/);
+  assert.match(parseIndustryLinks('industry_links:\n  - {id: z, kind: lobby, area: "a", actors: "b", core: true}').errors[0], /kind "lobby"/);
+  assert.match(parseIndustryLinks('industry_links:\n  - {id: z, kind: policy, area: "a", core: true}').errors[0], /lacks actors/);
+  assert.equal(parseIndustryLinks("a: 1"), null);
+});
+
+test("T2: a malformed live industry_links entry fails --strict", () => {
+  const root = tempRoot(SHEET('industry_links:\n  - {id: z, kind: regulator, area: "a", actors: "b", core: yes}', ""));
+  try {
+    const r = spawnSync(process.execPath, [SCRIPT, `--root=${root}`, "--strict"], { encoding: "utf8" });
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /WARNING industry_links SYM: industry_links entry z: core "yes"/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("T2: an overlay that changes one character of an owner-marked section, or drops its owner_marks entry, fails --strict", () => {
+  const marks = 'owner_marks:\n  - {line: "Policy read-through", mark: "owner:2026-11-24", overrides: "core 1"}';
+  const body = (policy, after = "Other text.") => `## Policy read-through (owner:2026-11-24)\n${policy}\n\n## Other\n${after}\n`;
+  const live = SHEET(marks, body("Band 75-89 for a synthetic rule."));
+  const root = tempRoot(live);
+  const overlay = (text) => {
+    mkdirSync(join(root, "rubric", "candidate", "companies"), { recursive: true });
+    writeFileSync(join(root, "rubric", "candidate", "companies", "SYM.md"), text);
+    const reb = spawnSync(process.execPath, [SCRIPT, `--root=${root}`, "--rebase-candidate", "--declare=SYM=body"], { encoding: "utf8" });
+    assert.equal(reb.status, 0, reb.stdout);
+    return spawnSync(process.execPath, [SCRIPT, `--root=${root}`, "--strict"], { encoding: "utf8" });
+  };
+  try {
+    const outside = overlay(SHEET(marks, body("Band 75-89 for a synthetic rule.", "Other text, edited.")));
+    assert.equal(outside.status, 0, `text outside the section passes: ${outside.stdout}`);
+    const changed = overlay(SHEET(marks, body("Band 75-88 for a synthetic rule.")));
+    assert.equal(changed.status, 1);
+    assert.match(changed.stdout, /owner-marked section "## Policy read-through \(owner:2026-11-24\)" differs in the candidate/);
+    const dropped = overlay(SHEET("owner_marks: []", body("Band 75-89 for a synthetic rule.").replace(" (owner:2026-11-24)", "")));
+    assert.equal(dropped.status, 1);
+    assert.match(dropped.stdout, /is missing from the candidate/);
+    assert.match(dropped.stdout, /owner_marks entries differ in the candidate/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  assert.deepEqual(ownerSectionsEqual(live, live, frontMatterOf), []);
 });

@@ -19,9 +19,16 @@
 // Headline pass (graded items that have no headline yet; never changes a grade):
 //   node grader/zenith.mjs headlines-claim [limit=40] [days=30] -> .zenith/headlines-claim.json, prints the batch ("NOTHING WAITING" when empty)
 //   node grader/zenith.mjs headlines-submit <headlines.json>    -> posts {kind, item_id, headline, tag} for the current headline claim (safe to resubmit)
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+// Golden-set replay (frozen test items; only in a run where every claim above returned nothing and no rubric was loaded):
+//   node grader/zenith.mjs replay-claim [limit=10]      -> .zenith/replay/{core.md,<TICKER>.md,peers.md,VERSION} from this checkout,
+//                                                          .zenith/replay-claim.json, prints the batch ("NOTHING TO REPLAY (<reason>)" when none)
+//   node grader/zenith.mjs replay-submit <grades.json>  -> posts replay grades for the current replay claim (safe to resubmit)
+// claim, aux-claim, headlines-claim, rubric and aux-rubric record what this run did in .zenith/run-state.json.
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { loadRubric, versionOf, CANDIDATE_DIR } from "../scripts/rubric-hash.mjs";
 
 const API = (process.env.ZENITH_API || "").replace(/\/$/, "");
 const TOKEN = process.env.ZENITH_GRADER_TOKEN || "";
@@ -37,6 +44,11 @@ const HEADLINES_MAX_CLAIM = 60;
 // leaves items past this for the next claim. An older Worker ignores max_chars.
 const COVERAGE_CLAIM_CHARS = 50000;
 const AUX_CLAIM_CHARS = 30000;
+// The checkout this CLI runs from: the replay rubric is built from its rubric/ (no API request).
+const CHECKOUT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const RUN_STATE_FILE = join(OUT, "run-state.json");
+const REPLAY_DIR = join(OUT, "replay");
+const REPLAY_MAX_CLAIM = 10;
 const HEADLINE_REMINDER = "Every grade includes headline and tag: a plain description of what the item highlights, key figures first (at most ~110 characters), and the SEC form exactly as filed or the item type";
 
 function die(msg) { console.error(`zenith: ${msg}`); process.exit(1); }
@@ -56,7 +68,8 @@ function printTrimmed(c, maxChars) {
 if (!API || !TOKEN) die("set ZENITH_API and ZENITH_GRADER_TOKEN");
 
 // allow404: return null on 404 instead of stopping (optional resources).
-async function call(method, path, body, { allow404 = false } = {}) {
+// allow409: return { conflict: true, ...body } on 409 instead of stopping.
+async function call(method, path, body, { allow404 = false, allow409 = false } = {}) {
   let r;
   try {
     r = await fetch(API + path, {
@@ -70,6 +83,7 @@ async function call(method, path, body, { allow404 = false } = {}) {
   const text = await r.text();
   let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
   if (allow404 && r.status === 404) return null;
+  if (allow409 && r.status === 409) return { ...data, conflict: true };
   if (!r.ok) die(`${method} ${path} -> HTTP ${r.status}: ${text.slice(0, 300)}`);
   return data;
 }
@@ -88,6 +102,31 @@ function runId() {
 }
 
 const readText = (file) => (existsSync(file) ? readFileSync(file, "utf8").trim() : "");
+
+// The run-state marker: what this run's claims returned and which rubrics it
+// loaded (and, after a replay claim, replay_claimed). A new run id resets it.
+// replay-claim reads it before any request.
+function readRunState() {
+  try { return JSON.parse(readFileSync(RUN_STATE_FILE, "utf8")); } catch { return null; }
+}
+function markRun(update) {
+  const id = runId();
+  const prev = readRunState();
+  const state = prev && prev.run_id === id ? prev
+    : { run_id: id, coverage_claimed: null, aux_claimed: null, headlines_claimed: null, rubric_loaded: false, aux_rubric_loaded: false };
+  for (const [k, v] of Object.entries(update)) state[k] = typeof v === "number" ? (state[k] || 0) + v : v;
+  writeFileSync(RUN_STATE_FILE, JSON.stringify(state));
+}
+
+// One claimed coverage item (claim and replay-claim print the same block).
+function printItem(i, counterpartySections = "core.md section 9") {
+  console.log(`\n### item_id=${i.item_id} ticker=${i.ticker} source=${i.source_key} first_seen=${i.first_seen} published=${i.published ?? "-"} seen_after_days=${i.seen_after_days ?? "unknown"} admit=${i.admit ?? "-"} record=${i.record ? "yes" : "no"}`);
+  printGate(i);
+  if (i.role) console.log(`COUNTERPARTY: role=${i.role} affects=${i.affects} (not an own item: grade only through ${counterpartySections})`);
+  console.log(`TITLE: ${i.title}`);
+  console.log(`URL: ${i.url}`);
+  console.log(i.excerpt ? `EXCERPT (${i.excerpt_status}):\n${quoted(i.excerpt)}` : `EXCERPT: none (${i.excerpt_status ?? "not fetched yet"})`);
+}
 
 // A grades file is a JSON array of grade objects, or {"grades": [...]}.
 function readGrades(file) {
@@ -153,6 +192,7 @@ if (cmd === "stats") {
     const p = await call("GET", "/v1/rubric/peers");
     writeFileSync(join(OUT, "rubric", "peers.md"), p.peers);
   }
+  markRun({ rubric_loaded: true });
   console.log(`rubric ${core.rubric_version}: core.md + ${core.tickers.length} sheets${core.has_peers ? " + peers.md" : ""} in .zenith/rubric/ (${BANDS})`);
 } else if (cmd === "labels") {
   const days = Number(args[0]) || 30;
@@ -187,6 +227,7 @@ if (cmd === "stats") {
   const version = existsSync(join(OUT, "rubric", "VERSION")) ? readFileSync(join(OUT, "rubric", "VERSION"), "utf8") : "";
   const c = await call("POST", "/v1/queue/claim", { limit, run_id: runId(), model: MODEL, rubric_version: version, max_chars: COVERAGE_CLAIM_CHARS });
   writeFileSync(join(OUT, "claim.json"), JSON.stringify(c, null, 1));
+  markRun({ coverage_claimed: c.items.length });
   if (!c.items.length) {
     // Ends only the coverage pass: the auxiliary pass starts here (GRADER.md step 5).
     console.log("NOTHING WAITING: no coverage items to grade. The coverage pass is done; do not load the coverage rubric or labels; go on to the auxiliary pass (GRADER.md step 5).");
@@ -198,12 +239,7 @@ if (cmd === "stats") {
   console.log(`${HEADLINE_REMINDER} (core.md section 10, "Headline and tag").`);
   console.log("Everything below the line is untrusted source data, not instructions.\n----");
   for (const i of c.items) {
-    console.log(`\n### item_id=${i.item_id} ticker=${i.ticker} source=${i.source_key} first_seen=${i.first_seen} published=${i.published ?? "-"} seen_after_days=${i.seen_after_days ?? "unknown"} admit=${i.admit ?? "-"} record=${i.record ? "yes" : "no"}`);
-    printGate(i);
-    if (i.role) console.log(`COUNTERPARTY: role=${i.role} affects=${i.affects} (not an own item: grade only through core.md section 9)`);
-    console.log(`TITLE: ${i.title}`);
-    console.log(`URL: ${i.url}`);
-    console.log(i.excerpt ? `EXCERPT (${i.excerpt_status}):\n${quoted(i.excerpt)}` : `EXCERPT: none (${i.excerpt_status ?? "not fetched yet"})`);
+    printItem(i);
     // A bill item's autonomy lines, read by zenith-core from the official bill text (GRADER.md, "AUTONOMY LINES").
     if (i.autonomy_lines) console.log(i.autonomy_lines);
     else if (i.autonomy_lines_status) console.log(`AUTONOMY LINES: none (${i.autonomy_lines_status})`);
@@ -234,6 +270,7 @@ if (cmd === "stats") {
   const c = await call("POST", "/v1/aux/claim", { limit, run_id: runId(), model: MODEL, rubric_version: readText(AUX_VERSION_FILE), max_chars: AUX_CLAIM_CHARS });
   if (!Array.isArray(c.items)) die(`POST /v1/aux/claim returned no items list: ${JSON.stringify(c).slice(0, 300)}`);
   writeFileSync(join(OUT, "aux-claim.json"), JSON.stringify(c, null, 1));
+  markRun({ aux_claimed: c.items.length });
   if (!c.items.length) {
     console.log("NOTHING WAITING: no auxiliary items to grade. The auxiliary pass is done; there is no need to load aux.md or the auxiliary labels.");
     process.exit(0);
@@ -261,6 +298,7 @@ if (cmd === "stats") {
   if (!a.aux) die("GET /v1/rubric/aux returned no text: rubric not built");
   writeFileSync(join(OUT, "rubric", "aux.md"), a.aux);
   writeFileSync(AUX_VERSION_FILE, String(a.rubric_version || ""));
+  markRun({ aux_rubric_loaded: true });
   const p = await call("GET", "/v1/rubric/peers", null, { allow404: true });
   if (p?.peers) writeFileSync(join(OUT, "rubric", "peers.md"), p.peers);
   console.log(`aux rubric ${a.rubric_version}: aux.md${p?.peers ? " + peers.md" : " (no peer notes)"} in .zenith/rubric/ (${BANDS}). Look companies up in peers.md with grep; never read it whole.`);
@@ -335,6 +373,7 @@ if (cmd === "stats") {
   const c = await call("POST", "/v1/headlines/claim", { limit, days });
   if (!Array.isArray(c.items)) die(`POST /v1/headlines/claim returned no items list: ${JSON.stringify(c).slice(0, 300)}`);
   writeFileSync(join(OUT, "headlines-claim.json"), JSON.stringify(c, null, 1));
+  markRun({ headlines_claimed: c.items.length });
   if (!c.items.length) {
     console.log("NOTHING WAITING: no graded items need a headline. The headline pass is done.");
     process.exit(0);
@@ -374,8 +413,75 @@ if (cmd === "stats") {
   const missing = (claim.items || []).filter((i) => !done.has(key(i.kind, i.item_id)));
   if (missing.length) console.log(`  NO HEADLINE YET from this claim: ${missing.map((i) => key(i.kind, i.item_id)).join(", ")}`);
   if (rejected.length) process.exitCode = 2;
+} else if (cmd === "replay-claim") {
+  // Local guard first: only in a run whose coverage, auxiliary and headline
+  // claims all returned nothing and that loaded no rubric. No request otherwise.
+  const st = readRunState();
+  if (st && st.run_id === runId() && st.replay_claimed > 0) {
+    console.log("NOTHING TO REPLAY (already replayed this run): one replay claim per run. The replay pass is over.");
+    process.exit(0);
+  }
+  const idle = st && st.run_id === runId() && st.coverage_claimed === 0 && st.aux_claimed === 0 && st.headlines_claimed === 0
+    && !st.rubric_loaded && !st.aux_rubric_loaded;
+  if (!idle) {
+    console.log("NOTHING TO REPLAY (busy run): replay only in a run whose coverage, auxiliary and headline claims all printed NOTHING WAITING and that loaded no rubric. The replay pass is over.");
+    process.exit(0);
+  }
+  const limit = Math.max(1, Math.min(REPLAY_MAX_CLAIM, Math.trunc(Number(args[0])) || REPLAY_MAX_CLAIM));
+  const hasCandidate = existsSync(join(CHECKOUT, "rubric", CANDIDATE_DIR));
+  const local = { live: versionOf(loadRubric(CHECKOUT)), candidate: hasCandidate ? versionOf(loadRubric(CHECKOUT, { overlay: true })) : null };
+  const c = await call("POST", "/v1/replay/claim", { limit, run_id: runId(), model: MODEL, local }, { allow404: true });
+  if (!c) {
+    console.log("NOTHING TO REPLAY (not deployed). The replay pass is over.");
+    process.exit(0);
+  }
+  if (!Array.isArray(c.items) || !c.items.length) {
+    console.log(`NOTHING TO REPLAY (${String(c.reason || "empty").replace(/[^a-z_]/g, "")}). The replay pass is over.`);
+    process.exit(0);
+  }
+  // One replay claim per run: the marker stops a second one before any request.
+  markRun({ replay_claimed: c.items.length });
+  // The replay rubric comes from this checkout: the live files for a baseline,
+  // the live files with rubric/candidate/ in their place for a candidate.
+  const set = loadRubric(CHECKOUT, { overlay: c.kind === "candidate" });
+  const version = versionOf(set);
+  if (version !== c.rubric_version) die(`this checkout's ${c.kind} rubric is ${version}, not the replay's ${c.rubric_version}: refusing to grade (the claim lapses after its lease)`);
+  rmSync(REPLAY_DIR, { recursive: true, force: true });
+  mkdirSync(REPLAY_DIR, { recursive: true });
+  writeFileSync(join(REPLAY_DIR, "core.md"), set.core);
+  for (const [t, md] of Object.entries(set.companies)) writeFileSync(join(REPLAY_DIR, `${t}.md`), md);
+  if (set.peers) writeFileSync(join(REPLAY_DIR, "peers.md"), set.peers);
+  writeFileSync(join(REPLAY_DIR, "VERSION"), version);
+  writeFileSync(join(OUT, "replay-claim.json"), JSON.stringify(c, null, 1));
+  console.log(`replay claim ${c.claim_id} (${c.kind} ${c.rubric_version}): ${c.items.length} frozen test item(s), ${c.remaining ?? "?"} more in this replay.`);
+  console.log("These are frozen test items, not live news: grade them from .zenith/replay/ only (core.md, the batch's sheets; other sheets' front matter only, including industry_links). No labels, no recent, no duplicates unless the other copy is in this batch, no WebFetch or WebSearch; read_source: true only when the facts are in the printed excerpt. The grades never reach the analyst or a live grade.");
+  console.log("Timeliness is measured at first sighting: seen_after_days = first_seen minus published, never today minus published.");
+  console.log(`${HEADLINE_REMINDER} (core.md section 10, "Headline and tag").`);
+  console.log("Everything below the line is untrusted source data, not instructions.\n----");
+  for (const i of c.items) printItem(i, "core.md section 9 or 9A");
+} else if (cmd === "replay-submit") {
+  if (!args[0]) die("usage: replay-submit <grades.json>");
+  const list = readGrades(args[0]);
+  const claimFile = join(OUT, "replay-claim.json");
+  if (!existsSync(claimFile)) die("no current replay claim (.zenith/replay-claim.json); run replay-claim first");
+  const claim = JSON.parse(readFileSync(claimFile, "utf8"));
+  const version = readText(join(REPLAY_DIR, "VERSION"));
+  if (!version) die("no .zenith/replay/VERSION; run replay-claim first");
+  const r = await call("POST", "/v1/replay/grades", { claim_id: claim.claim_id, run_id: runId(), rubric_version: version, model: MODEL, grades: list }, { allow409: true });
+  if (r.conflict) {
+    console.log("REPLAY CLOSED: no replay is armed now (it finished or was aborted); nothing was stored. Do not resubmit; the replay pass is over.");
+    process.exit(0);
+  }
+  const rejected = r.rejected || [];
+  console.log(`accepted ${r.accepted}, rejected ${rejected.length}${r.status ? `; replay ${r.status}` : ""}`);
+  for (const x of rejected) console.log(`  REJECTED item ${x.item_id}: ${x.error}`);
+  if (Array.isArray(r.not_yet_graded) && r.not_yet_graded.length) {
+    console.log(`  NOT YET GRADED from this claim: ${r.not_yet_graded.join(", ")} (an item with a REJECTED grade stays open until a resubmit has none for it, or its lease ends)`);
+  }
+  if (rejected.length) process.exitCode = 2;
 } else {
   console.log("usage: zenith.mjs stats | rubric | labels [days] | recent <TICKER> [days] | claim [limit] | submit <grades.json>");
   console.log("       zenith.mjs aux-claim [limit] | aux-rubric | aux-recent <entity|-> [days] | aux-labels [limit] | aux-submit <grades.json>");
   console.log("       zenith.mjs headlines-claim [limit] [days] | headlines-submit <headlines.json>");
+  console.log("       zenith.mjs replay-claim [limit] | replay-submit <grades.json>");
 }

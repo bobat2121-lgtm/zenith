@@ -25,8 +25,12 @@
 //           20 a UTC day, 5 per source, queue guard 60 (budget.js)
 //   dedup : exact-key story copies are stored skipped 'story_dup' at ingest (story.js; secret STORY_DEDUP=off
 //           holds nothing); once a UTC day the 00:00 tick promotes orphaned copies (budget.js storyOrphans)
+//   replay: the golden-set replay (replay.js; phase 2): grader POST /v1/replay/claim, POST /v1/replay/grades
+//           (idle runs only, own caps REPLAY_DAILY 20 and REPLAY_WEEKLY 100; never a live grade);
+//           app GET /v1/replay (counts and a verdict); admin POST /v1/admin/replay {action: arm|abort},
+//           POST /v1/admin/golden (the golden set; expectations live only in zenith-db)
 import COVERED from "./covered.json";
-import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION } from "./rubric.generated.js";
+import { RUBRIC_VERSION, CORE, COMPANIES, PEERS, AUX_RUBRIC, AUX_RUBRIC_VERSION, INDUSTRY } from "./rubric.generated.js";
 import { ingest } from "./ingest.js";
 import { ingestAux, auxClaim, submitAuxGrades, auxRecent, auxLabels, auxFeed, auxFeedback, auxStats } from "./auxiliary.js";
 import { enrich, refreshSecExcerpts } from "./excerpt.js";
@@ -47,11 +51,15 @@ import { siteChanges, sourceHealth } from "./source-signals.js";
 import { headlineClaim, submitHeadlines } from "./headlines.js";
 import { expansionCandidates, expansionDecide, expansionCompiled, expansionBackfill, upsertAfterGrades, relationSightings } from "./expansion.js";
 import { secParties } from "./sec-parties.js";
-import { billLinesPass, BILL_HOLD_SQL, HOLD_MINUTES, blockText, parseStored } from "./bill-lines.js";
+import { billLinesPass, HOLD_MINUTES, blockText, parseStored } from "./bill-lines.js";
+// Phase 2: the coverage claimable predicate (claimable.js), shared with the golden-set replay.
+import { coverageClaimableSql } from "./claimable.js";
 import { ops, getSourcePrefs, postSourcePrefs, sourceYield, leftOut, leftOutGrade, MUTED_SQL, DEMOTED_SQL, DEMOTE_POINTS } from "./tuning.js";
 // Zenith show (phase 0)
 import { newsOps } from "./source-signals.js";
 import { recallRoute, recallLoad } from "./recall.js";
+// Phase 2: the golden-set replay harness (migration 0018).
+import { replayClaim, replaySubmit, replayRoute, adminReplay, goldenLoad } from "./replay.js";
 
 const ALLOW = {
   "POST /v1/queue/claim": ["grader", "admin"],
@@ -101,6 +109,13 @@ const ALLOW = {
   // Zenith show (phase 0): the recall scoreboard (recall.js); the event list is loaded by admin only.
   "GET /v1/recall": ["app", "admin"],
   "POST /v1/admin/recall": ["admin"],
+  // Phase 2: the golden-set replay (replay.js). The grader claims and grades frozen
+  // test items in idle runs; the app sees counts and a verdict only.
+  "POST /v1/replay/claim": ["grader", "admin"],
+  "POST /v1/replay/grades": ["grader", "admin"],
+  "GET /v1/replay": ["app", "admin"],
+  "POST /v1/admin/replay": ["admin"],
+  "POST /v1/admin/golden": ["admin"],
 };
 
 async function readJson(request) {
@@ -127,9 +142,10 @@ async function claim(env, body) {
   // has finished come first, then newest first. A bill item waits while its
   // autonomy lines are being read, at most HOLD_MINUTES after ingest (bill-lines.js).
   // Phase 0 gates: a held row (admitted, not yet released by budget.js) is never claimed.
+  // Phase 2: the predicate lives in claimable.js (string-identical), shared with the replay's live check.
   await env.DB.prepare(
     `UPDATE items SET state='claimed', claim_id=?1, claimed_until=?2, attempts=attempts+1
-      WHERE id IN (SELECT id FROM items WHERE (state='pending' OR (state='claimed' AND claimed_until < ?3)) AND ${BILL_HOLD_SQL("?5")} AND NOT ${HELD_SQL()}
+      WHERE id IN (SELECT id FROM items WHERE ${coverageClaimableSql("?3", "?5")}
                     ORDER BY (excerpt_status IS NULL), nm_first_seen DESC, id DESC LIMIT ?4)
         AND (state='pending' OR (state='claimed' AND claimed_until < ?3))`,
   ).bind(claimId, until, now, limit, nowIso(Date.now() - HOLD_MINUTES * 60_000)).run();
@@ -218,7 +234,9 @@ async function submitGrades(env, body, role) {
   for (const raw of body.grades) {
     const ref = parseItemRef(raw?.item_id);
     const item = ref ? items.get(ref.id) : undefined;
-    const res = normalizeGrade(raw, item, ref?.alsoTicker || null, COVERED.tickers, FLOORS);
+    // Phase 2: the bundled industry_links (INDUSTRY, {} until the ladder is promoted): any
+    // industry:<id> flag the ticker's sheet does not declare is rejected (core.md section 9A).
+    const res = normalizeGrade(raw, item, ref?.alsoTicker || null, COVERED.tickers, FLOORS, { industry: INDUSTRY });
     if (!res.ok) { rejected.push({ item_id: raw?.item_id ?? null, error: res.error }); continue; }
     const g = res.grade;
     const key = `${item.id}|${g.ticker}`;
@@ -676,6 +694,12 @@ export default {
       case "GET /v1/news-ops": return newsOps(env);
       case "GET /v1/recall": return recallRoute(env, url, role);
       case "POST /v1/admin/recall": return recallLoad(env, await readJson(request), who);
+      // Phase 2: the golden-set replay (replay.js).
+      case "POST /v1/replay/claim": return json(await replayClaim(env, await readJson(request)));
+      case "POST /v1/replay/grades": return replaySubmit(env, await readJson(request), role);
+      case "GET /v1/replay": return replayRoute(env, url, role);
+      case "POST /v1/admin/replay": return adminReplay(env, await readJson(request), who);
+      case "POST /v1/admin/golden": return goldenLoad(env, await readJson(request), who);
     }
     return json({ error: "not found" }, 404);
   },

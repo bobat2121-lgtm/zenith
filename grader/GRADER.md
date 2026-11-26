@@ -22,7 +22,8 @@ the analyst has to fix the environment. Do not retry in a loop.
 
 Steps 1-4 are the coverage pass. Where they say to stop (a claim printed
 `NOTHING WAITING`), only the coverage pass ends: go on to the auxiliary pass (step 5),
-then the headline pass (step 6), and report once, at the end (step 7). A stop condition
+then the headline pass (step 6), then the replay pass (step 7, only in a run with
+nothing else to grade), and report once, at the end (step 8). A stop condition
 above ends the whole run.
 
 1. **Claim first.** `node grader/zenith.mjs claim 20`. If it prints `NOTHING WAITING`,
@@ -211,11 +212,33 @@ above ends the whole run.
      entries and resubmit the same file (at most twice).
    - **At most 2 batches of 40 per run.** Stop when a claim prints `NOTHING WAITING`
      or after the second batch.
-7. **Report.** End with one line: items graded, how many Lead/Digest, the highest
+7. **Replay pass** (frozen test items that check a rubric version; never live news).
+   Start it only when step 1, the auxiliary claim and the headline claim all printed
+   `NOTHING WAITING` in this run and no rubric was loaded in it. Never start it after a
+   stop condition.
+   - **Claim once per run.** `node grader/zenith.mjs replay-claim 10`. If it prints
+     `NOTHING TO REPLAY` (with a reason such as `busy run`, `none_armed` or
+     `not deployed`), the replay pass is over. Never claim a second replay batch in
+     the same run.
+   - **Load from the replay folder only.** Read `.zenith/replay/core.md` in full, and
+     `.zenith/replay/<TICKER>.md` for each ticker in the batch. For other sheets read
+     only their front matter, as in step 4, including `industry_links`. The CLI wrote
+     these files from this checkout; never use `.zenith/rubric/` for replay items.
+   - **Grade every item by step 4's rules, except:** no labels; no `recent`, and no
+     duplicates unless the other copy is in the same batch; no WebFetch or WebSearch,
+     and `read_source: true` only when the facts are in the printed excerpt. A
+     COUNTERPARTY item is graded only through core.md section 9 or 9A, as the printout says.
+   - Write `.zenith/replay-grades.json` (the section 10 contract, headline and tag
+     included), then `node grader/zenith.mjs replay-submit .zenith/replay-grades.json`.
+     Fix any REJECTED objects and resubmit the same file, at most twice. If it prints
+     `REPLAY CLOSED`, the replay pass is over.
+   - Replay grades are never shown to the analyst and never change a live grade.
+8. **Report.** End with one line: items graded, how many Lead/Digest, the highest
    item, and anything that looked broken (e.g. many items with no excerpt from one
    source, or sheets flagged `sheet_stale`); then the auxiliary counts: auxiliary
    items graded, how many Lead/Digest, how many `covered_name`, and the highest
-   auxiliary item; then how many headlines the headline pass wrote. When no pass had
+   auxiliary item; then how many headlines the headline pass wrote; then, when the
+   replay pass graded anything, "replay: N graded (<kind> <version>)". When no pass had
    items, report "nothing to grade".
 
 ## Rules

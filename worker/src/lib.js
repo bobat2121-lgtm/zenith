@@ -143,7 +143,8 @@ export function roleFor(request, env) {
 //   Access token with no email), "unknown" (a handler called without who: a
 //   wiring bug). via: "token" | "access" | "internal".
 export const AUDIT_ACTIONS = ["label", "source_pref", "left_out_grade", "expansion_approve", "expansion_reject", "expansion_reopen",
-  "expansion_compiled", "requeue", "rescue", "recall_load", "admin_run", "grade_override"];
+  "expansion_compiled", "requeue", "rescue", "recall_load", "admin_run", "grade_override",
+  "golden_load"];
 export const AUDIT_MAX_LIST = 500;
 export const AUDIT_MAX_BYTES = 8192;
 const rayOf = (request) => {
@@ -245,24 +246,9 @@ export const REASONS = ["material", "primary_source", "new_information", "calend
   "late_repost", "already_covered", "duplicate", "insufficient_evidence", "source_quality", "off_entity", "out_of_scope", "promotional"];
 
 // --- Floors (core.md section 6) -----------------------------------------------
-// Reads the floor table from the bundled core.md, so the API enforces exactly
-// the floors the grader reads: { id: { floor, fixed, undisclosed } }.
-//   fixed:       "75 fixed" (the score is the floor, not a minimum)
-//   undisclosed: the lower floor that applies while the value V is undisclosed
-export function parseFloors(coreMd) {
-  const text = String(coreMd || "").replace(/\r\n/g, "\n");
-  const start = text.search(/^## 6\.[^\n]*floors/im);
-  if (start === -1) return {};
-  const rest = text.slice(start + 1);
-  const end = rest.search(/^## /m);
-  const section = end === -1 ? rest : rest.slice(0, end);
-  const floors = {};
-  for (const m of section.matchAll(/^\|\s*`([a-z0-9_]+)`\s*\|([^\n]*)\|\s*(\d{1,3})\s*(fixed)?\s*\|\s*$/gm)) {
-    const undisclosed = /\((\d{1,3}) while V is undisclosed\)/i.exec(m[2]);
-    floors[m[1]] = { floor: Number(m[3]), fixed: Boolean(m[4]), undisclosed: undisclosed ? Number(undisclosed[1]) : null };
-  }
-  return floors;
-}
+// parseFloors lives in floors.js (no imports), so scripts/build-rubric.mjs can
+// use it to bundle a candidate rubric's floors; re-exported here unchanged.
+export { parseFloors } from "./floors.js";
 
 // Floors never rescue these (core.md section 6), and a late first sighting is
 // capped at 79 instead (section 8), so no floor is enforced for them.
@@ -298,9 +284,17 @@ export const LATE_SIGHTING_DAYS = 21;
 //   alsoTicker: set for "123#TICKER" covered-to-covered grades.
 //   covered:    the covered ticker list.
 //   floors:     parseFloors(core.md); enables floor enforcement.
+//   industry:   (phase 2, optional 6th argument) the bundled industry_links,
+//               {TICKER: {id: {core}}} (rubric.generated.js INDUSTRY, or a
+//               replay's CANDIDATE_INDUSTRY). When given, every industry:<id>
+//               flag must name an entry of the grade's ticker, and the score
+//               is capped at 74 for a core entry, 69 otherwise (core.md 9A).
+//               With {} every industry: flag is rejected. Left out (null):
+//               not checked.
 // item carries id and ticker, and (for the timing, floor and SEC checks) title,
 // excerpt, source_key, url, published and first_seen when known.
-export function normalizeGrade(raw, item, alsoTicker = null, covered = null, floors = null) {
+export const INDUSTRY_CEILING = { core: 74, other: 69 };
+export function normalizeGrade(raw, item, alsoTicker = null, covered = null, floors = null, { industry = null } = {}) {
   if (!raw || typeof raw !== "object") return { ok: false, error: "grade must be an object" };
   if (!item) return { ok: false, error: "unknown item_id" };
   // "<id>#<the item's own ticker>" is the item's primary grade.
@@ -333,6 +327,19 @@ export function normalizeGrade(raw, item, alsoTicker = null, covered = null, flo
   }
   const why = clip(raw.why, 400);
   if (!why) return { ok: false, error: "why is required" };
+  // Phase 2: the industry ladder (core.md section 9A) is enforced against the
+  // bundled industry_links of the grade's ticker.
+  if (industry) {
+    for (const f of flags) {
+      if (!f.startsWith("industry:")) continue;
+      const id = f.slice(9);
+      const links = Object.hasOwn(industry, ticker) ? industry[ticker] : null;
+      const link = links && Object.hasOwn(links, id) ? links[id] : null;
+      if (!link) return { ok: false, error: `unknown industry link ${id} for ${ticker} (core.md section 9A): flag industry:<id> only with an id from ${ticker}'s industry_links` };
+      const cap = link.core ? INDUSTRY_CEILING.core : INDUSTRY_CEILING.other;
+      if (score != null && score > cap) return { ok: false, error: `industry ladder ceiling: industry:${id} for ${ticker} allows at most ${cap} (core.md section 9A); got ${score}` };
+    }
+  }
   const reason = reasons[0].slice(7);
   // Optional headline and tag; a bad one rejects this grade only.
   const head = normalizeHeadline(raw);
