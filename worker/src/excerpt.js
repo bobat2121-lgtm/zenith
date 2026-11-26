@@ -1024,13 +1024,17 @@ export async function secLeaseHeld(env, now) {
 }
 
 // Each item's budget is its text class's visible budget (text-class.js): 2,500
-// for every class unless TEXT_BUDGETS=class.
+// for every class unless TEXT_BUDGETS=class. The row needs source_key and url.
+async function visibleBudgetOf(env) {
+  const { textClass, visibleBudgets } = await import("./text-class.js");
+  const budgets = visibleBudgets(env);
+  return (row) => budgets[textClass(row)];
+}
+
 export async function enrich(env) {
   const now = nowIso();
   const contact = env.CONTACT_EMAIL ? 1 : 0;
-  const { textClass, visibleBudgets } = await import("./text-class.js");
-  const budgets = visibleBudgets(env);
-  const budgetOf = (row) => budgets[textClass(row)];
+  const budgetOf = await visibleBudgetOf(env);
   const pick = (secOnly, limit) => env.DB.prepare(
     `SELECT id, url, title, excerpt_tries, role, excerpt_source, source_key FROM items
       WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
@@ -1085,7 +1089,7 @@ export async function refreshSecExcerpts(env, body = {}, tickers = null) {
     return { remaining: r?.remaining || 0, waiting: r?.waiting || 0 };
   };
   const rows = (await env.DB.prepare(
-    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries ${FROM} WHERE ${scope} AND ${due} ORDER BY i.nm_first_seen DESC LIMIT ?6`,
+    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries, i.source_key ${FROM} WHERE ${scope} AND ${due} ORDER BY i.nm_first_seen DESC LIMIT ?6`,
   ).bind(...binds, limit).all()).results || [];
   if (body.dry_run) return { mode: "sec_excerpts", dry_run: true, ...await counts(), next: rows.map((r) => ({ item_id: r.id, state: r.state, title: r.title })) };
   if (!rows.length) return { mode: "sec_excerpts", cleared: 0, processed: 0, ok: 0, requeued: 0, retry: 0, ...await counts(), items: [] };
@@ -1104,7 +1108,9 @@ export async function refreshSecExcerpts(env, body = {}, tickers = null) {
     ).bind(...ids).run();
     const fresh = (await env.DB.prepare(`SELECT id, excerpt_tries FROM items WHERE id IN (${ph})`).bind(...ids).all()).results || [];
     const tries = new Map(fresh.map((r) => [r.id, r.excerpt_tries]));
-    const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY);
+    // The same class budget as the cron's read, so a refresh never shrinks an excerpt.
+    const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY,
+      undefined, await visibleBudgetOf(env));
     const stmts = [], items = [];
     for (const r of results) {
       stmts.push(resultStatement(env, r, now));

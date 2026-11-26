@@ -152,6 +152,21 @@ test("A20: enrich with TEXT_BUDGETS=class: an issuer page up to 6,000 (cap 6,000
   assert.equal(r.unanchored.excerpt_cap, UNANCHORED_CHARS);
 });
 
+test("the admin filing refresh reads at the same class budget as enrich: 2,500 by default, the record budget with TEXT_BUDGETS=class", async () => {
+  const url = "https://www.sec.gov/Archives/edgar/data/1/000000000000000001/widget-8k.htm";
+  const page = `<html><body><p>FORM 8-K</p><p>Item 8.01 Other Events.</p><p>${body(12_000, 900)}</p><p>SIGNATURES</p></body></html>`;
+  for (const [extra, cap, check] of [[{}, EXCERPT_CHARS, (n) => n <= EXCERPT_CHARS], [{ TEXT_BUDGETS: "class" }, 8000, (n) => n > EXCERPT_CHARS && n <= 8000]]) {
+    const env = { DB: zenithDb(), CONTACT_EMAIL: "ops@example.org", ...extra };
+    const id = addItem(env.DB, { source_key: "edgar_widget", url, title: "Widget Corp: 8-K filed 2030-01-02" });
+    const r = await withFetch((u) => (u === url ? new Response(page, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }) : new Response("nope", { status: 404 })),
+      () => EX.refreshSecExcerpts(env, {}));
+    assert.deepEqual([r.processed, r.ok], [1, 1], JSON.stringify(r));
+    const row = env.DB.rows("SELECT excerpt, excerpt_cap FROM items WHERE id = ?", id)[0];
+    assert.ok(check(row.excerpt.length), `excerpt ${row.excerpt.length}`);
+    assert.equal(row.excerpt_cap, cap);
+  }
+});
+
 // --- Feed ingests (A29) --------------------------------------------------------------------------
 let nmN = 0;
 function nmRow(news, { source_key, url, title, body: text }) {
