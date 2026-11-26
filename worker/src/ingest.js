@@ -15,7 +15,8 @@
 import COVERED from "./covered.json";
 import { MATCH } from "./rubric.generated.js";
 import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, arrivalGate, isSecItem } from "./lib.js";
-import { feedText, pdfLinkIn, isDocumentTitle } from "./excerpt.js";
+import { feedText, pdfLinkIn, isDocumentTitle, EXCERPT_CHARS } from "./excerpt.js";
+import { textClass, visibleBudgets } from "./text-class.js";
 import { mutedSources } from "./tuning.js";
 import { isOfficialRecord, isFpdsSource, isRegisterSource } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
@@ -70,10 +71,12 @@ export async function newsRows(news, from, to) {
 // excerpt_fallback, the excerpt only when the page cannot be read. A covered
 // item whose feed text is only a PDF link, or a document's (deck, letter)
 // title with one, gets the PDF as excerpt_source for enrich to read first.
-export function feedFields(r, route, now) {
+// budget: the excerpt's characters (phase 2: the row's text class budget,
+// 2,500 unless TEXT_BUDGETS=class).
+export function feedFields(r, route, now, { budget = EXCERPT_CHARS } = {}) {
   const none = { excerpt: null, status: null, at: null, source: null, fallback: null };
   if (!r.body || typeof r.body !== "string") return none;
-  const feed = feedText(r.body, r.title);
+  const feed = feedText(r.body, r.title, budget);
   if (feed.full) return { ...none, excerpt: feed.excerpt, status: "feed", at: now };
   const pdf = route.role ? null : pdfLinkIn(r.body);
   return { ...none, fallback: feed.excerpt, source: pdf && (!feed.excerpt || isDocumentTitle(r.title)) ? pdf : null };
@@ -207,6 +210,7 @@ export async function ingest(env) {
   const muted = await mutedSources(db);
   const fastCap = budgetSettings(env).fast_cap;
   const dedupOn = storyDedupOn(env);
+  const budgets = visibleBudgets(env);
   for (let b = 0; b < MAX_BATCHES; b++) {
     // Find the window end first so the cursor can advance past unmatched rows.
     const win = await news.prepare("SELECT MAX(rowid) AS hi, COUNT(*) AS n FROM (SELECT rowid FROM items WHERE rowid > ? ORDER BY rowid LIMIT ?)")
@@ -239,7 +243,7 @@ export async function ingest(env) {
     // Phase 2: exact-key story dedup (story.js). Rows skipped on arrival get
     // no keys and are never held: they keep their own reason.
     const entries = routed.map(({ r, route }) => {
-      const feed = feedFields(r, route, now);
+      const feed = feedFields(r, route, now, { budget: budgets[textClass(r)] });
       return { r, route, feed, scope: route.ticker, has_text: hasFeedText(feed),
         live: !skipOf(r, route, arrivalGate(r, gateContext(r, "coverage", first, park))) };
     });

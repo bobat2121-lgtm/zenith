@@ -24,6 +24,13 @@
 // A bot check served as a page (status 'blocked') is never an excerpt; it is
 // retried once like a 403. Federal Register documents are read from the
 // federalregister.gov API and GPO's govinfo text, not the bot-checked page.
+//
+// Budgets (phase 2): every text builder takes an optional character budget,
+// EXCERPT_CHARS (2,500) by default. enrich sizes each item by its text class
+// (text-class.js) only with TEXT_BUDGETS=class; a page whose article is not
+// found keeps UNANCHORED_CHARS. The shadow aux reader (aux-text.js) uses the
+// same reader at the class budgets. text-class.js reads the source catalogs
+// (JSON), so enrich loads it when it runs and this module imports no JSON.
 import { nowIso, isHttpUrl } from "./lib.js";
 import { pdfText } from "./pdf-text.js";
 
@@ -34,12 +41,13 @@ const SEC_CONCURRENCY = 2;        // in flight at once; secPace() sets the reque
 const MAX_BYTES = 600_000;
 const MAX_TEXT_INPUT = 300_000;   // cap what the HTML-to-text pass ever sees
 export const EXCERPT_CHARS = 2500;
-const LEAD_CHARS = 700;           // the opening kept verbatim before figure sentences
+export const UNANCHORED_CHARS = 2500;  // a page whose article was not found (text-class.js re-exports it)
+export const LEAD_CHARS = 700;          // the opening kept verbatim before figure sentences
 const SEC_BODY_CHARS = 800;       // the filing's own item text when an exhibit follows
-const MIN_BODY_CHARS = 200;
-const MAX_TRIES = 4;
-const FORBIDDEN_TRIES = 2;        // a 403 is tried twice, 20 minutes apart
-const RETRY_MINUTES = [20, 120, 720];
+export const MIN_BODY_CHARS = 200;
+export const MAX_TRIES = 4;
+export const FORBIDDEN_TRIES = 2;       // a 403 is tried twice, 20 minutes apart
+export const RETRY_MINUTES = [20, 120, 720];
 const FEED_FULL_CHARS = 1500;         // shorter feed text may be a summary: fetch the page
 const PDF_MAX_BYTES = 8_000_000;      // the head of a PDF that is read
 const PDF_TAIL_BYTES = 2_000_000;     // and, past the bound, its tail (fonts, page tree)
@@ -257,8 +265,11 @@ export function cutTail(text, minKeep = 300) {
 // headline, else the first occurrence of the title's opening words, else the
 // top of the text. Then keeps the lead and the figures (pickText). The tail
 // is cut only after an anchor: without one the text opens with page chrome,
-// whose menu lines can look like a release's tail.
-export function excerptFrom(text, title, heading = "") {
+// whose menu lines can look like a release's tail. Without an anchor the
+// excerpt is picked from the whole page, so it keeps at most UNANCHORED_CHARS
+// whatever the budget. excerptInfo also says whether it anchored and the cap
+// it applied.
+export function excerptInfo(text, title, heading = "", budget = EXCERPT_CHARS) {
   const anchors = [usableHeading(heading) ? heading : "", title].filter(Boolean);
   let start = -1;
   for (const a of anchors) {
@@ -268,8 +279,11 @@ export function excerptFrom(text, title, heading = "") {
     const m = re.exec(text);
     if (m) { start = m.index; break; }
   }
-  return pickText(start >= 0 ? cutTail(text.slice(start)) : String(text).trim());
+  if (start >= 0) return { excerpt: pickText(cutTail(text.slice(start)), budget, LEAD_CHARS), anchored: true, cap: budget };
+  const cap = Math.min(budget, UNANCHORED_CHARS);
+  return { excerpt: pickText(String(text).trim(), cap, LEAD_CHARS), anchored: false, cap };
 }
+export const excerptFrom = (text, title, heading = "", budget = EXCERPT_CHARS) => excerptInfo(text, title, heading, budget).excerpt;
 
 // --- Feed text ------------------------------------------------------------------
 // A summary that stops short: "[…]", a trailing ellipsis, "Read more", also
@@ -304,11 +318,11 @@ function dropFeedChrome(text, title) {
 // for any item, and the excerpt, if any, is only its fallback. The length is
 // measured before the boilerplate tail is cut, so a short release with its
 // "About" section still counts as full.
-export function feedText(body, title) {
+export function feedText(body, title, budget = EXCERPT_CHARS) {
   const raw = String(body || "").trim().replace(WP_FOOTER_RE, "").trim();
   if (!raw) return { excerpt: null, full: false };
   const text = dropFeedChrome(raw, title).trim();
-  const picked = pickText(cutTail(text));
+  const picked = pickText(cutTail(text), budget);
   const excerpt = picked.length >= MIN_BODY_CHARS ? picked : null;
   const full = Boolean(excerpt) && text.length >= FEED_FULL_CHARS && !TEASER_RE.test(text.slice(-300));
   return { excerpt, full };
@@ -316,8 +330,8 @@ export function feedText(body, title) {
 
 // The excerpt for an item whose feed carried its text, or null when the text
 // is missing, a summary or a teaser (the page is fetched instead).
-export function feedExcerpt(body, title) {
-  const r = feedText(body, title);
+export function feedExcerpt(body, title, budget = EXCERPT_CHARS) {
+  const r = feedText(body, title, budget);
   return r.full ? r.excerpt : null;
 }
 
@@ -343,7 +357,7 @@ const PDF_LEAD_CHARS = 400;
 // Lead and figures of a PDF's pages. Running headers and footers (a line on at
 // least three pages) and noise lines are dropped first; the lead is shorter
 // than a release's, so more of the budget goes to the slides' figures.
-export function pdfExcerpt(pages) {
+export function pdfExcerpt(pages, budget = EXCERPT_CHARS) {
   const list = (pages || []).map((p) => String(p || ""));
   const seen = new Map();
   for (const page of list) {
@@ -365,7 +379,7 @@ export function pdfExcerpt(pages) {
   }
   // The lead is the first page (the cover), at most PDF_LEAD_CHARS.
   const lead = Math.min(PDF_LEAD_CHARS, (kept[0]?.length || 0) + 1);
-  return pickText(kept.join("\n"), EXCERPT_CHARS, lead);
+  return pickText(kept.join("\n"), budget, lead);
 }
 
 // --- SEC filings -------------------------------------------------------------
@@ -487,13 +501,16 @@ export function primaryFromIndex(html, indexUrl) {
 }
 
 // Filing text first (its Item lines say what was filed), then the release.
-export function secExcerpt(bodyText, exhibitText) {
+// The filing's own text gets SEC_BODY_CHARS at the default budget and up to
+// 1,500 at larger ones (19% of the budget); the exhibit gets the rest.
+export const secBodyChars = (budget) => Math.max(SEC_BODY_CHARS, Math.min(1500, Math.round(budget * 0.19)));
+export function secExcerpt(bodyText, exhibitText, budget = EXCERPT_CHARS) {
   const body = secBody(bodyText);
   const ex = cutTail(String(exhibitText || ""));
-  if (ex.length < MIN_BODY_CHARS) return pickText(body);
-  const head = pickText(body, SEC_BODY_CHARS, 400);
+  if (ex.length < MIN_BODY_CHARS) return pickText(body, budget);
+  const head = pickText(body, secBodyChars(budget), 400);
   const label = "EX-99.1: ";
-  return `${head}\n${label}${pickText(ex, EXCERPT_CHARS - head.length - label.length - 1)}`.trim();
+  return `${head}\n${label}${pickText(ex, budget - head.length - label.length - 1)}`.trim();
 }
 
 // --- Block pages -----------------------------------------------------------------
@@ -592,18 +609,18 @@ export function fedregSupplementary(html) {
   }
   return out.filter(Boolean).join("\n");
 }
-export function fedregExcerpt(rec, supplementary = "") {
+export function fedregExcerpt(rec, supplementary = "", budget = EXCERPT_CHARS) {
   const one = (s) => String(s || "").replace(/\s+/g, " ").trim();
   const agencies = [...new Set((Array.isArray(rec?.agencies) ? rec.agencies : []).map((a) => one(a?.name || a?.raw_name)).filter(Boolean))].join("; ");
   const head = [[one(rec?.type), one(rec?.action)].filter(Boolean).join(": "), agencies && `Agency: ${agencies}`, one(rec?.dates) && `Dates: ${one(rec.dates)}`]
     .filter(Boolean).join("\n");
   let out = [head, one(rec?.abstract)].filter(Boolean).join("\n");
-  const room = EXCERPT_CHARS - out.length - 1;
+  const room = budget - out.length - 1;
   if (supplementary && room >= 300) out += `\n${pickText(supplementary, room, Math.min(LEAD_CHARS, room))}`;
-  return out.slice(0, EXCERPT_CHARS).trim();
+  return out.slice(0, budget).trim();
 }
 
-async function fetchFedreg(num) {
+async function fetchFedreg(num, budget = EXCERPT_CHARS) {
   const api = await fetchPage(fedregApiUrl(num), PAGE_UA, { accept: "application/json" });
   if (api.status !== "ok") return { status: api.status };
   let rec;
@@ -611,7 +628,7 @@ async function fetchFedreg(num) {
   if (!rec || typeof rec !== "object") return { status: "skipped_empty" };
   const textUrl = govinfoUrl(rec);
   const doc = textUrl ? await fetchPage(textUrl, PAGE_UA) : null;
-  const excerpt = fedregExcerpt(rec, doc?.status === "ok" ? fedregSupplementary(doc.html) : "");
+  const excerpt = fedregExcerpt(rec, doc?.status === "ok" ? fedregSupplementary(doc.html) : "", budget);
   // Not read from any PDF the feed named: excerpt_source is cleared (the item's URL).
   return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt, source: null, replaceSource: true } : { status: "skipped_empty" };
 }
@@ -642,8 +659,8 @@ function decode(buf, label) {
 }
 
 // A refusal (a 403, or a bot check served as a page): one later retry.
-const REFUSED = (status) => status === "http_403" || status === "blocked";
-const RETRYABLE = (status) => status === "skipped_sec_needs_contact" || status === "http_429" || /^http_5\d\d$/.test(status) || status.startsWith("error");
+export const REFUSED = (status) => status === "http_403" || status === "blocked";
+export const RETRYABLE = (status) => status === "skipped_sec_needs_contact" || status === "http_429" || /^http_5\d\d$/.test(status) || status.startsWith("error");
 const isSecUrl = (u) => /(^|\.)sec\.gov$/i.test(u.hostname);
 
 // sec.gov fair access allows 10 requests a second. Requests to it start at
@@ -784,12 +801,12 @@ async function holdForParse(env, item) {
   } catch { /* the parse goes ahead */ }
 }
 
-async function pdfResult(env, item, doc, source) {
+async function pdfResult(env, item, doc, source, budget = EXCERPT_CHARS) {
   if ((item.excerpt_tries || 0) >= MAX_TRIES) return { status: "pdf_unreadable", source };
   await holdForParse(env, item);
   let read;
   try { read = await parsePdf(doc.pdf); } catch { read = { status: "error", pages: [] }; }
-  const excerpt = read.status === "ok" ? pdfExcerpt(read.pages) : "";
+  const excerpt = read.status === "ok" ? pdfExcerpt(read.pages, budget) : "";
   return excerpt.length >= MIN_BODY_CHARS ? { status: "pdf", excerpt, source } : { status: "pdf_unreadable", source };
 }
 
@@ -826,7 +843,7 @@ const redirectedAway = (finalUrl, url) => {
 // sec.gov asks automated clients for a contact address in the User-Agent.
 export const secUserAgent = (env) => `zenith-core ${env.CONTACT_EMAIL}`;
 
-async function fetchSecExcerpt(env, item) {
+async function fetchSecExcerpt(env, item, budget = EXCERPT_CHARS) {
   const ua = secUserAgent(env);
   let docUrl = item.url;
   let page = await fetchPage(docUrl, ua);
@@ -856,7 +873,7 @@ async function fetchSecExcerpt(env, item) {
     const ex = await fetchPage(exUrl, ua);
     if (ex.status === "ok") exText = htmlToText(ex.html);
   }
-  const excerpt = secExcerpt(text, exText);
+  const excerpt = secExcerpt(text, exText, budget);
   return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
 }
 
@@ -864,31 +881,42 @@ export const PAGE_UA = "zenith-core/1.0 (research feed)";
 
 // ctx.pdfBudget ({ left }) is shared by every fetch of one enrich call.
 // Counterparty items (they carry a role) never have their PDFs read.
+// ctx.budget: the excerpt's character budget (EXCERPT_CHARS by default); a
+// result with an excerpt carries cap, the budget applied (UNANCHORED_CHARS for
+// a page whose article was not found). ctx.noFetch(url): true for a URL that
+// must not be fetched ('skipped_policy', no request).
 export async function fetchExcerpt(env, item, ctx = {}) {
+  const budget = Number.isInteger(ctx.budget) && ctx.budget > 0 ? ctx.budget : EXCERPT_CHARS;
+  const r = await readExcerpt(env, item, ctx, budget);
+  return r.excerpt && r.cap == null ? { ...r, cap: budget } : r;
+}
+
+async function readExcerpt(env, item, ctx, budget) {
   if (!isHttpUrl(item.url)) return { status: "skipped_bad_url" };
+  if (typeof ctx.noFetch === "function" && ctx.noFetch(item.url)) return { status: "skipped_policy" };
   const url = new URL(item.url);
   if (isSecUrl(url)) {
     if (!env.CONTACT_EMAIL) return { status: "skipped_sec_needs_contact" };
-    return fetchSecExcerpt(env, item);
+    return fetchSecExcerpt(env, item, budget);
   }
   const frDoc = fedregDocNumber(item.url);
-  if (frDoc) return fetchFedreg(frDoc);
+  if (frDoc) return fetchFedreg(frDoc, budget);
   const covered = !item.role;
-  const budget = ctx.pdfBudget || { left: PDF_PER_TICK };
+  const pdfBudget = ctx.pdfBudget || { left: PDF_PER_TICK };
   // A PDF the item's feed named (a Q4 presentations feed links the deck). When
   // it cannot be read, the item's own page is read instead; the PDF's failure
   // is the result only when the page gives nothing either.
   let feedPdf = null;
   if (covered && item.excerpt_source && isHttpUrl(item.excerpt_source)) {
-    const doc = await fetchPage(item.excerpt_source, PAGE_UA, { pdf: true, budget });
+    const doc = await fetchPage(item.excerpt_source, PAGE_UA, { pdf: true, budget: pdfBudget });
     if (doc.status === "deferred_pdf") return doc;
     if (doc.status === "ok" && doc.pdf) {
-      const r = await pdfResult(env, item, doc, item.excerpt_source);
+      const r = await pdfResult(env, item, doc, item.excerpt_source, budget);
       if (r.status === "pdf") return r;
       feedPdf = r;
     } else if (doc.status !== "ok") feedPdf = { status: doc.status, source: item.excerpt_source };
   }
-  const page = await pageExcerpt(env, item, url, covered, budget);
+  const page = await pageExcerpt(env, item, url, covered, pdfBudget, budget);
   if (!feedPdf) return page;
   // An excerpt from the page is not read from the feed's PDF: excerpt_source
   // then names the page's own document (NULL = the item's URL).
@@ -901,28 +929,32 @@ export async function fetchExcerpt(env, item, ctx = {}) {
 
 // The item's own page: its text, the PDF it is or redirects to, or the PDF a
 // deck page links.
-async function pageExcerpt(env, item, url, covered, budget) {
-  const page = await fetchPage(excerptUrl(url.toString()), PAGE_UA, { pdf: covered, budget });
+async function pageExcerpt(env, item, url, covered, pdfBudget, budget) {
+  const page = await fetchPage(excerptUrl(url.toString()), PAGE_UA, { pdf: covered, budget: pdfBudget });
   if (page.status !== "ok") return { status: page.status };
-  if (page.pdf) return pdfResult(env, item, page, page.finalUrl !== url.href ? page.finalUrl : null);
+  if (page.pdf) return pdfResult(env, item, page, page.finalUrl !== url.href ? page.finalUrl : null, budget);
   // A deck's page (or the listing it redirects to) that links the deck's PDF.
   if (covered && (DOC_TITLE_RE.test(item.title || "") || redirectedAway(page.finalUrl, url))) {
     const link = deckPdfLink(page.html, page.finalUrl || url.href, item);
     if (link) {
-      const doc = await fetchPage(link, PAGE_UA, { pdf: true, budget });
-      if (doc.status === "ok" && doc.pdf) return pdfResult(env, item, doc, link);
+      const doc = await fetchPage(link, PAGE_UA, { pdf: true, budget: pdfBudget });
+      if (doc.status === "ok" && doc.pdf) return pdfResult(env, item, doc, link, budget);
       if (doc.status === "deferred_pdf") return doc;
     }
   }
-  const excerpt = excerptFrom(htmlToText(page.html), item.title, firstHeading(page.html));
-  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt } : { status: "skipped_empty" };
+  const { excerpt, cap } = excerptInfo(htmlToText(page.html), item.title, firstHeading(page.html), budget);
+  return excerpt.length >= MIN_BODY_CHARS ? { status: "ok", excerpt, cap } : { status: "skipped_empty" };
 }
 
-async function fetchAll(env, rows, concurrency, ctx = { pdfBudget: { left: PDF_PER_TICK } }) {
+// budgetOf(item), optional: each item's excerpt budget (enrich: its text class).
+async function fetchAll(env, rows, concurrency, ctx = { pdfBudget: { left: PDF_PER_TICK } }, budgetOf = null) {
   const results = [];
   for (let i = 0; i < rows.length; i += concurrency) {
     const part = rows.slice(i, i + concurrency);
-    results.push(...await Promise.all(part.map((item) => fetchExcerpt(env, item, ctx).then((r) => ({ item, ...r })))));
+    results.push(...await Promise.all(part.map((item) => {
+      const c = budgetOf ? { ...ctx, budget: budgetOf(item) } : ctx;
+      return fetchExcerpt(env, item, c).then((r) => ({ item, budget: c.budget ?? EXCERPT_CHARS, ...r }));
+    })));
   }
   return results;
 }
@@ -930,17 +962,19 @@ async function fetchAll(env, rows, concurrency, ctx = { pdfBudget: { left: PDF_P
 // The update for one fetch: retry later (excerpt_status stays NULL), or final.
 // Without a contact address a sec.gov item is not a try: it waits, so setting
 // CONTACT_EMAIL later still fills it in.
-const NO_CONTACT_WAIT_MINUTES = 720;
+export const NO_CONTACT_WAIT_MINUTES = 720;
 // A final result. Without an excerpt of its own it takes the feed's summary
 // (excerpt_fallback, kept by ingest when the feed carried only a summary or a
 // teaser) as excerpt_status 'feed_summary'. excerpt_source is kept unless the
 // result names another document (or, with replaceSource, the item's URL).
+// excerpt_cap (phase 2) is the budget the read applied, so cut rates can be
+// measured per budget.
 const finalStatement = (env, sourceSql) => env.DB.prepare(
   `UPDATE items SET excerpt = COALESCE(?1, excerpt_fallback),
       excerpt_status = CASE WHEN ?1 IS NULL AND excerpt_fallback IS NOT NULL THEN 'feed_summary' ELSE ?2 END,
-      excerpt_tries = ?3, excerpt_at = ?4, excerpt_source = ${sourceSql} WHERE id = ?6`,
+      excerpt_tries = ?3, excerpt_at = ?4, excerpt_source = ${sourceSql}, excerpt_cap = ?7 WHERE id = ?6`,
 );
-function resultStatement(env, { item, status, excerpt, source, replaceSource }, now) {
+function resultStatement(env, { item, status, excerpt, source, replaceSource, cap, budget }, now) {
   if (status === "skipped_sec_needs_contact") {
     return env.DB.prepare("UPDATE items SET excerpt_next_at = ? WHERE id = ?").bind(nowIso(Date.now() + NO_CONTACT_WAIT_MINUTES * 60_000), item.id);
   }
@@ -950,7 +984,7 @@ function resultStatement(env, { item, status, excerpt, source, replaceSource }, 
   }
   const tries = (item.excerpt_tries || 0) + 1;
   const final = () => finalStatement(env, replaceSource ? "?5" : "COALESCE(?5, excerpt_source)")
-    .bind(excerpt || null, status, tries, now, source || null, item.id);
+    .bind(excerpt || null, status, tries, now, source || null, item.id, cap ?? budget ?? EXCERPT_CHARS);
   // A PDF's text, or one with none: final. excerpt_source names the PDF when
   // it is not the item's own URL.
   if (status === "pdf" || status === "pdf_unreadable") return final();
@@ -984,24 +1018,33 @@ export async function releaseSecLease(db) {
   await db.prepare("DELETE FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).run();
 }
 
-async function secLeaseHeld(env, now) {
+export async function secLeaseHeld(env, now) {
   const row = await env.DB.prepare("SELECT value FROM meta WHERE key = ?").bind(SEC_LEASE_KEY).first();
   return Boolean(row && row.value > now);
+}
+
+// Each item's budget is its text class's visible budget (text-class.js): 2,500
+// for every class unless TEXT_BUDGETS=class. The row needs source_key and url.
+async function visibleBudgetOf(env) {
+  const { textClass, visibleBudgets } = await import("./text-class.js");
+  const budgets = visibleBudgets(env);
+  return (row) => budgets[textClass(row)];
 }
 
 export async function enrich(env) {
   const now = nowIso();
   const contact = env.CONTACT_EMAIL ? 1 : 0;
+  const budgetOf = await visibleBudgetOf(env);
   const pick = (secOnly, limit) => env.DB.prepare(
-    `SELECT id, url, title, excerpt_tries, role, excerpt_source FROM items
+    `SELECT id, url, title, excerpt_tries, role, excerpt_source, source_key FROM items
       WHERE excerpt_status IS NULL AND state IN ('pending','claimed') AND ${DUE_SQL()} AND ${secOnly ? "" : "NOT "}${SEC_URL_SQL}
       ORDER BY (admit IS NOT NULL AND released_at IS NULL), nm_first_seen DESC LIMIT ?3`,
   ).bind(now, contact, limit).all().then((r) => r.results || []);
   // An admin SEC refresh in progress has sec.gov's budget to itself.
   const secBusy = await secLeaseHeld(env, now);
   const results = [
-    ...await fetchAll(env, await pick(false, PER_TICK - SEC_PER_TICK), CONCURRENCY),
-    ...(secBusy ? [] : await fetchAll(env, await pick(true, SEC_PER_TICK), SEC_CONCURRENCY)),
+    ...await fetchAll(env, await pick(false, PER_TICK - SEC_PER_TICK), CONCURRENCY, undefined, budgetOf),
+    ...(secBusy ? [] : await fetchAll(env, await pick(true, SEC_PER_TICK), SEC_CONCURRENCY, undefined, budgetOf)),
   ];
   const stmts = results.map((r) => resultStatement(env, r, now));
   if (stmts.length) await env.DB.batch(stmts);
@@ -1046,7 +1089,7 @@ export async function refreshSecExcerpts(env, body = {}, tickers = null) {
     return { remaining: r?.remaining || 0, waiting: r?.waiting || 0 };
   };
   const rows = (await env.DB.prepare(
-    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries ${FROM} WHERE ${scope} AND ${due} ORDER BY i.nm_first_seen DESC LIMIT ?6`,
+    `SELECT i.id, i.url, i.title, i.state, i.excerpt_tries, i.source_key ${FROM} WHERE ${scope} AND ${due} ORDER BY i.nm_first_seen DESC LIMIT ?6`,
   ).bind(...binds, limit).all()).results || [];
   if (body.dry_run) return { mode: "sec_excerpts", dry_run: true, ...await counts(), next: rows.map((r) => ({ item_id: r.id, state: r.state, title: r.title })) };
   if (!rows.length) return { mode: "sec_excerpts", cleared: 0, processed: 0, ok: 0, requeued: 0, retry: 0, ...await counts(), items: [] };
@@ -1065,7 +1108,9 @@ export async function refreshSecExcerpts(env, body = {}, tickers = null) {
     ).bind(...ids).run();
     const fresh = (await env.DB.prepare(`SELECT id, excerpt_tries FROM items WHERE id IN (${ph})`).bind(...ids).all()).results || [];
     const tries = new Map(fresh.map((r) => [r.id, r.excerpt_tries]));
-    const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY);
+    // The same class budget as the cron's read, so a refresh never shrinks an excerpt.
+    const results = await fetchAll(env, rows.map((r) => ({ ...r, excerpt_tries: tries.get(r.id) ?? r.excerpt_tries })), SEC_CONCURRENCY,
+      undefined, await visibleBudgetOf(env));
     const stmts = [], items = [];
     for (const r of results) {
       stmts.push(resultStatement(env, r, now));
