@@ -2186,6 +2186,19 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "txdmv_av_authorizations": {
+      "entity": "txdmv_av",
+      "name": "Texas DMV AV authorizations",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AUR",
+        "KDK"
+      ],
+      "record": true,
+      "register": true
+    },
     "uber": {
       "entity": "uber",
       "name": "Uber (UBER)",

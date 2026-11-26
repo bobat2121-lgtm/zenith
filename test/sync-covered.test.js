@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hookJsonImports } from "./helpers/worker-env.js";
-import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE } from "../scripts/sync-covered.mjs";
+import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE, REGISTER_ADAPTERS } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
 const { makeAuxRoute } = await import("../worker/src/aux-route.js");
@@ -355,4 +355,47 @@ test("buildChannels: an own-host source gets its registrable domain; filter adap
   assert.deepEqual(channels, { acme_news: "example.co.uk", beta_blog: "beta.example", zeta_news: "zeta.example" });
   assert.deepEqual(Object.keys(channels), Object.keys(channels).slice().sort());
   assert.ok(OPS_ADAPTERS.includes("site_structure"));
+});
+
+// Phase 2 registers (Z5): the three register adapters. Synthetic keys, hosts
+// and names; only the adapter names are news-monitor's.
+const REGISTER_LIST = [
+  { key: "testco", lane: "covered", covered: true, coveredTicker: "RCAT", adapter: "rss", name: "Testco", endpoint: "https://testco.example.com/feed" },
+  { key: "otherco", lane: "covered", covered: true, coveredTicker: "KDK", adapter: "rss", name: "Otherco", endpoint: "https://otherco.example.com/feed" },
+  { key: "reg_lobby_new", lane: "strategic_noncompany", adapter: "lda_registrations", name: "Lobbying register — new registrations",
+    endpoint: "https://register.example.org/api/filings/", role: "program", affects: ["RCAT", "KDK", "ZZZ"] },
+  { key: "reg_lobby_quarterly", lane: "strategic_noncompany", adapter: "lda_reports", name: "Lobbying register — quarterly reports",
+    endpoint: "https://register.example.org/api/filings/", role: "program", affects: ["RCAT", "KDK"] },
+  { key: "reg_vehicles", lane: "strategic_noncompany", adapter: "txdmv_av_report", name: "State vehicle authorizations report",
+    endpoint: "https://vehicles.example.org/report", role: "program", affects: ["KDK"] },
+  // Controls: a filter adapter and a record adapter that are not registers.
+  { key: "fpds_testco", lane: "strategic_noncompany", adapter: "fpds_atom", name: "FPDS — Testco", role: "customer", affects: ["RCAT"] },
+  { key: "fedreg_testco", lane: "strategic_noncompany", adapter: "federal_register", name: "Federal Register test", role: "program", affects: ["RCAT"] },
+];
+
+test("register adapters (Z5): record, register and coverage_subject true, one program entity per register, counterparty program with affects; other adapters carry no register flag", () => {
+  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report"]);
+  for (const a of REGISTER_ADAPTERS) assert.ok(RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
+  const covered = buildCovered(REGISTER_LIST);
+  assert.deepEqual(covered.counterparty.reg_lobby_new, { role: "program", affects: ["RCAT", "KDK"] }, "an uncovered ticker is dropped");
+  assert.deepEqual(covered.counterparty.reg_lobby_quarterly, { role: "program", affects: ["RCAT", "KDK"] });
+  assert.deepEqual(covered.counterparty.reg_vehicles, { role: "program", affects: ["KDK"] });
+  assert.deepEqual(covered.records, [], "register sources are not covered own-lane records");
+  const { sources, exclude } = buildAux(REGISTER_LIST, covered, []);
+  const want = {
+    reg_lobby_new: { entity: "lda", name: "LDA lobbying filings", status: "program", lane: "strategic_noncompany", coverage_subject: true, affects: ["RCAT", "KDK"], record: true, register: true },
+    reg_lobby_quarterly: { entity: "lda", name: "LDA lobbying filings", status: "program", lane: "strategic_noncompany", coverage_subject: true, affects: ["RCAT", "KDK"], record: true, register: true },
+    reg_vehicles: { entity: "txdmv_av", name: "Texas DMV AV authorizations", status: "program", lane: "strategic_noncompany", coverage_subject: true, affects: ["KDK"], record: true, register: true },
+  };
+  for (const [key, entry] of Object.entries(want)) {
+    assert.deepEqual(sources[key], entry, key);
+    assert.ok(!(key in exclude), `${key} is not excluded`);
+    assert.equal(isRecordSource(REGISTER_LIST.find((s) => s.key === key)), true, `${key} is a record by adapter, whatever its host`);
+  }
+  for (const key of ["fpds_testco", "fedreg_testco", "testco", "otherco"]) assert.equal(sources[key]?.register, undefined, key);
+  assert.equal(sources.fpds_testco.entity, FPDS.entity, "FPDS keeps its own program entity");
+  // A register is a filter over a third-party register, never a company's own channel.
+  const channels = buildChannels(REGISTER_LIST);
+  for (const key of Object.keys(want)) assert.ok(!(key in channels), `${key} has no channel`);
+  assert.deepEqual(Object.keys(channels), ["otherco", "testco"]);
 });
