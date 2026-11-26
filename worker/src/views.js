@@ -269,34 +269,41 @@ function groupsOf(cards, { ticker, industry, rel, kind, limitPer }) {
 // the placement rule sends to Industry (under their affects, else reads_through
 // tickers; with neither they are sector-wide, shown only without a ticker
 // filter). A coverage row and an aux row of the same news-monitor row show as
-// one card, the coverage copy, with the aux grade under `also`. Declared areas
-// (INDUSTRY; {} until the ladder is promoted) open each ticker's section.
+// one card, the coverage copy, with the aux grade under `also`. The merge runs
+// per ticker after minScore: under T the aux twin is folded into T's kept
+// coverage card, and stands on its own when T has none (the coverage copy is
+// another ticker's, or under minScore), so T's section is the same with or
+// without the ticker filter. Declared areas (INDUSTRY; {} until the ladder is
+// promoted) open each ticker's section.
 export function industryView(rows, rel, { ticker = null, minScore = 0, kind = null, industry = INDUSTRY, limitPer = 50 } = {}) {
   const coverage = (rows?.coverage || []).filter(isCoverageIndustry);
   const auxRows = (rows?.aux || []).filter((r) => rel.placeAux(r).industry);
-  // Twin merge, by nm_rowid.
-  const covRowids = new Set(coverage.map((r) => r.nm_rowid).filter((x) => x != null));
+  // The aux grades of each news-monitor row, for a coverage card's `also` line.
   const also = new Map();
   for (const a of auxRows) {
-    if (a.nm_rowid == null || !covRowids.has(a.nm_rowid)) continue;
+    if (a.nm_rowid == null) continue;
     if (!also.has(a.nm_rowid)) also.set(a.nm_rowid, []);
     also.get(a.nm_rowid).push({ item_id: a.item_id, entity: a.entity || a.entity_name || null, score: a.score ?? null, band: a.band ?? null });
   }
   const card = (r) => ({ ...r, low: isLow(r), also: r.pipeline === "coverage" ? also.get(r.nm_rowid) || [] : [] });
-  const standalone = auxRows.filter((a) => a.nm_rowid == null || !covRowids.has(a.nm_rowid));
   const auxTickers = (a) => (a.affects?.length ? a.affects : (a.reads || []).map((r) => r.ticker));
   const keep = (r) => passesMin(r, minScore);
+  const keptCoverage = coverage.filter(keep);
+  // An aux row is folded into a kept coverage card in `rowids`, else it stands alone.
+  const alone = (a, rowids) => keep(a) && (a.nm_rowid == null || !rowids.has(a.nm_rowid));
 
   const sections = tickersFor(rel, ticker).map((t) => {
     const seen = new Set();
     const cards = [];
-    for (const r of coverage) if (r.grade_ticker === t && keep(r) && !seen.has(cardKey(r))) { seen.add(cardKey(r)); cards.push(card(r)); }
-    for (const r of standalone) if (auxTickers(r).includes(t) && keep(r) && !seen.has(cardKey(r))) { seen.add(cardKey(r)); cards.push(card(r)); }
+    for (const r of keptCoverage) if (r.grade_ticker === t && !seen.has(cardKey(r))) { seen.add(cardKey(r)); cards.push(card(r)); }
+    const merged = new Set(cards.map((r) => r.nm_rowid).filter((x) => x != null));
+    for (const r of auxRows) if (auxTickers(r).includes(t) && alone(r, merged) && !seen.has(cardKey(r))) { seen.add(cardKey(r)); cards.push(card(r)); }
     return { ticker: t, ...groupsOf(cards, { ticker: t, industry, rel, kind, limitPer }) };
   });
   const out = { tickers: sections };
   if (!ticker) {
-    const wide = standalone.filter((r) => auxTickers(r).length === 0 && keep(r)).map(card);
+    const shownAnywhere = new Set(keptCoverage.filter((r) => rel.tickers.includes(r.grade_ticker)).map((r) => r.nm_rowid).filter((x) => x != null));
+    const wide = auxRows.filter((r) => auxTickers(r).length === 0 && alone(r, shownAnywhere)).map(card);
     const g = groupsOf(wide, { ticker: null, industry, rel, kind, limitPer });
     out.sector_wide = { n: g.n, groups: g.groups };
   }

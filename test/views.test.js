@@ -325,10 +325,38 @@ test("V8: a program twin merges into its coverage copy with an 'also graded' lin
   assert.deepEqual(merged[0].also, [{ item_id: twin.item_id, entity: "Prog Z", score: 55, band: "borderline" }]);
   assert.equal(merged[0].low, true, "a program row under 40 is collapsed");
   assert.deepEqual(syn.find((r) => r.item_id === other.item_id).also, []);
-  for (const s of [...v.tickers, v.sector_wide]) {
-    assert.ok(!s.groups.flatMap((g) => g.items).some((r) => r.pipeline === "aux" && r.item_id === twin.item_id), "the aux twin is not repeated");
-  }
+  const auxIn = (s) => s.groups.flatMap((g) => g.items).some((r) => r.pipeline === "aux" && r.item_id === twin.item_id);
+  assert.equal(auxIn(section(v.tickers, "SYN")), false, "the aux twin is not repeated under the coverage card's ticker");
+  assert.equal(auxIn(v.sector_wide), false);
+  assert.equal(auxIn(section(v.tickers, "ACM")), true, "ACM has no coverage copy, so the twin it affects stands alone there");
   assert.equal(inCompetitors(twin, "SYN"), false);
+});
+
+test("V8/V9: the twin merge runs per ticker after minScore; a section is the same with or without the ticker filter", () => {
+  // A coverage program row graded for SYN (low, as before promotion) and its aux
+  // twin, affecting SYN and ACM, graded higher.
+  const cov = covRow({ role: "program", source_key: "prog_z", ticker: "SYN", grade_ticker: "SYN", score: 10 });
+  const twin = auxRow({ source_key: "prog_z", nm_rowid: cov.nm_rowid, score: 80, entity: "Prog Z" });
+  const rows = { coverage: [cov], aux: [twin] };
+  const cards = (v, t) => section(v.tickers, t).groups.flatMap((g) => g.items).map((r) => [r.pipeline, r.item_id, r.also.length]);
+  const all = industryView(rows, REL);
+  assert.deepEqual(cards(all, "SYN"), [["coverage", cov.item_id, 1]]);
+  assert.deepEqual(cards(all, "ACM"), [["aux", twin.item_id, 0]]);
+  // The coverage copy is under minScore: the score-80 twin stands alone under both tickers.
+  const min40 = industryView(rows, REL, { minScore: 40 });
+  assert.deepEqual(cards(min40, "SYN"), [["aux", twin.item_id, 0]]);
+  assert.deepEqual(cards(min40, "ACM"), [["aux", twin.item_id, 0]]);
+  assert.deepEqual(cards(industryView(rows, REL, { minScore: 90 }), "SYN"), []);
+  // The ticker form of Q-V1 (g.ticker = 'ACM') returns no SYN coverage row.
+  assert.deepEqual(cards(industryView({ coverage: [], aux: [twin] }, REL, { ticker: "ACM" }), "ACM"), cards(all, "ACM"));
+  assert.deepEqual(cards(industryView(rows, REL, { ticker: "SYN" }), "SYN"), cards(all, "SYN"));
+  assert.deepEqual(cards(industryView(rows, REL, { ticker: "SYN", minScore: 40 }), "SYN"), cards(min40, "SYN"));
+  // Sector-wide: an aux twin with no ticker is hidden while its coverage copy shows, and stands alone when it does not.
+  const pc = covRow({ role: "program", source_key: "synco", ticker: "SYN", grade_ticker: "SYN", score: 10 });
+  const wide = auxRow({ source_key: "trade_media", nm_rowid: pc.nm_rowid, score: 70 });
+  const wideIds = (opts) => ids(industryView({ coverage: [pc], aux: [wide] }, REL, opts).sector_wide.groups.flatMap((g) => g.items));
+  assert.deepEqual(wideIds(), []);
+  assert.deepEqual(wideIds({ minScore: 40 }), [wide.item_id]);
 });
 
 // --- V9 -----------------------------------------------------------------------------------------
