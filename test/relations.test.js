@@ -440,8 +440,9 @@ test("R9: relations.js imports only its six modules, never names CANDIDATE_ or N
   assert.doesNotMatch(genText, /^\s*import\s/m, "the generated file imports nothing");
 });
 
-test("R9: relations.js is imported by no other Worker module yet (PR-CV1 ships no deploy)", () => {
-  for (const f of readdirSync(SRC).filter((f) => f.endsWith(".js") && f !== "relations.js")) {
+// P3-B2's company.js is the first Worker module that imports it (Part B §10).
+test("R9: relations.js is imported by no Worker module other than company.js yet", () => {
+  for (const f of readdirSync(SRC).filter((f) => f.endsWith(".js") && f !== "relations.js" && f !== "company.js")) {
     const text = readFileSync(new URL(f, SRC), "utf8");
     assert.doesNotMatch(text, /from\s+"\.\/relations(\.generated)?\.js"/, f);
   }
