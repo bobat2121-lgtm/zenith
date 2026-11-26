@@ -144,6 +144,34 @@ test("T3: replay/claim reasons in order, then a claim when every check is clear"
   assert.deepEqual(env.DB.rows("SELECT * FROM runs"), runsBefore, "a replay claim writes no runs row");
 });
 
+test("T3: a claim never submitted still counts toward the caps after its lease ends", async () => {
+  const lapse = (env) => env.DB.db.exec(`UPDATE replay_queue SET claimed_until = '${iso(1000)}' WHERE state = 'claimed'`);
+  const env = newEnv({ REPLAY_WEEKLY: "15" });
+  idleRun(env);
+  for (let i = 0; i < 25; i++) addGolden(env);
+  await arm(env);
+  assert.equal((await rclaim(env)).items.length, 10);
+  lapse(env);
+  const second = await rclaim(env);
+  assert.equal(second.items?.length, 5, `the lapsed 10 still count: 15 - 10 leaves 5 (${second.reason})`);
+  lapse(env);
+  assert.equal((await rclaim(env)).reason, "weekly_cap", "the reclaims count too");
+  // The daily cap the same way. A lapsed claim's time is 45 minutes before its
+  // claimed_until, so this part needs the UTC day to be past its first hour.
+  const d = new Date();
+  if (Date.now() - Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) > 60 * MIN) {
+    const env2 = newEnv();
+    idleRun(env2);
+    for (let i = 0; i < 25; i++) addGolden(env2);
+    await arm(env2);
+    assert.equal((await rclaim(env2)).items.length, 10);
+    lapse(env2);
+    assert.equal((await rclaim(env2)).items.length, 10);
+    lapse(env2);
+    assert.equal((await rclaim(env2)).reason, "daily_cap", "20 claimed today, none submitted");
+  }
+});
+
 test("T4: the claim carries no golden labels; the app's GET /v1/replay has counts and a verdict only; admin detail has the pairs", async () => {
   const env = newEnv();
   idleRun(env);

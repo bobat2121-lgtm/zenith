@@ -95,6 +95,19 @@ async function gradedSince(db, since) {
   return r?.n || 0;
 }
 
+// The work counted toward a cap since `sinceMs`: the larger of the grades
+// stored and the claims of queue rows last claimed in that window (claim time
+// = claimed_until minus the lease; kept after grading) or still on lease. Each
+// such row counts its attempts, so a claim never submitted, or whose grades
+// were all rejected, still counts after its lease ends, and so does every
+// reclaim of it. In the normal flow (one attempt a row) this is one per claim.
+async function usedSince(db, sinceMs, now) {
+  const graded = await gradedSince(db, nowIso(sinceMs));
+  const claimed = (await db.prepare("SELECT COALESCE(SUM(attempts), 0) AS n FROM replay_queue WHERE claimed_until >= ?1 OR (state = 'claimed' AND claimed_until >= ?2)")
+    .bind(nowIso(sinceMs + LEASE_MINUTES * 60_000), nowIso(now)).first())?.n || 0;
+  return Math.max(graded, claimed);
+}
+
 // The claimed fields of a golden item, as the coverage claim prints them;
 // never expect, class, basis, code, ref, note, first_seen_rule or pass.
 function claimItem(g) {
@@ -134,13 +147,11 @@ export async function replayClaim(env, body, { now = Date.now(), bundle = BUNDLE
   if ((aux?.n || 0) >= REPLAY_AUX_GUARD) return empty("live_aux");
   if ((await closeLapsed(env, replay, { now })) !== "armed") return empty("replay_finished");
   const caps = replaySettings(env);
-  // Rows leased and not yet graded count against the caps too.
-  const leased = (await db.prepare("SELECT COUNT(*) AS n FROM replay_queue WHERE replay_id = ? AND state = 'claimed' AND claimed_until >= ?").bind(replay.id, nowS).first())?.n || 0;
-  const today = await gradedSince(db, nowIso(utcMidnight(now)));
-  if (today + leased >= caps.daily) return empty("daily_cap");
-  const week = await gradedSince(db, nowIso(now - 7 * DAY));
-  if (week + leased >= caps.weekly) return empty("weekly_cap");
-  const limit = Math.max(1, Math.min(Math.trunc(Number(body?.limit)) || REPLAY_BATCH, REPLAY_BATCH, caps.daily - today - leased, caps.weekly - week - leased));
+  const today = await usedSince(db, utcMidnight(now), now);
+  if (today >= caps.daily) return empty("daily_cap");
+  const week = await usedSince(db, now - 7 * DAY, now);
+  if (week >= caps.weekly) return empty("weekly_cap");
+  const limit = Math.max(1, Math.min(Math.trunc(Number(body?.limit)) || REPLAY_BATCH, REPLAY_BATCH, caps.daily - today, caps.weekly - week));
   // Rows that ran out of attempts are failed (a miss, R1).
   await db.prepare(
     `UPDATE replay_queue SET state = 'failed' WHERE replay_id = ?1 AND state IN ('pending','claimed') AND attempts >= ?2
