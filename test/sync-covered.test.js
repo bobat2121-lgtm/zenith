@@ -497,7 +497,7 @@ const PART_B_LIST = [
   { key: "tsvco", lane: "covered", covered: true, coveredTicker: "TSV" },
   { key: "mirror_alpha", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/a", name: "Alpha rules",
     role: "program", affects: ["TST", "TSU", "ZZZ"] },
-  { key: "mirror_beta", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/b", name: "Beta rules",
+  { key: "mirror_second", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/b", name: "Second rules",
     role: "program", affects: ["TSV"] },
   { key: "mirror_gamma", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/c", name: "Gamma rules",
     role: "program", affects: ["ZZZ"] },
@@ -508,7 +508,7 @@ const PART_B_LIST = [
   { key: "feed_test", lane: "strategic_noncompany", adapter: "rss_filtered", endpoint: "https://feed.example.com/x", name: "Feed test", role: "program", affects: ["TST"] },
 ];
 const PART_B_GROUPS = [
-  { key: "beta", entity: "prog_test_beta", label: "[Beta policy]", name: "Test beta policy", mirror: "mirror_beta", terms: ["never copied"] },
+  { key: "second", entity: "prog_test_second", label: "[Second policy]", name: "Test second policy", mirror: "mirror_second", terms: ["never copied"] },
   { key: "alpha", entity: "prog_test_alpha", label: "[Alpha policy]", name: "Test alpha policy", mirror: "mirror_alpha", affects: ["TSV"] },
   { key: "gamma", entity: "prog_test_gamma", label: "[Gamma policy]", name: "Test gamma policy", mirror: "mirror_gamma" },
   { key: "delta", entity: "prog_test_delta", label: "[Delta policy]", mirror: "not_polled" },
@@ -537,7 +537,7 @@ test("Z-B1 Part B adapters: oira_review and govinfo_crpt are group-routed regist
   // register_groups: entities sorted; the mirror source's own affects (not the group's), covered only, in the mirror's order.
   assert.deepEqual(aux.register_groups, {
     prog_test_alpha: { name: "Test alpha policy", affects: ["TST", "TSU"], from: "mirror_alpha" },
-    prog_test_beta: { name: "Test beta policy", affects: ["TSV"], from: "mirror_beta" },
+    prog_test_second: { name: "Test second policy", affects: ["TSV"], from: "mirror_second" },
   });
   assert.deepEqual(Object.keys(aux), ["sources", "exclude", "register_groups"]);
   assert.ok(!JSON.stringify(aux.register_groups).includes("never copied"), "no term is copied");

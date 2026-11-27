@@ -16,7 +16,7 @@ const AFFECTS = ["TST", "TSU", "TSV"];
 const SYN_MATCH = { TST: { terms: ["Testco"], accounts: [] }, TSU: { terms: ["Tsuco"], accounts: [] }, TSV: { terms: ["Tsvco"], accounts: [] } };
 const GROUPS = {
   prog_test_alpha: { name: "Test alpha policy", affects: ["TST", "TSU"], from: "mirror_alpha" },
-  prog_test_beta: { name: "Test beta policy", affects: ["TSV"], from: "mirror_beta" },
+  prog_test_second: { name: "Test second policy", affects: ["TSV"], from: "mirror_second" },
   prog_test_gamma: { name: "Test gamma policy", affects: ["ZZZ"], from: "mirror_gamma" },
 };
 const SYN_COVERED = {
@@ -65,9 +65,9 @@ const GROUPED = { role: "program", affects: AFFECTS, group_routed: true };
 // --- groupAffects / isGroupRouted ----------------------------------------------
 test("groupAffects reads the trailing g=<entity> fragment after #, & or -; an unknown group, a mid-URL or malformed fragment is null; isGroupRouted reads the aux flag", () => {
   assert.deepEqual(groupAffects(`${BASE}#review-2026-01-02-concluded-g=prog_test_alpha`), { entity: "prog_test_alpha", name: "Test alpha policy", affects: ["TST", "TSU"], from: "mirror_alpha" });
-  assert.equal(groupAffects(`${BASE}#baseline-g=prog_test_beta`).entity, "prog_test_beta");
+  assert.equal(groupAffects(`${BASE}#baseline-g=prog_test_second`).entity, "prog_test_second");
   assert.equal(groupAffects("https://reports.example.gov/feed.xml#p3-g=prog_test_alpha").entity, "prog_test_alpha");
-  assert.equal(groupAffects(`${BASE}#x&g=prog_test_beta`).entity, "prog_test_beta");
+  assert.equal(groupAffects(`${BASE}#x&g=prog_test_second`).entity, "prog_test_second");
   for (const url of [BASE, `${BASE}#baseline-g=prog_test_unknown`, `${BASE}#g=prog_test_alpha-more`, `${BASE}#xg=prog_test_alpha`,
     `${BASE}#x-g=Prog_Test_Alpha`, `${BASE}#x-g=ab`, null, undefined, ""]) assert.equal(groupAffects(url), null, String(url));
   assert.equal(groupAffects(`${BASE}#x-g=prog_test_alpha`, { sources: {} }), null, "a catalog without register_groups knows no group");
@@ -88,7 +88,7 @@ test("Z-B2 group routing: a known group narrows affects to the group's tickers (
   assert.deepEqual(named, { ticker: "TSU", role: "program", affects: "TST,TSU", skip: null }, "the title names TSU's company term");
   const outside = routeFor({ title: `${title} on Tsvco`, url: `${BASE}#x-g=prog_test_alpha` }, GROUPED, SYN_MATCH);
   assert.deepEqual(outside, { ticker: "TST", role: "program", affects: "TST,TSU", skip: null }, "a ticker outside the group cannot take the row");
-  assert.deepEqual(routeFor({ title, url: `${BASE}#baseline-g=prog_test_beta` }, GROUPED, SYN_MATCH),
+  assert.deepEqual(routeFor({ title, url: `${BASE}#baseline-g=prog_test_second` }, GROUPED, SYN_MATCH),
     { ticker: "TSV", role: "program", affects: "TSV", skip: null });
   // Unknown or missing group, or a group none of whose tickers the source affects: today's routing, all three.
   const union = routeCounterparty(title, GROUPED, SYN_MATCH);
@@ -108,7 +108,7 @@ test("Z-B2 group routing: a known group narrows affects to the group's tickers (
   // routeRow and coverageOwner use the bundled (here synthetic) catalog.
   assert.deepEqual(routeRow({ source_key: "reviews_test", title, url: `${BASE}#x-g=prog_test_alpha` }), a);
   assert.deepEqual(routeRow({ source_key: "plain_test", title, url: `${BASE}#x-g=prog_test_alpha` }), union);
-  assert.deepEqual(coverageOwner({ source_key: "reviews_test", title, url: `${BASE}#x-g=prog_test_beta` }), { owns: true });
+  assert.deepEqual(coverageOwner({ source_key: "reviews_test", title, url: `${BASE}#x-g=prog_test_second` }), { owns: true });
 });
 
 test("routeFor order: group routing first, then tag narrowing, then the media gate (a key carries at most one flag; this cp carries two only to show the order)", () => {
@@ -131,7 +131,7 @@ test("Z-B2 end to end: group-routed register cards are stored on Coverage under 
   insertNews(news, [
     row("[Alpha policy] Review concluded: test rule one", "#r1-concluded-g=prog_test_alpha"),
     row("[Alpha policy] Review concluded: test rule two for Tsuco", "#r2-concluded-g=prog_test_alpha"),
-    row("[Beta policy] Review baseline as of 01/02/2026", "#baseline-g=prog_test_beta"),
+    row("[Second policy] Review baseline as of 01/02/2026", "#baseline-g=prog_test_second"),
     row("[Unknown policy] Review concluded: test rule three", "#r3-concluded-g=prog_test_unknown"),
     { source_key: "plain_test", title: "Plain test news", first_seen: at, url: "https://feed.example.com/plain/1#x-g=prog_test_alpha", seed: true },
   ]);
@@ -143,7 +143,7 @@ test("Z-B2 end to end: group-routed register cards are stored on Coverage under 
     .map((r) => [r.url.split("#")[1] || r.url, [r.ticker, r.role, r.affects, r.state, r.skip_reason]]));
   assert.deepEqual(cov["r1-concluded-g=prog_test_alpha"], ["TST", "program", "TST,TSU", "pending", null]);
   assert.deepEqual(cov["r2-concluded-g=prog_test_alpha"], ["TSU", "program", "TST,TSU", "pending", null]);
-  assert.deepEqual(cov["baseline-g=prog_test_beta"], ["TSV", "program", "TSV", "pending", null]);
+  assert.deepEqual(cov["baseline-g=prog_test_second"], ["TSV", "program", "TSV", "pending", null]);
   assert.deepEqual(cov["r3-concluded-g=prog_test_unknown"], ["TST", "program", "TST,TSU,TSV", "pending", null], "unknown group: the source's union");
   assert.deepEqual(cov["x-g=prog_test_alpha"], ["TST", "program", "TST,TSU,TSV", "pending", null], "no flag: the fragment means nothing");
   assert.equal(db.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'reviews_test'")[0].n, 0, "Coverage owns every card");
@@ -155,8 +155,8 @@ test("Z-B3 no story copies: two aux rows of one register URL differing only in f
   for (const key of ["reviews_test", "other_register"]) {
     assert.equal(REGISTER_KEY.test(key), false, `${key} is not a REGISTER_KEY prefix`);
     assert.equal(isRegisterSource(key), true, key);
-    const a = await storyKeys({ source_key: key, entity_key: "oira", title: "[Alpha policy] card 1 of 2", url: `${BASE}#p1-g=prog_test_alpha` }, "aux");
-    const b = await storyKeys({ source_key: key, entity_key: "oira", title: "[Alpha policy] card 2 of 2", url: `${BASE}#p2-g=prog_test_alpha` }, "aux");
+    const a = await storyKeys({ source_key: key, entity_key: "oira", title: "[Alpha policy] first card", url: `${BASE}#p1-g=prog_test_alpha` }, "aux");
+    const b = await storyKeys({ source_key: key, entity_key: "oira", title: "[Alpha policy] second card", url: `${BASE}#p2-g=prog_test_alpha` }, "aux");
     assert.equal(a.url_key, null, key);
     assert.equal(b.url_key, null, key);
   }
