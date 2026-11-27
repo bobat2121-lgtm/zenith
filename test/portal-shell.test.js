@@ -212,7 +212,7 @@ test("S14: the layout contract: viewport, manifest, icon, the 7 nav entries in o
   assert.deepEqual([...side.matchAll(/<a href="([^"]+)" aria-current="page">/g)].map((m) => m[1]), ["/p/competitors"]);
   assert.match(r.text, /Signed in on this device/);
   assert.match(r.text, /<form method="post" action="\/p\/logout">/);
-  assert.match(r.text, /Not built yet/);
+  assert.match(r.text, /<main>[\s\S]*<section data-ticker="[\s\S]*<\/main>/, "the view's body is inside <main>");
 });
 
 test("companies index lists the injected tickers; ?t= redirects only to a listed ticker; /p/c/<T> needs a listed, well-formed ticker", async () => {
