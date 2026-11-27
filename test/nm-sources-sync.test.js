@@ -466,3 +466,82 @@ test("FTC rows on Coverage (Z3, bundled catalog): each lands under its tag with 
   assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = ?", FTC_KEY)[0].n, 0);
   for (const x of ["incidents", "deliveries", "reports"]) assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM ${x}`)[0].n, 0, x);
 });
+
+// Phase 4 Part D (Z3): the GAO bid-protest docket walk key, synced from
+// news-monitor by scripts/sync-covered.mjs, as for the FTC key above. Key
+// names only; its tickers are read from the generated file and news-monitor's
+// tree, never written here; docket numbers, protesters, agencies and URLs are
+// synthetic. The walk replaces news-monitor's daily GAO docket probe in the
+// same news-monitor commit (two sources on one host would break the crawl
+// spacing), so the catalog never carries both (R-SITE).
+const { default: SITE } = await import("../worker/src/site-sources.json");
+const GAO_KEY = "gao_bid_protests";
+const GAO_PROBE = "probe_gao_docket";
+const NM_GAO = NM_SOURCES.find((s) => s.key === GAO_KEY) || null;
+const GAO_SYNCED = Object.hasOwn(COVERED.counterparty, GAO_KEY);
+const gaoSkip = NM_GAO || GAO_SYNCED ? false
+  : "news-monitor defines no GAO docket walk source yet and the bundled catalog has none (it comes with news-monitor's GAO register PR)";
+
+test("the GAO register key is synced whenever news-monitor defines it, with its aux entry, or not at all (Z3)", () => {
+  if (NM_GAO) assert.ok(GAO_SYNCED, `${GAO_KEY} is a news-monitor source but not in covered.json: regenerate against that tree`);
+  assert.equal(Object.hasOwn(AUX.sources, GAO_KEY), GAO_SYNCED, "the counterparty and aux entries come together");
+});
+
+test("the GAO docket walk and the GAO docket probe never sit in the catalog together: once the walk is synced the probe is gone from site-sources.json and the ops exclusions (R-SITE)", () => {
+  if (GAO_SYNCED) {
+    assert.ok(!Object.hasOwn(SITE.probes, GAO_PROBE), `${GAO_PROBE} is still in site-sources.json beside the walk: regenerate against the walk's tree`);
+    assert.ok(!Object.hasOwn(AUX.exclude, GAO_PROBE), `${GAO_PROBE} is still an ops exclusion beside the walk`);
+  }
+  if (NM_GAO) assert.ok(!NM_SOURCES.some((s) => s.key === GAO_PROBE), "news-monitor removes the probe in the walk's own commit");
+  if (Object.hasOwn(SITE.probes, GAO_PROBE)) assert.deepEqual(SITE.probes[GAO_PROBE], { ticker: null, label: "gao docket", expect: null }, "key and label only, no docket or URL");
+});
+
+test("the GAO register key is a tag_affects program counterparty and a register record entry with body_record, a coverage subject with its tickers (Z3)", { skip: gaoSkip }, () => {
+  const cp = COVERED.counterparty[GAO_KEY];
+  assert.deepEqual(Object.keys(cp), ["role", "affects", "tag_affects"]);
+  assert.equal(cp.role, "program");
+  assert.equal(cp.tag_affects, true);
+  assert.ok(cp.affects.length > 0 && cp.affects.every((t) => COVERED.tickers.includes(t)));
+  if (NM_GAO) {
+    const list = Array.isArray(NM_GAO.affects) ? NM_GAO.affects : String(NM_GAO.affects || "").split(",");
+    const want = [...new Set(list.map((t) => String(t).trim().toUpperCase()))].filter((t) => COVERED.tickers.includes(t));
+    assert.deepEqual(cp.affects, want, "news-monitor's affects, covered tickers only");
+    assert.equal(NM_GAO.config?.tagAffects, true, "the flag comes from the source's config.tagAffects");
+  }
+  assert.ok(!Object.hasOwn(COVERED.sources, GAO_KEY) && !Object.hasOwn(COVERED.channels, GAO_KEY));
+  assert.deepEqual(AUX.sources[GAO_KEY], { entity: "gao_protests", name: "GAO bid protests", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: cp.affects, record: true, register: true, tag_affects: true, body_record: true });
+  assert.ok(!Object.hasOwn(AUX.exclude, GAO_KEY));
+  assert.equal(isRecordSource(GAO_KEY), true);
+  assert.equal(isRegisterSource(GAO_KEY), true);
+  assert.equal(isBodyRecordSource(GAO_KEY), true);
+});
+
+test("GAO rows on Coverage (Z3, bundled catalog): a new docket and its outcome land under their tag with only that ticker as affects, even when the title names another ticker's company; the body is the feed excerpt; an untagged row is skipped tag_outside_affects; none on Auxiliary; no Discord rows", { skip: gaoSkip }, async () => {
+  const env = newEnv();
+  env.NEWS.exec("ALTER TABLE items ADD COLUMN body TEXT");
+  const affects = COVERED.counterparty[GAO_KEY].affects;
+  const t = affects[affects.length - 1];
+  const other = affects.find((x) => x !== t && MATCH[x]?.terms?.length);
+  const agency = other ? MATCH[other].terms[0] : "Example Agency";
+  const body = (n) => [`Test bid protest docket T-${n}.1, read 2026-11-24.`,
+    "Protester: Example Protester, LLC. Solicitation number: TEST-0001. Agency: Example Department : Example Sub-Agency.",
+    "File number: T-" + n + ".1. Case type: Bid Protest. Filed: 11/20/2026. Due: 02/27/2027. Status: Case Currently Open.",
+    "Docket: https://www.example.gov/docket/t-" + n + ".1. Test dockets name the protester and the agency, never the awardee.",
+    "Source: test bid protest docket."].join("\n");
+  const add = (url, n, title, published, first_seen) => env.NEWS.db.prepare("INSERT INTO items (source_key, url, title, published, category, first_seen, notified, body) VALUES (?, ?, ?, ?, 'REGULATORY', ?, 1, ?)")
+    .run(GAO_KEY, url, title, published, first_seen, body(n));
+  const U = (n, frag) => `https://www.example.gov/docket/t-${n}.1#${frag}`;
+  add(U(2001, "T"), 2001, `[${t}] Test bid protest T-2001.1 filed 11/20/2026: protester "Example Protester, LLC"; ${agency} (decision due 02/27/2027)`, ago(5), SEEN);
+  add(U(2001, "outcome-T"), 2001, `[${t}] Test bid protest T-2001.1 denied 11/25/2026: protester "Example Protester, LLC"; ${agency}`, ago(1, LATER), LATER);
+  add(U(2002, "T"), 2002, "Test bid protest T-2002.1 filed 11/24/2026: protester \"Example Protester, LLC\"; Example Sub-Agency (decision due 03/03/2027)", ago(1, LATER), LATER);
+  await ingest(env);
+  await ingestAux(env);
+  const cov = Object.fromEntries(env.DB.rows("SELECT url, ticker, role, affects, skip_reason, excerpt_status FROM items WHERE source_key = ?", GAO_KEY)
+    .map((x) => [x.url, [x.ticker, x.role, x.affects, x.skip_reason, x.excerpt_status]]));
+  assert.deepEqual(cov[U(2001, "T")], [t, "program", t, null, "feed"], other ? `another ticker's company (${other}) in the title does not move the row` : "new docket");
+  assert.deepEqual(cov[U(2001, "outcome-T")], [t, "program", t, null, "feed"], "outcome change");
+  assert.deepEqual(cov[U(2002, "T")], [affects[0], "program", affects.join(","), "tag_outside_affects", "feed"]);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = ?", GAO_KEY)[0].n, 0);
+  for (const x of ["incidents", "deliveries", "reports"]) assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM ${x}`)[0].n, 0, x);
+});
