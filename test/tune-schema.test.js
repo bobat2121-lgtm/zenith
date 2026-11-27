@@ -236,6 +236,34 @@ test("tune schema: tune_offsets, tune_meta, tune_history and replay_inputs check
   assert.throws(() => ri.run("syn-replay-missing", "coverage", fb, 85, 60), /FOREIGN KEY/, "replay must exist (D1 enforces foreign keys)");
 });
 
+// Hand-off to P4-F7: the arm's retention trim (replay.js, REPLAY_KEEP) deletes replay_grades and
+// replay_queue, then the replay. replay_inputs is the first table with a foreign key to replays, so
+// that trim fails, and rolls back the whole arm batch, once the trimmed replay has inputs. The trim
+// must delete replay_inputs first (and must never trim the latest passed owner_examples replay).
+// No ON DELETE CASCADE: it would silently drop the live measured set when that replay ages out.
+test("tune schema: a replay with inputs is deleted only after its replay_inputs rows (the arm trim order)", () => {
+  const db = seeded();
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_list(replay_inputs)").all().map((r) => r.on_delete), ["NO ACTION"], "no cascade");
+  const fb = db.prepare("INSERT INTO feedback (item_id, label, owner_score, created_at) VALUES (1, 'medium', 85, ?)").run(NOW).lastInsertRowid;
+  db.prepare("INSERT INTO replay_inputs (replay_id, universe_id, pipeline, feedback_id, owner_score, graded_score) VALUES ('syn-replay-1', 'u1', 'coverage', ?, 85, 60)").run(fb);
+  const batch = (tables) => {   // one transaction, as D1's db.batch
+    db.exec("BEGIN");
+    try {
+      for (const t of tables) db.prepare(`DELETE FROM ${t} WHERE replay_id = ?`).run("syn-replay-1");
+      db.prepare("DELETE FROM replays WHERE id = ?").run("syn-replay-1");
+      db.exec("COMMIT");
+    } catch (e) { db.exec("ROLLBACK"); throw e; }
+  };
+  // main's trim order: refused, and nothing is deleted.
+  assert.throws(() => batch(["replay_grades", "replay_queue"]), /FOREIGN KEY/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM replays WHERE id = 'syn-replay-1'").get().n, 1, "replay kept");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM replay_inputs").get().n, 1, "inputs kept");
+  // replay_inputs first: the trim goes through.
+  batch(["replay_inputs", "replay_grades", "replay_queue"]);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM replays WHERE id = 'syn-replay-1'").get().n, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM replay_inputs").get().n, 0);
+});
+
 test("tune schema: EXPLAIN of the Part F statements uses the planned keys, with no SCAN", () => {
   const db = zenithDb().db;
   const seen = [];
