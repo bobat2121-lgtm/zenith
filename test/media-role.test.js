@@ -199,3 +199,11 @@ test("Z-S0 media_accounts: only program-kind terms of covered tickers, each list
   assert.deepEqual(buildMediaAccounts({}, ["AAA"]), {});
   assert.deepEqual(buildMediaAccounts(null, []), {});
 });
+
+test("Z-S0 the bundled covered.json media_accounts is current with rubric/key-accounts.json", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const bundled = JSON.parse(readFileSync(join(SRC, "covered.json"), "utf8"));
+  const keyAccounts = JSON.parse(readFileSync(join(root, "rubric", "key-accounts.json"), "utf8"));
+  assert.deepEqual(bundled.media_accounts, buildMediaAccounts(keyAccounts, bundled.tickers),
+    "rubric/key-accounts.json changed: run node scripts/sync-covered.mjs <news-monitor tree>");
+});
