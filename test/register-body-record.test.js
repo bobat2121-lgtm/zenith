@@ -91,13 +91,18 @@ test("Z1 feedFields: a 400-character record body on the flagged source is the fe
   assert.ok(plain.fallback, "the body is only the fallback");
 });
 
-test("Z1 feedFields: a 120-character body on the flagged source is still 'feed', excerpt = the body; an empty or blank body gives nothing", () => {
+test("Z1 feedFields: a 120-character body on the flagged source is still 'feed', excerpt = the body; a missing or blank body is final 'skipped_policy' (never fetched)", () => {
   const body = recordBody(120).trim();
   const f = feedFields({ source_key: "legal_test_grants", body: `  ${body}\n`, title: "[TSA] short" }, { role: "program" }, NOW);
   assert.deepEqual([f.status, f.excerpt, f.at], ["feed", body, NOW]);
   for (const b of ["", "   \n ", null, undefined, 42]) {
-    assert.equal(feedFields({ source_key: "legal_test_grants", body: b, title: "[TSA] x" }, { role: "program" }, NOW).status, null, JSON.stringify(b));
+    const g = feedFields({ source_key: "legal_test_grants", body: b, title: "[TSA] x" }, { role: "program" }, NOW);
+    assert.deepEqual([g.status, g.excerpt, g.at, g.source, g.fallback], ["skipped_policy", null, NOW, null, null], JSON.stringify(b));
+    assert.equal(feedFields({ source_key: "reg_test_plain", body: b, title: "[TSA] x" }, { role: "program" }, NOW).status, null, `unflagged ${JSON.stringify(b)}`);
+    assert.equal(feedFields({ body: b, title: "x" }, { role: null }, NOW).status, null, `no key ${JSON.stringify(b)}`);
   }
+  const noBody = feedFields({ source_key: "legal_test_grants", title: "[TSA] x" }, { role: "program" }, NOW);
+  assert.equal(noBody.status, "skipped_policy", "a row read without the body column");
   // The aux argument wins over the bundled catalog (tests only).
   assert.equal(feedFields({ source_key: "reg_test_plain", body, title: "x" }, { role: null }, NOW, { aux: { sources: { reg_test_plain: { body_record: true } } } }).status, "feed");
   // A full body follows the unchanged feed rule, flag or not.
@@ -130,6 +135,34 @@ test("Z1 end to end: flagged rows are stored excerpt_status 'feed' on Coverage, 
   assert.ok(!calls.some((u) => u.includes("www.example.gov")), `no request for a body-record row: ${calls.join(", ")}`);
   assert.ok(calls.some((u) => u.startsWith("https://register.example.org/card/3")), "the unflagged register row is fetched as before");
   // The auxiliary text pass picks no flagged row either (aux rows, if any, carry status 'feed').
+  const auxPicked = db.rows(AUX_TEXT_PICK_SQL.replaceAll("?1", `'${new Date().toISOString()}'`)).filter((r) => r.source_key === "legal_test_grants");
+  assert.equal(auxPicked.length, 0);
+  for (const t of ["incidents", "deliveries", "reports"]) assert.equal(db.rows(`SELECT COUNT(*) AS n FROM ${t}`)[0].n, 0, t);
+});
+
+test("Z1 end to end, no body: read without NEWS's body column, a flagged row is stored final 'skipped_policy' and enrich makes no request for it; the unflagged row is fetched", async () => {
+  const news = newsDb();
+  news.exec("ALTER TABLE items ADD COLUMN body TEXT"); // insertNews writes a body column; it is dropped below
+  const at = new Date(Date.now() - 3_600_000).toISOString();
+  insertNews(news, [
+    { source_key: "legal_test_grants", title: "[TSA] Test early termination granted: \"Tsaco Test Robotics, Inc.\" acquired by Example Holdings LP", first_seen: at, url: "https://www.example.gov/notices#4-TSA" },
+    { source_key: "reg_test_plain", title: "[TSA] Test register card", first_seen: at, url: "https://register.example.org/card/5" },
+  ]);
+  news.exec("ALTER TABLE items DROP COLUMN body"); // newsRows now reads without it (ingest.js newsHasBody)
+  const db = zenithDb();
+  await ingest({ DB: db, NEWS: news });
+  await ingestAux({ DB: db, NEWS: news });
+  const rows = Object.fromEntries(db.rows("SELECT url, ticker, excerpt_status, excerpt, excerpt_at FROM items").map((r) => [r.url, { ...r }]));
+  const flagged = rows["https://www.example.gov/notices#4-TSA"];
+  assert.deepEqual([flagged.ticker, flagged.excerpt_status, flagged.excerpt], ["TSA", "skipped_policy", null]);
+  assert.ok(flagged.excerpt_at, "final: excerpt_at is set, so an admin reset without retry_failed leaves it");
+  assert.equal(rows["https://register.example.org/card/5"].excerpt_status, null);
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); return new Response("", { status: 404 }); };
+  try { await enrich({ DB: db }); } finally { globalThis.fetch = real; }
+  assert.ok(!calls.some((u) => u.includes("www.example.gov")), `no request for a body-record row: ${calls.join(", ")}`);
+  assert.ok(calls.some((u) => u.startsWith("https://register.example.org/card/5")), "the unflagged register row is fetched as before");
   const auxPicked = db.rows(AUX_TEXT_PICK_SQL.replaceAll("?1", `'${new Date().toISOString()}'`)).filter((r) => r.source_key === "legal_test_grants");
   assert.equal(auxPicked.length, 0);
   for (const t of ["incidents", "deliveries", "reports"]) assert.equal(db.rows(`SELECT COUNT(*) AS n FROM ${t}`)[0].n, 0, t);

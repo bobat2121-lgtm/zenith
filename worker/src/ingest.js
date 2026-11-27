@@ -76,14 +76,19 @@ export async function newsRows(news, from, to) {
 // Phase 4 Part D: a body-record register's body (records.js isBodyRecordSource,
 // read from the row's source_key) is the published record, not a summary: it
 // is the excerpt (status 'feed') whatever its length, so enrich never fetches
-// the item URL. `aux` is for tests; production passes none.
+// the item URL. A body-record row with no body (news-monitor served none, or
+// newsRows read without the body column) is never fetched either: it is final
+// as 'skipped_policy' (no request, as enrich's noFetch), graded on its title.
+// `aux` is for tests; production passes none.
 export function feedFields(r, route, now, { budget = EXCERPT_CHARS, aux } = {}) {
   const none = { excerpt: null, status: null, at: null, source: null, fallback: null };
+  const bodyRecord = isBodyRecordSource(r.source_key, aux);
+  const record = typeof r.body === "string" ? r.body.trim() : "";
+  if (bodyRecord && !record) return { ...none, status: "skipped_policy", at: now };
   if (!r.body || typeof r.body !== "string") return none;
   const feed = feedText(r.body, r.title, budget);
   if (feed.full) return { ...none, excerpt: feed.excerpt, status: "feed", at: now };
-  const record = r.body.trim();
-  if (record && isBodyRecordSource(r.source_key, aux)) return { ...none, excerpt: feed.excerpt ?? record.slice(0, budget), status: "feed", at: now };
+  if (bodyRecord) return { ...none, excerpt: feed.excerpt ?? record.slice(0, budget), status: "feed", at: now };
   const pdf = route.role ? null : pdfLinkIn(r.body);
   return { ...none, fallback: feed.excerpt, source: pdf && (!feed.excerpt || isDocumentTitle(r.title)) ? pdf : null };
 }
