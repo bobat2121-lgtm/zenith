@@ -245,15 +245,31 @@ test("fan-out burst guard (Z-C2): four old rows and ten fresh ones in one poll p
   assert.equal(archiveSeedGroups([...old(5), ...fresh]).size, 1);
 });
 
-// The two FMCSA keys come with news-monitor's FMCSA register PR. Both are in
-// the bundled catalog or neither is; the catalog tests below run once they are.
+// The two FMCSA keys come with news-monitor's FMCSA register PR. Whether the
+// catalog tests below run is decided by news-monitor's source list, not by the
+// bundled catalog they check: NEWS_MONITOR_REPO (main + the paired tip at
+// merge time), else the checkout beside zenith, as test/records.test.js finds
+// it. When that tree defines the FMCSA sources, a catalog without them fails.
 const FMCSA_KEYS = ["fmcsa_inspections", "fmcsa_census"];
 const FMCSA_SYNCED = FMCSA_KEYS.filter((k) => Object.hasOwn(COVERED.counterparty, k));
-const NOT_SYNCED = FMCSA_SYNCED.length ? false : "the FMCSA register keys are not in the bundled catalog yet (synced with news-monitor's FMCSA register PR)";
+const { existsSync } = await import("node:fs");
+const { join } = await import("node:path");
+const { fileURLToPath, pathToFileURL } = await import("node:url");
+const ZROOT = fileURLToPath(new URL("..", import.meta.url));
+const NM_ROOT = [process.env.NEWS_MONITOR_REPO, join(ZROOT, "..", "news-monitor-repo"), join(ZROOT, "..", "..", "news-monitor-repo")]
+  .find((p) => p && existsSync(join(p, "src", "sources.js")) && existsSync(join(p, "src", "priority.js")));
+// priority.js appends the register and other generated sources to SOURCES in place, as sync-covered.mjs reads them.
+const NM_SOURCES = NM_ROOT ? (await import(pathToFileURL(join(NM_ROOT, "src", "sources.js")).href)).SOURCES : [];
+if (NM_ROOT) await import(pathToFileURL(join(NM_ROOT, "src", "priority.js")).href);
+const NM_FMCSA = FMCSA_KEYS.filter((k) => NM_SOURCES.some((s) => s.key === k));
+const NOT_SYNCED = NM_FMCSA.length || FMCSA_SYNCED.length ? false
+  : "news-monitor defines no FMCSA register source yet and the bundled catalog has none (they come with news-monitor's FMCSA register PR)";
 
-test("the FMCSA keys are synced together or not at all (Z-C1)", () => {
+test("the FMCSA keys are synced together or not at all, and are synced whenever news-monitor defines them (Z-C1)", () => {
+  assert.ok(NM_FMCSA.length === 0 || NM_FMCSA.length === FMCSA_KEYS.length, `news-monitor defines: ${NM_FMCSA.join(", ")}`);
   assert.ok(FMCSA_SYNCED.length === 0 || FMCSA_SYNCED.length === FMCSA_KEYS.length, `synced: ${FMCSA_SYNCED.join(", ")}`);
   for (const k of FMCSA_KEYS) assert.equal(Object.hasOwn(AUX.sources, k), FMCSA_SYNCED.length > 0, `${k} aux entry`);
+  for (const k of NM_FMCSA) assert.ok(FMCSA_SYNCED.includes(k), `${k} is a news-monitor source but not in covered.json: regenerate against that tree`);
 });
 
 test("the FMCSA keys are program counterparties and register record entries of one fmcsa entity, coverage subjects with their tickers (Z-C1)", { skip: NOT_SYNCED }, () => {
