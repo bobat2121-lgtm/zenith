@@ -137,9 +137,15 @@ function build(deps) {
     // 1. A counterparty twin follows its role: rival -> its affects tickers;
     //    program -> Industry; customer, relationship, index_event -> neither
     //    (the Company page's key accounts own them).
-    if (cls?.startsWith("twin:")) {
-      const role = cls.slice(5);
-      if (role === "rival") return { competitors: inOrder(new Set(tickerList(counterparty[key]?.affects, universe))), industry: false };
+    //    Phase 5: a tag_affects rival twin lists under the row's own stored
+    //    affects (already narrowed to its tag at ingest), never the source's
+    //    affects; a media twin (an outlet) skips this rule and goes on at 2.
+    const role = cls?.startsWith("twin:") ? cls.slice(5) : null;
+    if (role && role !== "media") {
+      if (role === "rival") {
+        const tagged = counterparty[key]?.tag_affects === true || (own(sources, key) && sources[key]?.tag_affects === true);
+        return { competitors: inOrder(new Set(tickerList(tagged ? row?.affects : counterparty[key]?.affects, universe))), industry: false };
+      }
       return { competitors: [], industry: role === "program" };
     }
     // 2. A program source or a register -> Industry.
@@ -151,8 +157,10 @@ function build(deps) {
     const c = competitorsBy();
     if (c.length) return { competitors: c, industry: false };
     // 5. Industry media -> Industry. A coverage-subject filter (a search about
-    //    a covered company) is never industry news (6).
-    if (status === "media" && !row?.coverage_subject) return { competitors: [], industry: true };
+    //    a covered company) is never industry news (6), except an outlet's own
+    //    twin (source role media), which is industry news unless 3-4 made it a
+    //    competitor row.
+    if (status === "media" && (!row?.coverage_subject || role === "media")) return { competitors: [], industry: true };
     // 6. Everything else: neither.
     return { competitors: [], industry: false };
   }

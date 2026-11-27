@@ -25,13 +25,28 @@
 // And worker/src/site-sources.json (scripts/site-sources.mjs): the site-structure
 // watchers and egress probes with the covered ticker each one watches, for the
 // Coverage page's Site changes and source-health strip.
+//
+// Phase 5 (behaviour keyed on the adapter and the flag; no key is named here):
+// - tag_affects: a source whose config.tagAffects is true (its titles start
+//   with the "[T]" tag of the tickers it is about, e.g. the wide-net drain
+//   adapter discovery_drain) carries tag_affects: true on its counterparty
+//   entry and on its auxiliary entry; zenith-core routes it by that tag
+//   (worker/src/ingest.js tagRoute).
+// - role "media": an outlet feed (outlet_feed, ctech_tag, outlet_sitemap) about
+//   the covered companies. Its auxiliary entry has status media and is
+//   coverage_subject; zenith-core keeps a row on Coverage only through the
+//   media gate (ingest.js routeCp), which reads covered.json media_accounts:
+//   per covered ticker, the terms of its program-kind key accounts
+//   (rubric/key-accounts.json).
+//   Usage: node scripts/sync-covered.mjs [--check] <path-to-news-monitor-repo>
+//     --check   write nothing; exit 1 when a generated file on disk differs
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 import { buildSiteSources } from "./site-sources.mjs";
 import { regDomain, hostOf } from "../worker/src/domain.js";
 
-export const ROLES = ["relationship", "customer", "program", "rival", "index_event"];
+export const ROLES = ["relationship", "customer", "program", "rival", "index_event", "media"];
 const upper = (t) => String(t ?? "").trim().toUpperCase();
 const tickerList = (v) => (Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : []).map(upper).filter(Boolean);
 
@@ -82,6 +97,8 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
   };
   for (const s of sourceList) add(s.key, s.role, s.affects, "source");
   for (const s of counterpartySources) add(s.key, s.role, s.affects, "counterparty-sources");
+  // Phase 5: config.tagAffects === true on the source definition.
+  const tagAffects = new Set([...sourceList, ...counterpartySources].filter(isTagAffects).map((s) => s.key));
   for (const [key, v] of Object.entries(existing || {})) add(key, v?.role, v?.affects, "counterparty-existing");
   const byKey = new Map(sourceList.map((s) => [s.key, s]));
   for (const [ticker, list] of Object.entries(rivals || {})) {
@@ -109,6 +126,7 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
     if (dropped.length) warnings.push(`${key}: affects ${dropped.join(", ")} not covered`);
     if (!affects.length) continue;
     counterparty[key] = { role: d.role, affects };
+    if (tagAffects.has(key)) counterparty[key].tag_affects = true;
   }
   return { tickers, sources, counterparty, records, warnings };
 }
@@ -153,11 +171,16 @@ export function isRecordSource(s) {
 // items are graded on the Coverage page and are also coverage_subject
 // auxiliary entries; any other adapter is the outside company's own channel
 // and a plain auxiliary name.
+// Phase 5: the wide-net drain (discovery_drain) and the outlet adapters
+// (outlet_feed, ctech_tag, outlet_sitemap) filter a third-party stream too.
 export const FILTER_ADAPTERS = [
   "rss_filtered", "rss_body_filter", "fpds_atom", "legistar_matters", "wargov_contract_paragraphs",
   "js_list_diff", "js_announcements", "safetyact_awards", "regulations_gov", "federal_register", "csv_filter",
   ...REGISTER_ADAPTERS,
+  "discovery_drain", "outlet_feed", "ctech_tag", "outlet_sitemap",
 ];
+// A source routed by its title's leading tag (phase 5): config.tagAffects === true.
+export const isTagAffects = (s) => s?.config?.tagAffects === true;
 const LANE_STATUS = { public_adjacent: "public", private_adjacent: "private" };
 const COMPANY_STATUS = ["public", "private"];
 
@@ -237,7 +260,8 @@ export function buildAux(sourceList, covered, peers = []) {
     // takes Verkada's name, not "Verkada Product Updates").
     const named = aux.get(entity) || s;
     const name = peer?.name || programName(entity, named, tickers) || shortName(named.name) || humanize(entity);
-    const status = COMPANY_STATUS.includes(peer?.status) ? peer.status
+    const status = counterparty[key]?.role === "media" ? "media"
+      : COMPANY_STATUS.includes(peer?.status) ? peer.status
       : COMPANY_STATUS.includes(s.companyStatus) ? s.companyStatus
       : LANE_STATUS[s.lane] || "program";
     sources[key] = { entity, name, status, lane: s.lane };
@@ -245,6 +269,8 @@ export function buildAux(sourceList, covered, peers = []) {
     if (SEC_ADAPTERS.includes(s.adapter)) sources[key].sec = true;
     if (isRecordSource(s)) sources[key].record = true;
     if (REGISTER_ADAPTERS.includes(s.adapter)) sources[key].register = true;
+    // tag_affects (phase 5): a counterparty key's config.tagAffects, copied as on its counterparty entry.
+    if (isTagAffects(s) && counterparty[key]) sources[key].tag_affects = true;
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
   return { sources, exclude: sortedExclude };
@@ -269,6 +295,22 @@ export function buildChannels(sourceList) {
   return Object.fromEntries(Object.keys(out).sort().map((k) => [k, out[k]]));
 }
 
+// covered.json media_accounts (phase 5 media gate): { TICKER: [terms] } from
+// rubric/key-accounts.json entries of kind "program", covered tickers only,
+// each list sorted, tickers in key order. Terms under 3 characters are left
+// out, as MATCH leaves them out. An empty map is valid.
+export function buildMediaAccounts(keyAccounts, tickers) {
+  const covered = new Set(tickers || []);
+  const out = {};
+  for (const t of Object.keys(keyAccounts || {}).filter((k) => covered.has(k)).sort()) {
+    const list = Array.isArray(keyAccounts[t]) ? keyAccounts[t] : [];
+    const terms = [...new Set(list.filter((e) => e?.kind === "program").flatMap((e) => (Array.isArray(e.terms) ? e.terms : []))
+      .filter((x) => typeof x === "string" && x.trim().length >= 3).map((x) => x.trim()))].sort();
+    if (terms.length) out[t] = terms;
+  }
+  return out;
+}
+
 // The FPDS program, a register, or a covered ticker's co-mention search; else null.
 function programName(entity, named, tickers) {
   if (entity === FPDS.entity) return FPDS.name;
@@ -279,7 +321,14 @@ function programName(entity, named, tickers) {
   return company ? `${company} partner mentions` : null;
 }
 
-async function main(repo) {
+async function main(repo, { check = false } = {}) {
+  // --check: compare instead of writing (the drift test, test/widenet-routing.test.js Z-S3).
+  const drift = [];
+  const verb = check ? "checked" : "wrote";
+  const emit = (target, text) => {
+    if (!check) return writeFileSync(target, text);
+    if (!existsSync(target) || readFileSync(target, "utf8") !== text) drift.push(target);
+  };
   const { SOURCES } = await import(pathToFileURL(join(repo, "src", "sources.js")).href);
   // priority.js mutates SOURCES in place (lanes, covered tickers) and registers
   // every stream's source files when imported.
@@ -292,15 +341,18 @@ async function main(repo) {
   const rivals = existsSync(rivalsPath) ? JSON.parse(readFileSync(rivalsPath, "utf8")) : {};
   const { tickers, sources, counterparty, records, warnings } = buildCovered(SOURCES, { counterpartySources: COUNTERPARTY_SOURCES, existing: COUNTERPARTY_EXISTING, rivals });
   for (const t of tickers) if (!existsSync(join(root, "rubric", "companies", `${t}.md`))) warnings.push(`${t}: covered but has no rubric/companies/${t}.md sheet`);
+  const keyAccountsPath = join(root, "rubric", "key-accounts.json");
+  const keyAccounts = existsSync(keyAccountsPath) ? JSON.parse(readFileSync(keyAccountsPath, "utf8")) : {};
   const out = {
     generated_from: "news-monitor src/priority.js (covered lane and coveredTicker sources) and role/affects on every source (plus src/counterparty-existing.js) and registry/rivals.json",
     tickers, sources, counterparty, records,
     channels: buildChannels(SOURCES),
+    media_accounts: buildMediaAccounts(keyAccounts, tickers),
   };
   const target = join(root, "worker", "src", "covered.json");
-  writeFileSync(target, JSON.stringify(out, null, 2) + "\n");
+  emit(target, JSON.stringify(out, null, 2) + "\n");
   for (const w of warnings) console.log(`warning: ${w}`);
-  console.log(`wrote ${Object.keys(sources).length} sources for ${tickers.length} tickers and ${Object.keys(counterparty).length} counterparty sources -> ${target}`);
+  console.log(`${verb} ${Object.keys(sources).length} sources for ${tickers.length} tickers and ${Object.keys(counterparty).length} counterparty sources -> ${target}`);
 
   const peersPath = join(root, "rubric", "peers.json");
   const peers = existsSync(peersPath) ? JSON.parse(readFileSync(peersPath, "utf8")) : [];
@@ -310,28 +362,34 @@ async function main(repo) {
     ...aux,
   };
   const auxTarget = join(root, "worker", "src", "aux-sources.json");
-  writeFileSync(auxTarget, JSON.stringify(auxOut, null, 2) + "\n");
+  emit(auxTarget, JSON.stringify(auxOut, null, 2) + "\n");
   const count = (values) => values.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {});
   const fmt = (m) => Object.entries(m).map(([k, n]) => `${k} ${n}`).join(", ");
   const entries = Object.values(aux.sources);
   const subject = entries.filter((e) => e.coverage_subject).length;
-  console.log(`wrote ${entries.length} auxiliary sources for ${new Set(entries.map((e) => e.entity)).size} entities (${fmt(count(entries.map((e) => e.status)))}; ${subject} coverage_subject) and ${Object.keys(aux.exclude).length} exclusions (${fmt(count(Object.values(aux.exclude)))}) -> ${auxTarget}`);
+  console.log(`${verb} ${entries.length} auxiliary sources for ${new Set(entries.map((e) => e.entity)).size} entities (${fmt(count(entries.map((e) => e.status)))}; ${subject} coverage_subject) and ${Object.keys(aux.exclude).length} exclusions (${fmt(count(Object.values(aux.exclude)))}) -> ${auxTarget}`);
 
   // Site-structure watchers and egress probes -> covered tickers (Coverage page health strip and Site changes).
   const site = buildSiteSources(SOURCES, tickers);
   const siteTarget = join(root, "worker", "src", "site-sources.json");
-  writeFileSync(siteTarget, JSON.stringify({
+  emit(siteTarget, JSON.stringify({
     generated_from: "news-monitor SOURCES after src/priority.js: site_structure watchers (src/site-structure-sources.js) and probes (src/probe-sources.js), config.ticker kept when covered",
     ...site,
   }, null, 2) + "\n");
-  console.log(`wrote ${Object.keys(site.sites).length} site watchers and ${Object.keys(site.probes).length} probes -> ${siteTarget}`);
+  console.log(`${verb} ${Object.keys(site.sites).length} site watchers and ${Object.keys(site.probes).length} probes -> ${siteTarget}`);
+  if (check) {
+    for (const f of drift) console.error(`drift: ${f} differs from a fresh sync`);
+    if (drift.length) process.exit(1);
+    console.log("check: covered.json, aux-sources.json and site-sources.json match a fresh sync (nothing written)");
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const repo = process.argv[2];
+  const args = process.argv.slice(2);
+  const repo = args.find((a) => !a.startsWith("--"));
   if (!repo) {
-    console.error("usage: node scripts/sync-covered.mjs <news-monitor-repo>");
+    console.error("usage: node scripts/sync-covered.mjs [--check] <news-monitor-repo>");
     process.exit(2);
   }
-  await main(repo);
+  await main(repo, { check: args.includes("--check") });
 }

@@ -399,3 +399,51 @@ test("register adapters (Z5): record, register and coverage_subject true, one pr
   for (const key of Object.keys(want)) assert.ok(!(key in channels), `${key} has no channel`);
   assert.deepEqual(Object.keys(channels), ["otherco", "testco"]);
 });
+
+// Phase 5 P5-ZR (Z-W4): config.tagAffects === true is copied as tag_affects to the
+// counterparty entry and to its aux entry (one rule for phases 4 and 5); the
+// drain and outlet adapters are filters; every other source is unchanged.
+const TAG_LIST = [
+  { key: "testco", lane: "covered", covered: true, coveredTicker: "RCAT" },
+  { key: "otherco", lane: "covered", covered: true, coveredTicker: "KDK" },
+  { key: "drain_rel", lane: "strategic_noncompany", adapter: "discovery_drain", endpoint: "https://feed.example.com/x/", name: "Drain rel",
+    role: "relationship", affects: ["RCAT", "KDK", "ZZZ"], config: { tagAffects: true } },
+  { key: "drain_rival", lane: "strategic_noncompany", adapter: "discovery_drain", endpoint: "https://feed.example.com/x/", name: "Drain rival",
+    role: "rival", affects: ["RCAT", "KDK"], config: { tagAffects: true } },
+  { key: "drain_plain", lane: "strategic_noncompany", adapter: "discovery_drain", endpoint: "https://feed.example.com/x/", name: "Drain plain", config: { tagAffects: true } },
+  { key: "reg_tagged", lane: "strategic_noncompany", adapter: "txdmv_av_report", endpoint: "https://vehicles.example.org/r", name: "Tagged register",
+    role: "program", affects: ["KDK"], config: { tagAffects: true } },
+  { key: "not_strict", lane: "strategic_noncompany", adapter: "rss_filtered", endpoint: "https://feed.example.com/y", name: "Not strict",
+    role: "program", affects: ["RCAT"], config: { tagAffects: "yes" } },
+  { key: "untagged", lane: "strategic_noncompany", adapter: "rss_filtered", endpoint: "https://feed.example.com/z", name: "Untagged", role: "program", affects: ["RCAT"] },
+];
+
+test("Z-W4 tag_affects: config.tagAffects === true is copied to the counterparty and the aux entry; drain and outlet adapters are filters; others carry no flag", () => {
+  for (const a of ["discovery_drain", "outlet_feed", "ctech_tag", "outlet_sitemap"]) assert.ok(FILTER_ADAPTERS.includes(a), a);
+  const covered = buildCovered(TAG_LIST);
+  assert.deepEqual(covered.counterparty.drain_rel, { role: "relationship", affects: ["RCAT", "KDK"], tag_affects: true });
+  assert.deepEqual(covered.counterparty.drain_rival, { role: "rival", affects: ["RCAT", "KDK"], tag_affects: true });
+  assert.deepEqual(covered.counterparty.reg_tagged, { role: "program", affects: ["KDK"], tag_affects: true });
+  assert.deepEqual(covered.counterparty.not_strict, { role: "program", affects: ["RCAT"] }, "only a literal true sets the flag");
+  assert.deepEqual(covered.counterparty.untagged, { role: "program", affects: ["RCAT"] });
+  assert.ok(!("drain_plain" in covered.counterparty));
+  const { sources } = buildAux(TAG_LIST, covered, []);
+  assert.deepEqual(sources.drain_rel, { entity: "drain_rel", name: "Drain rel", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["RCAT", "KDK"], tag_affects: true });
+  assert.deepEqual(sources.drain_rival, { entity: "drain_rival", name: "Drain rival", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["RCAT", "KDK"], tag_affects: true });
+  assert.equal(sources.reg_tagged.tag_affects, true);
+  assert.equal(sources.reg_tagged.register, true);
+  assert.deepEqual(sources.drain_plain, { entity: "drain_plain", name: "Drain plain", status: "program", lane: "strategic_noncompany" },
+    "a drain source without a role is a plain aux entry, with no flag");
+  for (const k of ["not_strict", "untagged"]) assert.equal(sources[k].tag_affects, undefined, k);
+  // The same list without any config flag: identical output minus the flags.
+  const bare = TAG_LIST.map(({ config, ...s }) => s);
+  const c2 = buildCovered(bare);
+  for (const e of Object.values(c2.counterparty)) assert.equal(e.tag_affects, undefined);
+  const a2 = buildAux(bare, c2, []).sources;
+  for (const [k, e] of Object.entries(sources)) {
+    const { tag_affects, ...rest } = e;
+    assert.deepEqual(a2[k], rest, k);
+  }
+});

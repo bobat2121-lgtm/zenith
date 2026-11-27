@@ -13,7 +13,7 @@
 // PDF. A news-monitor-db without the column is detected and read as before:
 // ingest never fails over it.
 import COVERED from "./covered.json";
-import { MATCH } from "./rubric.generated.js";
+import { MATCH, COVERED_NAMES } from "./rubric.generated.js";
 import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiveGroupKey, archiveSeedGroups, arrivalGate, isSecItem } from "./lib.js";
 import { feedText, pdfLinkIn, isDocumentTitle, EXCERPT_CHARS } from "./excerpt.js";
 import { textClass, visibleBudgets } from "./text-class.js";
@@ -181,20 +181,85 @@ export function parkGroupStatement(db, table, { sourceKey, firstSeen, cursor, se
 // affects), or one with no routable ticker. Decided from routing, never from
 // a stored skip_reason, so a coverage-owned row that Coverage parks (stale,
 // archive, muted, bad_url) is not stored on Auxiliary either.
+// A row of a tag_affects source whose tag is outside its affects is stored on
+// Coverage as skipped (countable, never graded) and Auxiliary never stores it.
 export function coverageOwner(r) {
   if (isOwnLane(r.source_key)) return { owns: true };
   const cp = COUNTERPARTY[r.source_key];
   if (!cp) return { owns: false };
-  const route = routeCounterparty(r.title, cp, MATCH);
+  const route = routeFor(r, cp);
   if (!route?.ticker) return { owns: false };
-  return route.skip ? { owns: false, dropped: route.skip, affects: [...(cp.affects || [])] } : { owns: true };
+  if (route.skip === TAG_OUTSIDE) return { owns: true };
+  // A dropped tag_affects row keeps only its tagged tickers (tagRoute narrowed them).
+  const affects = cp.tag_affects ? String(route.affects || "").split(",").filter(Boolean) : [...(cp.affects || [])];
+  return route.skip ? { owns: false, dropped: route.skip, affects } : { owns: true };
 }
 
 // Ticker, role and skip reason for one news-monitor row.
 export function routeRow(r) {
   const cp = COUNTERPARTY[r.source_key];
   if (!cp) return { ticker: COVERED.sources[r.source_key], role: null, affects: null, skip: null };
-  return routeCounterparty(r.title, cp, MATCH);
+  return routeFor(r, cp);
+}
+
+// --- Phase 5: routing for tagged and media rows ------------------------------
+// One helper for every counterparty row, keyed on the catalog entry's flags
+// (sync-covered.mjs), never on a source key. A key carries at most one flag;
+// the order is tag narrowing (tag_affects), then the media gate (role
+// "media"); any other counterparty row is routeCounterparty, unchanged.
+export const TAG_OUTSIDE = "tag_outside_affects";
+const LEAD_GROUP = /^\s*\[([^\]]*)\]\s*/;
+const LEAD_TAG = /^\[([A-Z][A-Z0-9.]{0,7}(?:\/[A-Z][A-Z0-9.]{0,7})*)\]/;
+
+// A tag_affects source (cp.tag_affects: its title starts with the tag of the
+// tickers it is about, "[T]" or "[T/U]"): only the first leading [...] group is
+// read, then stripped, so the tag can never be a company-term match; the row
+// is routed among the tagged tickers that are in the source's affects. With
+// none, it is stored skipped tag_outside_affects under affects[0]: never
+// graded, never on Auxiliary. A dropped rival row's affects are the tagged ones.
+export function tagRoute(r, cp, match = MATCH) {
+  const title = String(r?.title || "");
+  const group = LEAD_GROUP.exec(title);
+  const tags = group ? group[1].split("/").map((t) => t.trim().toUpperCase()).filter(Boolean) : [];
+  const affects = cp?.affects || [];
+  const tagged = [...new Set(tags)].filter((t) => affects.includes(t));
+  if (!tagged.length) return { ticker: affects[0] ?? null, role: cp?.role || "counterparty", affects: affects.join(","), skip: TAG_OUTSIDE };
+  return routeCounterparty(group ? title.slice(group[0].length) : title, { ...cp, affects: tagged }, match);
+}
+
+// An outlet article (role "media") is on Coverage only when news-monitor's
+// press matcher tagged it [T] (T in affects), or its title names T's own name
+// (COVERED_NAMES, corporate suffix stripped) or a program-kind key account of T
+// (covered.json media_accounts). Everything else is the skipped stub on
+// Coverage and a coverage_subject row on Auxiliary: graded there, never lost.
+// The stub keeps rival_no_key_account so the existing rescue and aux-band SQL
+// work unchanged.
+const stripSuffix = (n) => String(n).replace(/,?\s+(?:Inc\.?|Corp\.?|Corporation|Ltd\.?|LLC|plc)$/i, "").replace(/\s+(?:Holdings|Group)$/i, "");
+// A stripped name that is now one bare word is kept only when MATCH already
+// uses that word as a term; otherwise the full legal name stays, so a legal
+// name that strips to a common word never gates outlet headlines by itself.
+const mediaName = (n, terms) => {
+  const full = String(n), s = stripSuffix(full);
+  if (s === full || /\s/.test(s.trim())) return s;
+  return (terms || []).some((x) => String(x).toLowerCase() === s.toLowerCase()) ? s : full;
+};
+export function mediaMatch(match = MATCH, names = COVERED_NAMES, programs = COVERED.media_accounts || {}) {
+  const out = {};
+  for (const t of Object.keys(match || {})) out[t] = { terms: [...new Set((names?.[t] || []).map((n) => mediaName(n, match[t]?.terms)))], accounts: programs?.[t] || [] };
+  return out;
+}
+const MEDIA_MATCH = mediaMatch();
+export function routeCp(title, cp, match = MATCH, media = MEDIA_MATCH) {
+  if (cp?.role !== "media") return routeCounterparty(title, cp, match);
+  const g = routeCounterparty(title, { ...cp, role: "rival" }, media);
+  if (!g) return g;
+  const tag = (String(title || "").match(LEAD_TAG) || [])[1];
+  const tagged = tag ? tag.split("/").some((t) => (cp.affects || []).includes(t)) : false;
+  return { ...g, role: "media", skip: tagged ? null : g.skip };
+}
+export function routeFor(r, cp, match = MATCH, media = MEDIA_MATCH) {
+  if (cp?.tag_affects) return tagRoute(r, cp, match);
+  return routeCp(r?.title, cp, match, media);
 }
 
 export async function ingest(env) {
