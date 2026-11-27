@@ -401,3 +401,68 @@ for (const k of PART_B_KEYS) {
     for (const t of ["incidents", "deliveries", "reports"]) assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM ${t}`)[0].n, 0, t);
   });
 }
+
+// Phase 4 Part D (Z3): the FTC early-termination register key, synced from
+// news-monitor by scripts/sync-covered.mjs. As for FMCSA and Part B above,
+// whether the catalog cases run is decided by news-monitor's source list
+// (NEWS_MONITOR_REPO, else the checkout beside zenith). Key name only; its
+// tickers are read from the generated file and news-monitor's tree, never
+// written here; titles, parties, numbers and URLs are synthetic.
+const { isBodyRecordSource } = await import("../worker/src/records.js");
+const FTC_KEY = "ftc_hsr_early_termination";
+const NM_FTC = NM_SOURCES.find((s) => s.key === FTC_KEY) || null;
+const FTC_SYNCED = Object.hasOwn(COVERED.counterparty, FTC_KEY);
+const ftcSkip = NM_FTC || FTC_SYNCED ? false
+  : "news-monitor defines no FTC early-termination source yet and the bundled catalog has none (it comes with news-monitor's FTC register PR)";
+
+test("the FTC register key is synced whenever news-monitor defines it, with its aux entry, or not at all (Z3)", () => {
+  if (NM_FTC) assert.ok(FTC_SYNCED, `${FTC_KEY} is a news-monitor source but not in covered.json: regenerate against that tree`);
+  assert.equal(Object.hasOwn(AUX.sources, FTC_KEY), FTC_SYNCED, "the counterparty and aux entries come together");
+  for (const [k, a] of Object.entries(AUX.sources)) if (a.body_record !== undefined) assert.equal(a.body_record, true, `${k}: the flag is only ever true`);
+});
+
+test("the FTC register key is a tag_affects program counterparty and a register record entry with body_record, a coverage subject with its tickers (Z3)", { skip: ftcSkip }, () => {
+  const cp = COVERED.counterparty[FTC_KEY];
+  assert.deepEqual(Object.keys(cp), ["role", "affects", "tag_affects"]);
+  assert.equal(cp.role, "program");
+  assert.equal(cp.tag_affects, true);
+  assert.ok(cp.affects.length > 0 && cp.affects.every((t) => COVERED.tickers.includes(t)));
+  if (NM_FTC) {
+    const list = Array.isArray(NM_FTC.affects) ? NM_FTC.affects : String(NM_FTC.affects || "").split(",");
+    const want = [...new Set(list.map((t) => String(t).trim().toUpperCase()))].filter((t) => COVERED.tickers.includes(t));
+    assert.deepEqual(cp.affects, want, "news-monitor's affects, covered tickers only");
+    assert.equal(NM_FTC.config?.tagAffects, true, "the flag comes from the source's config.tagAffects");
+  }
+  assert.ok(!Object.hasOwn(COVERED.sources, FTC_KEY) && !Object.hasOwn(COVERED.channels, FTC_KEY));
+  assert.deepEqual(AUX.sources[FTC_KEY], { entity: "ftc_hsr", name: "FTC HSR early terminations", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: cp.affects, record: true, register: true, tag_affects: true, body_record: true });
+  assert.ok(!Object.hasOwn(AUX.exclude, FTC_KEY));
+  assert.equal(isRecordSource(FTC_KEY), true);
+  assert.equal(isRegisterSource(FTC_KEY), true);
+  assert.equal(isBodyRecordSource(FTC_KEY), true);
+});
+
+test("FTC rows on Coverage (Z3, bundled catalog): each lands under its tag with only that ticker as affects and its body as the feed excerpt; an untagged row is skipped tag_outside_affects; none on Auxiliary; no Discord rows", { skip: ftcSkip }, async () => {
+  const env = newEnv();
+  env.NEWS.exec("ALTER TABLE items ADD COLUMN body TEXT");
+  const affects = COVERED.counterparty[FTC_KEY].affects;
+  const t = affects[affects.length - 1];
+  const body = (n) => [`Test early termination granted 11/20/2026, posted 2026-11-24T15:00:00Z (transaction ${n}).`,
+    "Acquiring party: Example Fund LP. Acquired party: Example Target, Inc.; acquired entities: Example Target, Inc.",
+    "Matched party: Example Target, Inc. (via name). Early termination is granted only when the parties ask for it; most filings never appear here.",
+    "Source: test early termination notices API."].join("\n");
+  const add = (n, title, published, first_seen) => env.NEWS.db.prepare("INSERT INTO items (source_key, url, title, published, category, first_seen, notified, body) VALUES (?, ?, ?, ?, 'REGULATORY', ?, 1, ?)")
+    .run(FTC_KEY, `https://www.example.gov/early-termination-notices#${n}-T`, title, published, first_seen, body(n));
+  add(1001, `[${t}] Test early termination granted 11/20/2026: "Example Target, Inc." acquired by Example Fund LP (transaction 1001)`, ago(5), SEEN);
+  add(1002, `[${t}] Test early termination granted 11/24/2026: "Example Target, Inc." acquired by Example Fund LP (transaction 1002)`, ago(1, LATER), LATER);
+  add(1003, "Test early termination granted 11/24/2026: \"Example Target, Inc.\" acquired by Example Fund LP (transaction 1003)", ago(1, LATER), LATER);
+  await ingest(env);
+  await ingestAux(env);
+  const cov = Object.fromEntries(env.DB.rows("SELECT url, ticker, role, affects, skip_reason, excerpt_status FROM items WHERE source_key = ?", FTC_KEY)
+    .map((x) => [x.url.split("#")[1].split("-")[0], [x.ticker, x.role, x.affects, x.skip_reason, x.excerpt_status]]));
+  assert.deepEqual(cov[1001], [t, "program", t, null, "feed"]);
+  assert.deepEqual(cov[1002], [t, "program", t, null, "feed"]);
+  assert.deepEqual(cov[1003], [affects[0], "program", affects.join(","), "tag_outside_affects", "feed"]);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = ?", FTC_KEY)[0].n, 0);
+  for (const x of ["incidents", "deliveries", "reports"]) assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM ${x}`)[0].n, 0, x);
+});
