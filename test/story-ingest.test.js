@@ -13,6 +13,8 @@ const { ingestAux } = await import("../worker/src/auxiliary.js");
 const { releaseHeld, fastPathCounts, heldCounts, storyOrphans, releasedToday } = await import("../worker/src/budget.js");
 const { enrich } = await import("../worker/src/excerpt.js");
 const { storyKeys, findCanonicals, storyPlanner, rankOf } = await import("../worker/src/story.js");
+const { mobile } = await import("../worker/src/mobile.js");
+const COVERED = (await import("../worker/src/covered.json", { with: { type: "json" } })).default;
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -249,7 +251,12 @@ test("B-T21 a story_dup row is never claimed, shown, released, counted or fetche
   assert.ok((await ids("/v1/aux/feed?order=newest&include_skipped=1")).includes(auxCopy));
   const brief = (await request(worker, env, "GET", `/v1/brief?since=${encodeURIComponent(ago(DAY))}`, { role: "app" })).body;
   assert.ok(!brief.waiting.items.some((i) => i.item_id === copy));
-  const page = await (await worker.fetch(new Request("https://zenith.test/m?days=7", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), env)).text();
+  // Phase 3 PR-PA5: GET /m is an empty 302 to the portal, so the old page is checked on the mobile() handler with the covered universe.
+  const m = await mobile(new Request("https://zenith.test/m?days=7", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), env,
+    new URL("https://zenith.test/m?days=7"), { tickers: COVERED.tickers });
+  assert.equal(m.status, 200);
+  const page = await m.text();
+  assert.ok(page.includes(`id="i${cov(env, a).id}"`), "the canonical is on the page");
   assert.ok(!page.includes(`id="i${copy}"`));
   // heldCounts counts only the earlier polls' seed_fresh rows, never a copy.
   assert.deepEqual(await heldCounts(env.DB), { coverage: 2, aux: 2 });

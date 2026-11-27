@@ -658,6 +658,7 @@ export default {
       return portal(request, env, url, { feedback: (b, w) => feedback(env, b, w), auxFeedback: (b, w) => auxFeedback(env, b, w),
         tickers: COVERED.tickers, muted: MUTED_SQL, ctx });
     }
+    if (url.pathname.replace(/\/+$/, "") === "/m" && request.method === "GET") return new Response(null, { status: 302, headers: { location: "/p/today", "cache-control": "no-store" } }); // Phase 3 A-O7: /m opens the portal; POST /m/feedback stays
     if (url.pathname === "/m" || url.pathname.startsWith("/m/")) {
       return mobile(request, env, url, { feedback: (body, w) => feedback(env, body, w), tickers: COVERED.tickers });
     }

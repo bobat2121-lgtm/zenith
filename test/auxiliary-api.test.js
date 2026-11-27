@@ -13,6 +13,8 @@ const { default: worker } = await import("../worker/src/index.js");
 const { AUX_RUBRIC, AUX_RUBRIC_VERSION, RUBRIC_VERSION } = await import("../worker/src/rubric.generated.js");
 const { AUX_MAX_CLAIM } = await import("../worker/src/auxiliary.js");
 const { LEASE_MINUTES, MAX_ATTEMPTS, bandFor } = await import("../worker/src/lib.js");
+const { mobile } = await import("../worker/src/mobile.js");
+const COVERED = (await import("../worker/src/covered.json", { with: { type: "json" } })).default;
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -528,8 +530,13 @@ test("coverage endpoints, the claim queue and Lead pushes are the same with or w
     }
     assert.deepEqual(stable(b), stable(a), path);
   }
-  const page = async (env) => (await worker.fetch(new Request("https://zenith.test/m", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), env)).text();
-  assert.doesNotMatch(await page(mixed), /Anduril/, "the phone page is coverage only");
+  // Phase 3 PR-PA5: GET /m is an empty 302 to the portal, so the old page is checked on the mobile() handler with the covered universe.
+  const m = await mobile(new Request("https://zenith.test/m", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), mixed,
+    new URL("https://zenith.test/m"), { tickers: COVERED.tickers });
+  assert.equal(m.status, 200);
+  const mPage = await m.text();
+  assert.match(mPage, /Red Cat webinar/, "the phone page shows the coverage row");
+  assert.doesNotMatch(mPage, /Anduril/, "the phone page is coverage only");
   // Coverage claims and grades see coverage items only.
   const cc = (await request(worker, mixed, "POST", "/v1/queue/claim", { role: "grader", body: { limit: 50, run_id: "cov-run" } })).body;
   assert.deepEqual(cc.items.map((i) => i.title), ["Red Cat webinar"]);
