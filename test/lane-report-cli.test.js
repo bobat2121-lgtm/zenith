@@ -211,3 +211,38 @@ test("L3 pubtimeSample: obeys robots.txt per host, waits between requests, repor
   assert.equal(sleeps.length, calls.length - 1);
   assert.ok(sleeps.every((t) => t >= 3000));
 });
+
+test("L3 pubtimeSample: redirects are not followed blindly; robots.txt of each host a redirect names is read and obeyed first", async () => {
+  const calls = [], sleeps = [];
+  const page = (iso) => `<html><head><meta property="article:published_time" content="${iso}"></head></html>`;
+  const moved = (to) => new Response(null, { status: 301, headers: { location: to } });
+  const fetchImpl = async (url, init) => {
+    calls.push([url, init.redirect]);
+    const u = new URL(url);
+    if (u.pathname === "/robots.txt") {
+      if (u.host === "closed.example.com") return new Response("User-agent: *\nDisallow: /\n");
+      if (u.host === "bounce.example.com") return moved("https://elsewhere.example.com/404");
+      return new Response("", { status: 404 });
+    }
+    if (u.host === "start.example.com" && u.pathname === "/to-closed") return moved("https://closed.example.com/story");
+    if (u.host === "start.example.com" && u.pathname === "/to-open") return moved("/moved");
+    if (u.host === "start.example.com" && u.pathname === "/moved") return moved("https://open.example.com/story");
+    if (u.host === "open.example.com") return new Response(page(T(9)));
+    return new Response("<p>no time</p>");
+  };
+  const pool = [
+    { url: "https://start.example.com/to-closed", published: T(10) },
+    { url: "https://start.example.com/to-open", published: T(10) },
+    { url: "https://bounce.example.com/story", published: T(10) },
+  ];
+  const r = await R.pubtimeSample(pool, 3, { fetchImpl, sleep: async (t) => { sleeps.push(t); }, random: () => 0.999 });
+  assert.deepEqual(r, { requested: 3, read: 1, robots_refused: 2, failed: 0, offset_median_h: 1 });
+  assert.ok(calls.every(([, mode]) => mode === "manual"), "no request follows redirects itself");
+  assert.ok(calls.some(([u]) => u === "https://closed.example.com/robots.txt"));
+  assert.ok(!calls.some(([u]) => u === "https://closed.example.com/story"), "a page behind a disallowing host is never requested");
+  assert.ok(!calls.some(([u]) => u.startsWith("https://elsewhere.example.com")), "a redirecting robots.txt is a refusal, not followed");
+  assert.equal(calls.filter(([u]) => u === "https://start.example.com/robots.txt").length, 1, "one robots.txt read per host across hops");
+  assert.ok(calls.some(([u]) => u === "https://open.example.com/story"));
+  assert.equal(sleeps.length, calls.length - 1);
+  assert.ok(sleeps.every((t) => t >= 3000));
+});

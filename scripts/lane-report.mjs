@@ -135,8 +135,11 @@ const noTable = (e) => /no such table/i.test(String(e?.message ?? e));
 // --- L3: the opt-in publication-time sample -------------------------------------
 const UA = "zenith-lag-check/1.0";
 const CAP_BYTES = 400 * 1024;
+const MAX_HOPS = 5;
+// One GET, redirects not followed (the caller checks robots.txt for the host a
+// redirect names before it follows), body read to the cap.
 async function politeGet(url, fetchImpl) {
-  const res = await fetchImpl(url, { headers: { "user-agent": UA }, redirect: "follow", signal: AbortSignal.timeout(5000) });
+  const res = await fetchImpl(url, { headers: { "user-agent": UA }, redirect: "manual", signal: AbortSignal.timeout(5000) });
   let text = "";
   if (res.body?.getReader) {
     const reader = res.body.getReader();
@@ -152,37 +155,51 @@ async function politeGet(url, fetchImpl) {
   } else {
     text = (await res.text()).slice(0, CAP_BYTES);
   }
-  return { status: res.status, text };
+  return { status: res.status, text, location: res.headers?.get?.("location") ?? null };
 }
-// For N random pool rows: robots.txt read once per host and obeyed, at least
-// 3 s between any two requests, 5 s timeout, 400 KB cap. Returns the median of
-// stored published minus the page's stated time, in hours.
+// For N random pool rows: robots.txt read once per host and obeyed, for the
+// page and for every host a redirect leads to (at most 5 hops, each checked
+// before it is requested), at least 3 s between any two requests, 5 s
+// timeout, 400 KB cap. A robots.txt that redirects or errors counts as a
+// refusal; a 404 or 410 allows everything. Returns the median of stored
+// published minus the page's stated time, in hours.
 export async function pubtimeSample(pool, n, { fetchImpl = fetch, sleep = (t) => new Promise((r) => setTimeout(r, t)), random = Math.random, gapMs = 3000 } = {}) {
   const picks = pool.slice();
   for (let i = picks.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [picks[i], picks[j]] = [picks[j], picks[i]]; }
   const robots = new Map();
   let requests = 0;
   const get = async (url) => { if (requests++) await sleep(gapMs); return politeGet(url, fetchImpl); };
-  const out = { requested: Math.min(n, picks.length), read: 0, robots_refused: 0, failed: 0, offsets_h: [] };
-  for (const row of picks.slice(0, n)) {
-    let u;
-    try { u = new URL(row.url); } catch { out.failed++; continue; }
-    if (!robots.has(u.host)) {
+  const allowed = async (u) => {
+    const origin = `${u.protocol}//${u.host}`;
+    if (!robots.has(origin)) {
       let allowAll = null, txt = "";
       try {
-        const r = await get(`${u.protocol}//${u.host}/robots.txt`);
+        const r = await get(`${origin}/robots.txt`);
         if (r.status === 404 || r.status === 410) allowAll = true;
         else if (r.status >= 200 && r.status < 300) txt = r.text;
         else allowAll = false;
       } catch { allowAll = false; }
-      robots.set(u.host, { allowAll, txt });
+      robots.set(origin, { allowAll, txt });
     }
-    const rb = robots.get(u.host);
-    const ok = rb.allowAll ?? M.robotsAllows(rb.txt, u.pathname + u.search, UA);
-    if (!ok) { out.robots_refused++; continue; }
+    const rb = robots.get(origin);
+    return rb.allowAll ?? M.robotsAllows(rb.txt, u.pathname + u.search, UA);
+  };
+  const out = { requested: Math.min(n, picks.length), read: 0, robots_refused: 0, failed: 0, offsets_h: [] };
+  for (const row of picks.slice(0, n)) {
+    let u;
+    try { u = new URL(row.url); } catch { out.failed++; continue; }
     try {
-      const r = await get(row.url);
-      const page = r.status >= 200 && r.status < 300 ? M.pagePublished(r.text) : null;
+      let r = null, refused = false;
+      for (let hop = 0; hop <= MAX_HOPS; hop++) {
+        if (u.protocol !== "https:" && u.protocol !== "http:") break;
+        if (!(await allowed(u))) { refused = true; break; }
+        r = await get(u.href);
+        if (!(r.status >= 300 && r.status < 400 && r.location)) break;
+        u = new URL(r.location, u);
+        r = null;
+      }
+      if (refused) { out.robots_refused++; continue; }
+      const page = r && r.status >= 200 && r.status < 300 ? M.pagePublished(r.text) : null;
       const stored = Date.parse(row.published);
       if (!page || !Number.isFinite(stored)) { out.failed++; continue; }
       out.read++;
