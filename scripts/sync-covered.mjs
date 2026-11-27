@@ -150,13 +150,19 @@ export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
 // holds their fresh rows inside the grading budget (lib.js arrivalGate
 // 'register'). They are records and coverage-subject filters, and each
 // register is one program entity, as the FPDS feeds are.
-export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report"];
+// Phase 4 (Part C): the FMCSA inspection and census registers, matched on
+// carrier identifiers, share one program entity.
+export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census"];
 export const REGISTERS = {
   lda_registrations: { entity: "lda", name: "LDA lobbying filings" },
   lda_reports: { entity: "lda", name: "LDA lobbying filings" },
   txdmv_av_report: { entity: "txdmv_av", name: "Texas DMV AV authorizations" },
+  fmcsa_inspections: { entity: "fmcsa", name: "FMCSA inspection and census records" },
+  fmcsa_census: { entity: "fmcsa", name: "FMCSA inspection and census records" },
 };
-export const RECORD_ADAPTERS = ["fpds_atom", "legistar_matters", "wargov_contract_paragraphs", "safetyact_awards", "regulations_gov", "federal_register", ...REGISTER_ADAPTERS];
+// Phase 4 (Part C): legistar_fanout (one source over many council clients) is
+// a record adapter and a filter, as legistar_matters is.
+export const RECORD_ADAPTERS = ["fpds_atom", "legistar_matters", "legistar_fanout", "wargov_contract_paragraphs", "safetyact_awards", "regulations_gov", "federal_register", ...REGISTER_ADAPTERS];
 export const OFFICIAL_HOST_RE = /(^|\.)(gov|mil)$|\.gov\.[a-z]{2}$|(^|\.)legistar\.com$|(^|\.)canada\.ca$|(^|\.)fmv\.se$/i;
 const STRATEGIC_LANES = ["strategic_noncompany", "strategic_fast_noncompany"];
 export function isRecordSource(s) {
@@ -174,7 +180,7 @@ export function isRecordSource(s) {
 // Phase 5: the wide-net drain (discovery_drain) and the outlet adapters
 // (outlet_feed, ctech_tag, outlet_sitemap) filter a third-party stream too.
 export const FILTER_ADAPTERS = [
-  "rss_filtered", "rss_body_filter", "fpds_atom", "legistar_matters", "wargov_contract_paragraphs",
+  "rss_filtered", "rss_body_filter", "fpds_atom", "legistar_matters", "legistar_fanout", "wargov_contract_paragraphs",
   "js_list_diff", "js_announcements", "safetyact_awards", "regulations_gov", "federal_register", "csv_filter",
   ...REGISTER_ADAPTERS,
   "discovery_drain", "outlet_feed", "ctech_tag", "outlet_sitemap",
