@@ -19,6 +19,7 @@ import { page, htmlResponse, messagePage, errorPage, newNonce, portalHeaders } f
 import { staticResponse } from "./portal-static.js";
 import { stub, companiesIndex } from "./portal-stub.js";
 import { todayView } from "./portal-today.js";
+import { searchView } from "./portal-search.js";
 import { companyView } from "./portal-company.js";
 import { competitorsPage, industryPage, rarePage } from "./views-page.js";
 import { briefView } from "./portal-brief.js";
@@ -31,7 +32,7 @@ export const VIEWS = {
   competitors: competitorsPage,
   industry: industryPage,
   rare: rarePage,
-  search: stub("search"),
+  search: searchView,
   brief: briefView,
 };
 
