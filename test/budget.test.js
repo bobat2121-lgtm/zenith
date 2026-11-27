@@ -13,6 +13,8 @@ const { releaseHeld, budgetSettings, utcDayStart } = await import("../worker/src
 const { heartbeatChecks } = await import("../worker/src/delivery.js");
 const { enrich } = await import("../worker/src/excerpt.js");
 const { ingest } = await import("../worker/src/ingest.js");
+const { mobile } = await import("../worker/src/mobile.js");
+const COVERED = (await import("../worker/src/covered.json", { with: { type: "json" } })).default;
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -225,7 +227,9 @@ test("feeds (coverage, aux, /m) hide held rows, also with state=pending, unless 
   assert.deepEqual(await feedIds("/v1/aux/feed"), [aFresh]);
   assert.deepEqual(await feedIds("/v1/aux/feed?state=pending"), [aFresh]);
   assert.deepEqual(await feedIds("/v1/aux/feed?include_held=1"), [aFresh, aHeld]);
-  const m = await worker.fetch(new Request("https://zenith.test/m", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), env);
+  // Phase 3 PR-PA5: GET /m is a 302 to the portal; the old page code in mobile.js is checked on its handler, with the covered universe.
+  const m = await mobile(new Request("https://zenith.test/m", { headers: { authorization: `Bearer ${TOKENS.APP_TOKEN}` } }), env,
+    new URL("https://zenith.test/m"), { tickers: COVERED.tickers });
   assert.equal(m.status, 200);
   const page = await m.text();
   assert.match(page, /Testco fresh row/);

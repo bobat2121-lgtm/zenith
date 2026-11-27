@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { loadWorkerModule, pfetch, sessionEnv } from "./helpers/portal.js";
+import { addItem, addGrade } from "./helpers/d1.js";
 
 const SRC = new URL("../worker/src/", import.meta.url);
 const FORBIDDEN = ["delivery.js", "discord.js", "brief.js", "ingest.js", "excerpt.js", "tuning.js", "auxiliary.js", "index.js"];
@@ -46,12 +47,24 @@ test("S18: no portal module reaches Discord, brief, ingest, excerpt, tuning, aux
   assert.doesNotMatch(readFileSync(new URL("grader-health.js", SRC), "utf8"), /^\s*import\s/m, "grader-health.js has no import line");
 });
 
-test("S17: /m, /v1 and /health are unchanged next to the portal", async () => {
+test("S17: GET /m opens the portal (PR-PA5); POST /m/feedback, /v1 and /health are unchanged next to it", async () => {
   const { worker } = await loadWorkerModule();
   const env = sessionEnv();
-  const m = await worker.fetch(new Request("https://zenith.example.com/m"), env);
-  assert.equal(m.status, 403);
-  assert.equal(await m.text(), "forbidden\n");
+  for (const headers of [{}, { authorization: `Bearer ${env.APP_TOKEN}` }]) {
+    const m = await worker.fetch(new Request("https://zenith.example.com/m", { headers }), env);
+    assert.equal(m.status, 302);
+    assert.equal(m.headers.get("location"), "/p/today");
+    assert.equal(await m.text(), "", "no page and no data");
+  }
+  const id = await addItem(env.DB, { ticker: "SYM", title: "Symbotic test row" });
+  await addGrade(env.DB, id, { score: 80 });
+  const post = (headers) => worker.fetch(new Request("https://zenith.example.com/m/feedback", { method: "POST",
+    headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ item_id: id, label: "high" }) }), env, { waitUntil() {} });
+  const denied = await post({});
+  assert.equal(denied.status, 403);
+  assert.equal(await denied.text(), "forbidden\n");
+  assert.equal((await post({ authorization: `Bearer ${env.APP_TOKEN}` })).status, 200, "the app bearer still labels through POST /m/feedback");
+  assert.equal((await env.DB.prepare("SELECT label FROM feedback WHERE item_id = ?").bind(id).first()).label, "high");
   const v = await worker.fetch(new Request("https://zenith.example.com/v1/feed"), env);
   assert.equal(v.status, 401);
   assert.deepEqual(await v.json(), { error: "unauthorized" });

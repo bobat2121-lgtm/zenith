@@ -5,6 +5,7 @@ import { loadWorker } from "./helpers/worker.js";
 import { etToUtc, etParts, addDays } from "../worker/src/et.js";
 import { isReportCron, REPORT_CRONS, SLOTS, slotsAt } from "../worker/src/brief.js";
 import { readFileSync } from "node:fs";
+import { mobile } from "../worker/src/mobile.js";
 
 const worker = await loadWorker();
 const TOKENS = { ADMIN_TOKEN: "admin-t", GRADER_TOKEN: "grader-t", APP_TOKEN: "app-t" };
@@ -38,16 +39,28 @@ test("routes: brief, calendar and calibration need the right role", async () => 
   assert.deepEqual(c.reasons, {});
 });
 
-test("/m is served by zenith-core, labels land through the real feedback handler", async () => {
+test("GET /m redirects to the portal; labels still land through POST /m/feedback", async () => {
   const env = { DB: new D1(), NEWS: newsDb(), ...TOKENS };
   const id = await addItem(env.DB, { ticker: "SYM", title: "Symbotic Q4" });
   await addGrade(env.DB, id, { score: 91 });
-  assert.equal((await call(env, "/m")).status, 403);
-  const page = await call(env, "/m", { token: "app-t" });
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /Symbotic Q4/);
-  assert.equal((await call(env, "/m", { token: "grader-t" })).status, 403, "only the app token (or Access)");
-  const r = await call(env, "/m/feedback", { token: "app-t", method: "POST", body: { item_id: id, label: "high", note: "print" } });
+  // Phase 3 (A-O7): GET /m (and its trailing-slash forms) is a plain 302 to the portal for every caller: no auth check, no data.
+  for (const path of ["/m", "/m/", "/m//"]) {
+    for (const token of [undefined, "app-t", "grader-t", "nope"]) {
+      const m = await call(env, path, { token });
+      assert.equal(m.status, 302, `${path} ${token}`);
+      assert.equal(m.headers.get("location"), "/p/today");
+      assert.equal(await m.text(), "");
+    }
+  }
+  // The old page code stays in mobile.js until it is retired: its auth and render are checked on the handler itself.
+  const page = (token) => mobile(new Request("https://zenith.example.com/m", { headers: token ? { authorization: `Bearer ${token}` } : {} }),
+    env, new URL("https://zenith.example.com/m"), { tickers: ["SYM"] });
+  assert.equal((await page()).status, 403);
+  const ok = await page("app-t");
+  assert.equal(ok.status, 200);
+  assert.match(await ok.text(), /Symbotic Q4/);
+  assert.equal((await page("grader-t")).status, 403, "only the app token (or Access)");
+  const r =await call(env, "/m/feedback", { token: "app-t", method: "POST", body: { item_id: id, label: "high", note: "print" } });
   assert.equal(r.status, 200);
   const row = await env.DB.prepare("SELECT label, note, grade_id FROM feedback WHERE item_id = ?").bind(id).first();
   assert.deepEqual(row, { label: "high", note: "print", grade_id: 1 });
