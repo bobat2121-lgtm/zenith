@@ -555,16 +555,19 @@ export function report(rows, hits, shadowRows, opts = {}) {
     if (n.lane === "rest") beside.rest_material++;
   }
 
-  // L2 head to head: clusters with a Bing row in the window and a wide-net
-  // accepted (or else dup_collected) observation.
+  // L2 head to head: clusters with a Bing row and a wide-net accepted (or else
+  // dup_collected) observation, comparing each lane's earliest observation.
+  // Both earliest observations must be in the window, so the lookback (both
+  // lanes read) and the 7 days after `to` (hits only) favour neither lane.
   const h2h = { accepted: [], dup_collected: [] };
   for (const c of clusters) {
     const m = info.get(c[0]);
     const b = earliest(m.bing);
     if (!b || !inWin(b)) continue;
     const a = earliest(m.accepted), d = earliest(m.dup);
-    if (a) h2h.accepted.push((a.t - b.t) / H);
-    else if (d) h2h.dup_collected.push((d.t - b.t) / H);
+    const w = a || d;
+    if (!w || !inWin(w)) continue;
+    (a ? h2h.accepted : h2h.dup_collected).push((w.t - b.t) / H);
   }
   const pair = (xs) => ({ n: xs.length, median_h: round(median(xs)), earlier_share: xs.length ? round(xs.filter((x) => x < 0).length / xs.length, 4) : null });
   const accPair = pair(h2h.accepted);

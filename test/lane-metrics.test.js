@@ -198,6 +198,20 @@ test("Z-C9: head to head (L2): median of wide net minus Bing and the earlier sha
   assert.equal(h.P4, "flag");
 });
 
+test("Z-C9: head to head counts a pair only when both lanes' earliest observations are in the window, whichever lane sat outside", () => {
+  const h2h = (bSeens, wSeen) => {
+    const url = "https://example.com/p/edge", title = "Acme opens Northland plant";
+    const rows = bSeens.map((s) => aux({ seen: s, url, title }));
+    rows.push(cov({ key: "widenet_x", seen: wSeen, url, title: `[UVW] ${title}` }));
+    return run(rows, [hit({ url, seen: wSeen - 0.1, tickers: "UVW", title })]).head_to_head.accepted.n;
+  };
+  const end = 14 * 24;
+  assert.equal(h2h([20], 15), 1, "both inside");
+  assert.equal(h2h([-10, 20], 15), 0, "Bing first seen in the lookback");
+  assert.equal(h2h([20], -10), 0, "the wide net first seen in the lookback");
+  assert.equal(h2h([end - 1], end + 3), 0, "the wide net after the window (Bing rows after it are never read)");
+});
+
 test("Z-C10: stagePlan keeps pattern gaps, Bing-only and unobserved 40+ keys, fills 18 hourly by rank, asks the owner past 18", () => {
   const keys = Array.from({ length: 30 }, (_, i) => ({
     key: `bing_k${String(i).padStart(2, "0")}`, cadence: "hourly", F: 0, U40: 0, U70: 0, lag_median_h: null, pattern_covered: true, bing_only_material: 0, shadow: false,
