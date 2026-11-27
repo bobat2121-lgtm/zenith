@@ -523,3 +523,13 @@ test("the truncation note: Q2e feeds own items and registers; 'newest' only when
   assert.ok(note("source_health", { q4: true }).includes(SOME));
   assert.ok(note("key_accounts", { q3: true }).includes(NEWEST));
 });
+
+test("source health: no channel rows prints one line, never 'Every channel polled without error.'", () => {
+  const h = (rows, groups = {}) => String(view.healthSection({ sections: { source_health: { rows } }, quiet: { available: true, groups } }));
+  const none = h([]);
+  assert.ok(none.includes("No channel follows this name."));
+  assert.ok(!none.includes("Every channel polled without error."));
+  const ok = h([{ key: "test_ok", status: "ok", group: "own", open_rules: [] }], { own: { keys: 1, ok: 1 } });
+  assert.ok(ok.includes("Every channel polled without error."));
+  assert.ok(!ok.includes("No channel follows this name."));
+});

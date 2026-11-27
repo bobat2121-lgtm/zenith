@@ -232,7 +232,8 @@ function healthLine(r) {
     rules.length ? html` · open alerts: ${rules.join(", ")}` : ""}</span></li>`;
 }
 
-function healthSection(data) {
+// Exported for tests.
+export function healthSection(data) {
   const s = data.sections.source_health;
   if (s.available === false || data.quiet?.available === false) return html`<p class="empty">Source health unavailable; channels not confirmed.</p>`;
   const rows = list(s.rows);
@@ -241,7 +242,7 @@ function healthSection(data) {
   const summary = ["own", "sec", "registers", "key_accounts", "rivals"].filter((k) => g[k]?.keys)
     .map((k) => `${GROUP_LABELS[k]} ${g[k].ok} of ${g[k].keys} OK`);
   return html`<p class="meta">${summary.length ? summary.join(" · ") : "No channel follows this name."}</p>${
-    bad.length ? html`<ul class="health bad">${bad.map(healthLine)}</ul>` : html`<p class="meta">Every channel polled without error.</p>`}${
+    bad.length ? html`<ul class="health bad">${bad.map(healthLine)}</ul>` : rows.length ? html`<p class="meta">Every channel polled without error.</p>` : ""}${
     rows.length ? html`<details class="ref"><summary>All ${plural(rows.length, "channel")}</summary><ul class="health">${rows.map(healthLine)}</ul></details>` : ""}`;
 }
 
