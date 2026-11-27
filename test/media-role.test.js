@@ -138,6 +138,18 @@ test("Z-M5 routeCp: the media gate on injected maps", () => {
   assert.equal(routeCp("x", { role: "media", affects: ["ZZZ"] }, SYN_MATCH, media), null, "no routable ticker");
 });
 
+test("Z-M5 a legal name that strips to one bare common word keeps its full name unless MATCH uses the word", () => {
+  const match = { DDD: { terms: ["Tactic Inc", "Tactic (DDD)"], accounts: [] }, EEE: { terms: ["Vigil"], accounts: [] } };
+  const names = { DDD: ["Tactic Inc"], EEE: ["Vigil, Inc."] };
+  const media = mediaMatch(match, names, {});
+  assert.deepEqual(media.DDD.terms, ["Tactic Inc"], "the bare word is not a MATCH term: full legal name kept");
+  assert.deepEqual(media.EEE.terms, ["Vigil"], "the bare word is a MATCH term: stripped name kept");
+  const r = (title) => routeCp(title, { role: "media", affects: ["DDD"] }, match, media);
+  // (d) the generic-word case: an ordinary headline using the common word stays off Coverage
+  assert.equal(r("Agencies unveil a new drone tactic").skip, "rival_no_key_account");
+  assert.equal(r("Tactic Inc wins an order").skip, null);
+});
+
 test("Z-M5 the default media map is built from the loaded MATCH, COVERED_NAMES and covered.json media_accounts", () => {
   assert.deepEqual(mediaMatch(), mediaMatch(SYN_MATCH, SYN_NAMES, SYN_PROGRAMS));
   assert.equal(routeRow({ source_key: "outlet_x", title: "Program X picks a vendor" }).skip, null);

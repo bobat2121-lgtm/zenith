@@ -235,9 +235,17 @@ export function tagRoute(r, cp, match = MATCH) {
 // The stub keeps rival_no_key_account so the existing rescue and aux-band SQL
 // work unchanged.
 const stripSuffix = (n) => String(n).replace(/,?\s+(?:Inc\.?|Corp\.?|Corporation|Ltd\.?|LLC|plc)$/i, "").replace(/\s+(?:Holdings|Group)$/i, "");
+// A stripped name that is now one bare word is kept only when MATCH already
+// uses that word as a term; otherwise the full legal name stays, so a legal
+// name that strips to a common word never gates outlet headlines by itself.
+const mediaName = (n, terms) => {
+  const full = String(n), s = stripSuffix(full);
+  if (s === full || /\s/.test(s.trim())) return s;
+  return (terms || []).some((x) => String(x).toLowerCase() === s.toLowerCase()) ? s : full;
+};
 export function mediaMatch(match = MATCH, names = COVERED_NAMES, programs = COVERED.media_accounts || {}) {
   const out = {};
-  for (const t of Object.keys(match || {})) out[t] = { terms: [...new Set((names?.[t] || []).map(stripSuffix))], accounts: programs?.[t] || [] };
+  for (const t of Object.keys(match || {})) out[t] = { terms: [...new Set((names?.[t] || []).map((n) => mediaName(n, match[t]?.terms)))], accounts: programs?.[t] || [] };
   return out;
 }
 const MEDIA_MATCH = mediaMatch();
