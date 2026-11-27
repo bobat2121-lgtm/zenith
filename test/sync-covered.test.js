@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hookJsonImports } from "./helpers/worker-env.js";
-import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE, REGISTER_ADAPTERS, REGISTERS, GROUP_ROUTED_ADAPTERS, buildRegisterGroups } from "../scripts/sync-covered.mjs";
+import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE, REGISTER_ADAPTERS, REGISTERS, GROUP_ROUTED_ADAPTERS, buildRegisterGroups, BODY_RECORD_ADAPTERS } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
 const { makeAuxRoute } = await import("../worker/src/aux-route.js");
@@ -374,7 +374,7 @@ const REGISTER_LIST = [
 ];
 
 test("register adapters (Z5): record, register and coverage_subject true, one program entity per register, counterparty program with affects; other adapters carry no register flag", () => {
-  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt"]);
+  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt", "ftc_hsr_et"]);
   for (const a of REGISTER_ADAPTERS) assert.ok(RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
   const covered = buildCovered(REGISTER_LIST);
   assert.deepEqual(covered.counterparty.reg_lobby_new, { role: "program", affects: ["RCAT", "KDK"] }, "an uncovered ticker is dropped");
@@ -553,4 +553,37 @@ test("Z-B1 Part B adapters: oira_review and govinfo_crpt are group-routed regist
   // Registers are filters over a third-party register, never a company channel.
   const channels = buildChannels(PART_B_LIST);
   for (const k of ["reviews_test", "reports_test"]) assert.ok(!(k in channels), k);
+});
+
+// Phase 4 Part D (Z3, sync side): the FTC early-termination register adapter.
+// Synthetic keys, hosts, names and tickers; only the adapter names are
+// news-monitor's. tag_affects comes from config.tagAffects (phase 4 I5 F7,
+// the phase 5 rule); body_record from the adapter (BODY_RECORD_ADAPTERS).
+const PART_D_LIST = [
+  { key: "own_tsa", lane: "covered", covered: true, coveredTicker: "TSA", adapter: "rss", name: "Tsaco", endpoint: "https://tsa.example.com/feed" },
+  { key: "own_tsb", lane: "covered", covered: true, coveredTicker: "TSB", adapter: "rss", name: "Tsbco", endpoint: "https://tsb.example.com/feed" },
+  { key: "legal_test_grants", lane: "strategic_noncompany", adapter: "ftc_hsr_et", endpoint: "https://api.example.gov/v0/notices", name: "Test early termination notices (API)",
+    role: "program", affects: ["TSA", "TSB", "ZZZ"], config: { tagAffects: true, bodyRecord: true } },
+  // Controls: a register without either flag, and a tagged filter that is not a body-record adapter.
+  { key: "reg_vehicles_test", lane: "strategic_noncompany", adapter: "txdmv_av_report", endpoint: "https://vehicles.example.org/report", name: "Test vehicle report",
+    role: "program", affects: ["TSA"] },
+  { key: "drain_test", lane: "strategic_noncompany", adapter: "discovery_drain", endpoint: "https://feed.example.com/x/", name: "Drain test",
+    role: "relationship", affects: ["TSA"], config: { tagAffects: true, bodyRecord: true } },
+];
+
+test("Z3 Part D adapter: ftc_hsr_et is a register (record, coverage_subject) with tag_affects from config and body_record from the adapter; no other adapter gets body_record", () => {
+  assert.ok(REGISTER_ADAPTERS.includes("ftc_hsr_et") && RECORD_ADAPTERS.includes("ftc_hsr_et") && FILTER_ADAPTERS.includes("ftc_hsr_et"));
+  assert.deepEqual(REGISTERS.ftc_hsr_et, { entity: "ftc_hsr", name: "FTC HSR early terminations" });
+  assert.deepEqual(BODY_RECORD_ADAPTERS, ["ftc_hsr_et"]);
+  assert.ok(!GROUP_ROUTED_ADAPTERS.includes("ftc_hsr_et"), "tag-routed, not group-routed: one routing flag per key");
+  const covered = buildCovered(PART_D_LIST);
+  assert.deepEqual(covered.counterparty.legal_test_grants, { role: "program", affects: ["TSA", "TSB"], tag_affects: true }, "an uncovered ticker is dropped");
+  assert.deepEqual(covered.counterparty.reg_vehicles_test, { role: "program", affects: ["TSA"] });
+  const { sources } = buildAux(PART_D_LIST, covered, []);
+  assert.deepEqual(sources.legal_test_grants, { entity: "ftc_hsr", name: "FTC HSR early terminations", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["TSA", "TSB"], record: true, register: true, tag_affects: true, body_record: true });
+  assert.equal(sources.reg_vehicles_test.body_record, undefined, "a register without the adapter keeps its page fetch");
+  assert.equal(sources.drain_test.body_record, undefined, "config.bodyRecord alone sets nothing: the flag is keyed on the adapter");
+  assert.equal(sources.drain_test.tag_affects, true);
+  assert.ok(!("legal_test_grants" in buildChannels(PART_D_LIST)), "a register is never a channel");
 });
