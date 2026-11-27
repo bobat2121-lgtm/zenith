@@ -48,6 +48,16 @@ export const isRegisterSource = (key, aux = AUX) => {
   return own(aux?.sources, k) && aux.sources[k]?.register === true;
 };
 
+// Phase 4 (Part D): a body-record register source (aux-sources.json
+// body_record: true, set by scripts/sync-covered.mjs BODY_RECORD_ADAPTERS).
+// Its item body is the published record itself, so ingest keeps the body as
+// the excerpt whatever its length and enrich never fetches the item URL
+// (ingest.js feedFields). `aux` is for tests; production passes only the key.
+export const isBodyRecordSource = (key, aux = AUX) => {
+  const k = String(key ?? "");
+  return own(aux?.sources, k) && aux.sources[k]?.body_record === true;
+};
+
 // Phase 4 (Part B): a group-routed register source (aux-sources.json
 // group_routed: true, set by scripts/sync-covered.mjs for the OIRA review and
 // committee-report adapters). Each of its cards is about one topic group, a

@@ -18,7 +18,7 @@ import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiv
 import { feedText, pdfLinkIn, isDocumentTitle, EXCERPT_CHARS } from "./excerpt.js";
 import { textClass, visibleBudgets } from "./text-class.js";
 import { mutedSources } from "./tuning.js";
-import { isOfficialRecord, isFpdsSource, isRegisterSource, groupAffects } from "./records.js";
+import { isOfficialRecord, isFpdsSource, isRegisterSource, isBodyRecordSource, groupAffects } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
 import { storyPlanner, storyDedupOn, hasFeedText, storyOfSql, storyOfArgs, swapStatement } from "./story.js";
 
@@ -73,11 +73,17 @@ export async function newsRows(news, from, to) {
 // title with one, gets the PDF as excerpt_source for enrich to read first.
 // budget: the excerpt's characters (phase 2: the row's text class budget,
 // 2,500 unless TEXT_BUDGETS=class).
-export function feedFields(r, route, now, { budget = EXCERPT_CHARS } = {}) {
+// Phase 4 Part D: a body-record register's body (records.js isBodyRecordSource,
+// read from the row's source_key) is the published record, not a summary: it
+// is the excerpt (status 'feed') whatever its length, so enrich never fetches
+// the item URL. `aux` is for tests; production passes none.
+export function feedFields(r, route, now, { budget = EXCERPT_CHARS, aux } = {}) {
   const none = { excerpt: null, status: null, at: null, source: null, fallback: null };
   if (!r.body || typeof r.body !== "string") return none;
   const feed = feedText(r.body, r.title, budget);
   if (feed.full) return { ...none, excerpt: feed.excerpt, status: "feed", at: now };
+  const record = r.body.trim();
+  if (record && isBodyRecordSource(r.source_key, aux)) return { ...none, excerpt: feed.excerpt ?? record.slice(0, budget), status: "feed", at: now };
   const pdf = route.role ? null : pdfLinkIn(r.body);
   return { ...none, fallback: feed.excerpt, source: pdf && (!feed.excerpt || isDocumentTitle(r.title)) ? pdf : null };
 }
