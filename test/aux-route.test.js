@@ -136,7 +136,9 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
   assert.ok(auxRoute("wargov_contracts_matched").affects.includes("RCAT"));
   assert.equal(auxRoute("wargov_contracts").coverage_subject, undefined, "the unfiltered contracts feed is a plain program source");
   assert.equal(auxRoute("skydio").coverage_subject, undefined, "a counterparty company's own channel is a plain auxiliary name");
-  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 135); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources; +4 drv_ defense budget sources (Phase 1a.2); +12 legistar_* fan-out, +fedreg_fcc_space (Phase 0 nm-sources); +7 fpds_* vendor-UEI keys (Phase 1 FPDS); +txdmv_av_authorizations (Phase 2 TxDMV register)
+  // The two FMCSA register keys sync together (test/nm-sources-sync.test.js Z-C1): 0 before news-monitor's FMCSA register PR, 2 after.
+  const fmcsa = ["fmcsa_inspections", "fmcsa_census"].filter((k) => aux.sources[k]?.coverage_subject).length;
+  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 136 + fmcsa); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources; +4 drv_ defense budget sources (Phase 1a.2); +12 legistar_* fan-out, +fedreg_fcc_space (Phase 0 nm-sources); +7 fpds_* vendor-UEI keys (Phase 1 FPDS); +txdmv_av_authorizations (Phase 2 TxDMV register); +legistar_fanout (Phase 4 Legistar fan-out), +fmcsa_inspections, fmcsa_census (Phase 4 FMCSA registers; 138 once synced)
   assert.deepEqual([auxRoute("legistar_fresno").coverage_subject, auxRoute("legistar_fresno").affects], [true, ["AXON", "SERV", "EVLV", "XTRAF"]]);
   assert.deepEqual(auxRoute("fedreg_fcc_space").affects, ["PL", "SATL"]);
 });
