@@ -20,6 +20,7 @@ import { staticResponse } from "./portal-static.js";
 import { stub, companiesIndex } from "./portal-stub.js";
 import { todayView } from "./portal-today.js";
 import { competitorsPage, industryPage, rarePage } from "./views-page.js";
+import { briefView } from "./portal-brief.js";
 
 // One line per view; each later part replaces its own line (and adds one import).
 export const VIEWS = {
@@ -30,7 +31,7 @@ export const VIEWS = {
   industry: industryPage,
   rare: rarePage,
   search: stub("search"),
-  brief: stub("brief"),
+  brief: briefView,
 };
 
 // Every path the portal serves: { method, path } plus how it is handled. A path
