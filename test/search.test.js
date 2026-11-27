@@ -198,7 +198,7 @@ test("S5: the window: from is in, to is out; long unscoped spans fall back to 30
       [want.key, want.label, want.fromIso, want.toIso, want.days], JSON.stringify(params));
   }
   assert.equal(def.range.label, PH.RANGE_PRESETS.find(([k]) => k === "30d")[2], "Part A's preset label");
-  assert.match(scoped.range.label, /2013/, "Part A's custom label (an en dash)");
+  assert.match(scoped.range.label, /–/, "Part A's custom label (an en dash)");
   // A custom deps.parseRange overrides it.
   const seen = [];
   const pr = (url, opts) => { seen.push([url.searchParams.get("q"), opts]); return { key: "7d", fromIso: from, toIso: to, label: "x", days: 7 }; };
