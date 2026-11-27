@@ -374,7 +374,7 @@ const REGISTER_LIST = [
 ];
 
 test("register adapters (Z5): record, register and coverage_subject true, one program entity per register, counterparty program with affects; other adapters carry no register flag", () => {
-  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt", "ftc_hsr_et"]);
+  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt", "ftc_hsr_et", "gao_docket_walk"]);
   for (const a of REGISTER_ADAPTERS) assert.ok(RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
   const covered = buildCovered(REGISTER_LIST);
   assert.deepEqual(covered.counterparty.reg_lobby_new, { role: "program", affects: ["RCAT", "KDK"] }, "an uncovered ticker is dropped");
@@ -574,7 +574,7 @@ const PART_D_LIST = [
 test("Z3 Part D adapter: ftc_hsr_et is a register (record, coverage_subject) with tag_affects from config and body_record from the adapter; no other adapter gets body_record", () => {
   assert.ok(REGISTER_ADAPTERS.includes("ftc_hsr_et") && RECORD_ADAPTERS.includes("ftc_hsr_et") && FILTER_ADAPTERS.includes("ftc_hsr_et"));
   assert.deepEqual(REGISTERS.ftc_hsr_et, { entity: "ftc_hsr", name: "FTC HSR early terminations" });
-  assert.deepEqual(BODY_RECORD_ADAPTERS, ["ftc_hsr_et"]);
+  assert.deepEqual(BODY_RECORD_ADAPTERS, ["ftc_hsr_et", "gao_docket_walk"]);
   assert.ok(!GROUP_ROUTED_ADAPTERS.includes("ftc_hsr_et"), "tag-routed, not group-routed: one routing flag per key");
   const covered = buildCovered(PART_D_LIST);
   assert.deepEqual(covered.counterparty.legal_test_grants, { role: "program", affects: ["TSA", "TSB"], tag_affects: true }, "an uncovered ticker is dropped");
@@ -586,4 +586,33 @@ test("Z3 Part D adapter: ftc_hsr_et is a register (record, coverage_subject) wit
   assert.equal(sources.drain_test.body_record, undefined, "config.bodyRecord alone sets nothing: the flag is keyed on the adapter");
   assert.equal(sources.drain_test.tag_affects, true);
   assert.ok(!("legal_test_grants" in buildChannels(PART_D_LIST)), "a register is never a channel");
+});
+
+// Phase 4 Part D (Z3, sync side): the GAO bid-protest docket walk adapter.
+// Synthetic keys, hosts, names and tickers; only the adapter name is
+// news-monitor's. As for the FTC adapter: tag_affects from config.tagAffects,
+// body_record from the adapter, its own program entity.
+const PART_D_GAO_LIST = [
+  ...PART_D_LIST.filter((s) => s.key.startsWith("own_")),
+  { key: "legal_test_dockets", lane: "strategic_noncompany", adapter: "gao_docket_walk", endpoint: "https://www.example.gov/docket/", name: "Test bid protest dockets (sequential walk)",
+    role: "program", affects: ["TSB", "TSA", "ZZZ"], config: { tagAffects: true, bodyRecord: true } },
+  // Control: the same adapter with no config flags still gets body_record (keyed on the adapter), never tag_affects.
+  { key: "legal_test_dockets_plain", lane: "strategic_noncompany", adapter: "gao_docket_walk", endpoint: "https://www.example.gov/docket/", name: "Test dockets, no flags",
+    role: "program", affects: ["TSA"] },
+];
+
+test("Z3 Part D adapter: gao_docket_walk is a register (record, coverage_subject) of its own gao_protests entity, tag_affects from config and body_record from the adapter", () => {
+  assert.ok(REGISTER_ADAPTERS.includes("gao_docket_walk") && RECORD_ADAPTERS.includes("gao_docket_walk") && FILTER_ADAPTERS.includes("gao_docket_walk"));
+  assert.deepEqual(REGISTERS.gao_docket_walk, { entity: "gao_protests", name: "GAO bid protests" });
+  assert.notEqual(REGISTERS.gao_docket_walk.entity, REGISTERS.ftc_hsr_et.entity, "one program entity per register");
+  assert.ok(!GROUP_ROUTED_ADAPTERS.includes("gao_docket_walk"), "tag-routed, not group-routed: one routing flag per key");
+  const covered = buildCovered(PART_D_GAO_LIST);
+  assert.deepEqual(covered.counterparty.legal_test_dockets, { role: "program", affects: ["TSB", "TSA"], tag_affects: true }, "an uncovered ticker is dropped; news-monitor's order kept");
+  assert.deepEqual(covered.counterparty.legal_test_dockets_plain, { role: "program", affects: ["TSA"] });
+  const { sources } = buildAux(PART_D_GAO_LIST, covered, []);
+  assert.deepEqual(sources.legal_test_dockets, { entity: "gao_protests", name: "GAO bid protests", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["TSB", "TSA"], record: true, register: true, tag_affects: true, body_record: true });
+  assert.equal(sources.legal_test_dockets_plain.body_record, true, "the flag is keyed on the adapter");
+  assert.equal(sources.legal_test_dockets_plain.tag_affects, undefined, "tag_affects only from config.tagAffects");
+  assert.ok(!("legal_test_dockets" in buildChannels(PART_D_GAO_LIST)), "a register is never a channel");
 });

@@ -160,8 +160,9 @@ export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
 // reports, each its own program entity, both group-routed (below).
 // Phase 4 (Part D): the FTC early-termination register, matched on exact legal
 // names; its sources carry config.tagAffects (routed by tag, as above) and its
-// bodies are the record itself (body_record, below).
-export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt", "ftc_hsr_et"];
+// bodies are the record itself (body_record, below). The GAO bid-protest docket
+// walk, matched on the protester's exact legal name, likewise.
+export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt", "ftc_hsr_et", "gao_docket_walk"];
 export const REGISTERS = {
   lda_registrations: { entity: "lda", name: "LDA lobbying filings" },
   lda_reports: { entity: "lda", name: "LDA lobbying filings" },
@@ -171,13 +172,14 @@ export const REGISTERS = {
   oira_review: { entity: "oira", name: "OIRA regulatory review" },
   govinfo_crpt: { entity: "govinfo_crpt", name: "Congressional committee reports" },
   ftc_hsr_et: { entity: "ftc_hsr", name: "FTC HSR early terminations" },
+  gao_docket_walk: { entity: "gao_protests", name: "GAO bid protests" },
 };
 // Body-record registers (phase 4 Part D): each item body is the published
 // record, every field as published, not a summary of a page. Their auxiliary
 // entries carry body_record: true (worker/src/records.js isBodyRecordSource),
 // so zenith-core keeps the body as the excerpt whatever its length and never
 // fetches the item URL (worker/src/ingest.js feedFields).
-export const BODY_RECORD_ADAPTERS = ["ftc_hsr_et"];
+export const BODY_RECORD_ADAPTERS = ["ftc_hsr_et", "gao_docket_walk"];
 // Group-routed registers (phase 4 Part B): each card is about one topic group,
 // a shared program entity named by its URL's trailing "g=<entity>" fragment,
 // never about one ticker. Their counterparty and auxiliary entries carry
