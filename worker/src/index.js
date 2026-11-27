@@ -70,6 +70,7 @@ import { rareRoute } from "./rarity.js";
 import { briefStoreTick } from "./brief-store.js";
 // Phase 3: the portal (portal.js): /p/* behind its own gate, /s/* public install files.
 import { portal } from "./portal.js";
+import { searchRoute } from "./search.js";
 // Phase 3 Part B: the Company page's data (company.js; reads news-monitor-db, SELECT only).
 import { companyRoute } from "./company.js";
 
@@ -132,6 +133,7 @@ export const ALLOW = {
   "POST /v1/admin/golden": ["admin"],
   // Phase 2: rare finds (register and original rows at or above a score floor; rarity.js).
   "GET /v1/rare": ["app", "admin"],
+  "GET /v1/search": ["admin"],
 };
 
 async function readJson(request) {
@@ -723,6 +725,7 @@ export default {
       case "POST /v1/admin/replay": return adminReplay(env, await readJson(request), who);
       case "POST /v1/admin/golden": return goldenLoad(env, await readJson(request), who);
       case "GET /v1/rare": return rareRoute(env, url, { muted: MUTED_SQL, universe: IN_UNIVERSE });
+      case "GET /v1/search": return searchRoute(env, url, { tickers: COVERED.tickers, muted: MUTED_SQL });
     }
     return json({ error: "not found" }, 404);
   },
