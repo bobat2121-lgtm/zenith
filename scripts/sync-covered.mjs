@@ -127,6 +127,7 @@ export function buildCovered(sourceList, { counterpartySources = [], existing = 
     if (!affects.length) continue;
     counterparty[key] = { role: d.role, affects };
     if (tagAffects.has(key)) counterparty[key].tag_affects = true;
+    if (isGroupRouted(byKey.get(key))) counterparty[key].group_routed = true;
   }
   return { tickers, sources, counterparty, records, warnings };
 }
@@ -152,14 +153,29 @@ export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
 // register is one program entity, as the FPDS feeds are.
 // Phase 4 (Part C): the FMCSA inspection and census registers, matched on
 // carrier identifiers, share one program entity.
-export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census"];
+// Phase 4 (Part B): the OIRA review lists and the congressional committee
+// reports, each its own program entity, both group-routed (below).
+export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt"];
 export const REGISTERS = {
   lda_registrations: { entity: "lda", name: "LDA lobbying filings" },
   lda_reports: { entity: "lda", name: "LDA lobbying filings" },
   txdmv_av_report: { entity: "txdmv_av", name: "Texas DMV AV authorizations" },
   fmcsa_inspections: { entity: "fmcsa", name: "FMCSA inspection and census records" },
   fmcsa_census: { entity: "fmcsa", name: "FMCSA inspection and census records" },
+  oira_review: { entity: "oira", name: "OIRA regulatory review" },
+  govinfo_crpt: { entity: "govinfo_crpt", name: "Congressional committee reports" },
 };
+// Group-routed registers (phase 4 Part B): each card is about one topic group,
+// a shared program entity named by its URL's trailing "g=<entity>" fragment,
+// never about one ticker. Their counterparty and auxiliary entries carry
+// group_routed: true, and aux-sources.json register_groups maps each group to
+// the covered tickers it feeds: the affects of the news-monitor channel the
+// group mirrors (news-monitor src/register-gov-watch.js GOV_GROUPS; only the
+// entity, name and mirror key are read, never a term or a watched rule).
+// zenith-core routes such a row among its group's tickers (worker/src/ingest.js
+// routeFor, worker/src/records.js groupAffects).
+export const GROUP_ROUTED_ADAPTERS = ["oira_review", "govinfo_crpt"];
+export const isGroupRouted = (s) => GROUP_ROUTED_ADAPTERS.includes(s?.adapter);
 // Phase 4 (Part C): legistar_fanout (one source over many council clients) is
 // a record adapter and a filter, as legistar_matters is.
 export const RECORD_ADAPTERS = ["fpds_atom", "legistar_matters", "legistar_fanout", "wargov_contract_paragraphs", "safetyact_awards", "regulations_gov", "federal_register", ...REGISTER_ADAPTERS];
@@ -209,9 +225,33 @@ const COMENTION_KEY = /^([a-z]+)_rel$/;
 // "Agility Robotics (AGLT)" -> "Agility Robotics".
 const withoutTicker = (name) => name.replace(/\s*\([A-Z.]{1,6}\)\s*$/, "").trim();
 
+// aux-sources.json register_groups (phase 4 Part B): { <group entity>: { name,
+// affects, from } }, entities sorted. groups: news-monitor's GOV_GROUPS (only
+// entity, name or label, and mirror are read). affects: the mirror source's own
+// affects, in its order, covered tickers only. A group whose mirror is not a
+// polled source, or that feeds no covered ticker, is left out with a warning.
+export function buildRegisterGroups(groups, sourceList, tickers, warnings = []) {
+  const covered = new Set(tickers || []);
+  const byKey = new Map((sourceList || []).map((s) => [s?.key, s]));
+  const out = {};
+  for (const g of Array.isArray(groups) ? groups : []) {
+    const entity = String(g?.entity ?? "");
+    if (!/^[a-z][a-z0-9_]{2,63}$/.test(entity)) { warnings.push(`register group ${entity || "(none)"}: not a group entity key; skipped`); continue; }
+    const mirror = byKey.get(g?.mirror);
+    if (!mirror || mirror.shadow === true) { warnings.push(`register group ${entity}: mirror ${g?.mirror ?? "(none)"} is not a polled source; skipped`); continue; }
+    const affects = [...new Set(tickerList(mirror.affects))].filter((t) => covered.has(t));
+    if (!affects.length) { warnings.push(`register group ${entity}: mirror ${mirror.key} affects no covered ticker; skipped`); continue; }
+    const name = String(g?.name || String(g?.label || "").replace(/^\[|\]$/g, "") || humanize(entity)).trim();
+    out[entity] = { name, affects, from: mirror.key };
+  }
+  return Object.fromEntries(Object.keys(out).sort().map((k) => [k, out[k]]));
+}
+
 // sources: news-monitor's SOURCES after priority.js ran. covered: buildCovered's
-// result. peers: rubric/peers.json. Returns { sources, exclude } for aux-sources.json.
-export function buildAux(sourceList, covered, peers = []) {
+// result. peers: rubric/peers.json. groups: news-monitor's GOV_GROUPS (phase 4
+// Part B). Returns { sources, exclude } for aux-sources.json, plus
+// register_groups when there is at least one group.
+export function buildAux(sourceList, covered, peers = [], { groups = [], warnings = [] } = {}) {
   const shadow = shadowKeys(sourceList);              // buildCovered already warned
   sourceList = sourceList.filter((s) => !shadow.has(s.key));
   const coveredKeys = new Set(Object.keys(covered?.sources || {}));
@@ -277,9 +317,14 @@ export function buildAux(sourceList, covered, peers = []) {
     if (REGISTER_ADAPTERS.includes(s.adapter)) sources[key].register = true;
     // tag_affects (phase 5): a counterparty key's config.tagAffects, copied as on its counterparty entry.
     if (isTagAffects(s) && counterparty[key]) sources[key].tag_affects = true;
+    // group_routed (phase 4 Part B): a group-routed register, as on its counterparty entry.
+    if (isGroupRouted(s) && counterparty[key]) sources[key].group_routed = true;
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
-  return { sources, exclude: sortedExclude };
+  const registerGroups = buildRegisterGroups(groups, sourceList, covered?.tickers, warnings);
+  return Object.keys(registerGroups).length
+    ? { sources, exclude: sortedExclude, register_groups: registerGroups }
+    : { sources, exclude: sortedExclude };
 }
 
 // covered.json channels: each source's own channel, { key: registrable domain
@@ -362,7 +407,13 @@ async function main(repo, { check = false } = {}) {
 
   const peersPath = join(root, "rubric", "peers.json");
   const peers = existsSync(peersPath) ? JSON.parse(readFileSync(peersPath, "utf8")) : [];
-  const aux = buildAux(SOURCES, { tickers, sources, counterparty }, peers);
+  // Phase 4 Part B: the topic groups of the group-routed registers (entity, name
+  // and mirror key are read). A tree without the module has no group.
+  const watchPath = join(repo, "src", "register-gov-watch.js");
+  const { GOV_GROUPS = [] } = existsSync(watchPath) ? await import(pathToFileURL(watchPath).href) : {};
+  const groupWarnings = [];
+  const aux = buildAux(SOURCES, { tickers, sources, counterparty }, peers, { groups: GOV_GROUPS, warnings: groupWarnings });
+  for (const w of groupWarnings) console.log(`warning: ${w}`);
   const auxOut = {
     generated_from: "news-monitor SOURCES after src/priority.js (every polled source outside covered.json sources), with entity names and statuses from rubric/peers.json",
     ...aux,
@@ -374,6 +425,7 @@ async function main(repo, { check = false } = {}) {
   const entries = Object.values(aux.sources);
   const subject = entries.filter((e) => e.coverage_subject).length;
   console.log(`${verb} ${entries.length} auxiliary sources for ${new Set(entries.map((e) => e.entity)).size} entities (${fmt(count(entries.map((e) => e.status)))}; ${subject} coverage_subject) and ${Object.keys(aux.exclude).length} exclusions (${fmt(count(Object.values(aux.exclude)))}) -> ${auxTarget}`);
+  if (aux.register_groups) console.log(`${verb} ${Object.keys(aux.register_groups).length} register groups -> ${auxTarget}`);
 
   // Site-structure watchers and egress probes -> covered tickers (Coverage page health strip and Site changes).
   const site = buildSiteSources(SOURCES, tickers);

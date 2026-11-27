@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { hookJsonImports } from "./helpers/worker-env.js";
-import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE, REGISTER_ADAPTERS } from "../scripts/sync-covered.mjs";
+import { buildCovered, buildAux, buildChannels, shortName, humanize, FILTER_ADAPTERS, OPS_ADAPTERS, FPDS, isRecordSource, RECORD_ADAPTERS, OFFICIAL_HOST_RE, REGISTER_ADAPTERS, REGISTERS, GROUP_ROUTED_ADAPTERS, buildRegisterGroups } from "../scripts/sync-covered.mjs";
 
 hookJsonImports();
 const { makeAuxRoute } = await import("../worker/src/aux-route.js");
@@ -374,7 +374,7 @@ const REGISTER_LIST = [
 ];
 
 test("register adapters (Z5): record, register and coverage_subject true, one program entity per register, counterparty program with affects; other adapters carry no register flag", () => {
-  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census"]);
+  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt"]);
   for (const a of REGISTER_ADAPTERS) assert.ok(RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
   const covered = buildCovered(REGISTER_LIST);
   assert.deepEqual(covered.counterparty.reg_lobby_new, { role: "program", affects: ["RCAT", "KDK"] }, "an uncovered ticker is dropped");
@@ -485,4 +485,72 @@ test("Z-C1 Part C adapters: fmcsa_inspections and fmcsa_census are registers (re
   }
   const channels = buildChannels(PART_C_LIST);
   assert.deepEqual(Object.keys(channels), ["otherco", "testco"], "filters never become a company channel");
+});
+
+// Phase 4 Part B (Z-B1): the two group-routed register adapters. Synthetic
+// keys, hosts, group entities and tickers; only the adapter names are
+// news-monitor's. The group list has news-monitor GOV_GROUPS' shape (entity,
+// label, name, mirror), plus fields the sync must never copy.
+const PART_B_LIST = [
+  { key: "testco", lane: "covered", covered: true, coveredTicker: "TST" },
+  { key: "tsuco", lane: "covered", covered: true, coveredTicker: "TSU" },
+  { key: "tsvco", lane: "covered", covered: true, coveredTicker: "TSV" },
+  { key: "mirror_alpha", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/a", name: "Alpha rules",
+    role: "program", affects: ["TST", "TSU", "ZZZ"] },
+  { key: "mirror_beta", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/b", name: "Beta rules",
+    role: "program", affects: ["TSV"] },
+  { key: "mirror_gamma", lane: "strategic_noncompany", adapter: "federal_register", endpoint: "https://rules.example.gov/c", name: "Gamma rules",
+    role: "program", affects: ["ZZZ"] },
+  { key: "reviews_test", lane: "strategic_noncompany", adapter: "oira_review", endpoint: "https://reviews.example.gov/list.xml", name: "Test reviews — concluded",
+    role: "program", affects: ["TST", "TSU", "TSV"] },
+  { key: "reports_test", lane: "strategic_noncompany", adapter: "govinfo_crpt", endpoint: "https://reports.example.gov/feed.xml", name: "Test reports — lines",
+    role: "program", affects: ["TST", "TSU"] },
+  { key: "feed_test", lane: "strategic_noncompany", adapter: "rss_filtered", endpoint: "https://feed.example.com/x", name: "Feed test", role: "program", affects: ["TST"] },
+];
+const PART_B_GROUPS = [
+  { key: "beta", entity: "prog_test_beta", label: "[Beta policy]", name: "Test beta policy", mirror: "mirror_beta", terms: ["never copied"] },
+  { key: "alpha", entity: "prog_test_alpha", label: "[Alpha policy]", name: "Test alpha policy", mirror: "mirror_alpha", affects: ["TSV"] },
+  { key: "gamma", entity: "prog_test_gamma", label: "[Gamma policy]", name: "Test gamma policy", mirror: "mirror_gamma" },
+  { key: "delta", entity: "prog_test_delta", label: "[Delta policy]", mirror: "not_polled" },
+];
+
+test("Z-B1 Part B adapters: oira_review and govinfo_crpt are group-routed registers (record, coverage_subject, group_routed); register_groups maps each group to its mirror's covered tickers; an rss source gets no flag", () => {
+  for (const a of ["oira_review", "govinfo_crpt"]) {
+    assert.ok(REGISTER_ADAPTERS.includes(a) && RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
+  }
+  assert.deepEqual(GROUP_ROUTED_ADAPTERS, ["oira_review", "govinfo_crpt"]);
+  assert.deepEqual(REGISTERS.oira_review, { entity: "oira", name: "OIRA regulatory review" });
+  assert.deepEqual(REGISTERS.govinfo_crpt, { entity: "govinfo_crpt", name: "Congressional committee reports" });
+  const covered = buildCovered(PART_B_LIST);
+  assert.deepEqual(covered.counterparty.reviews_test, { role: "program", affects: ["TST", "TSU", "TSV"], group_routed: true });
+  assert.deepEqual(covered.counterparty.reports_test, { role: "program", affects: ["TST", "TSU"], group_routed: true });
+  assert.deepEqual(covered.counterparty.feed_test, { role: "program", affects: ["TST"] }, "a filter feed carries no group flag");
+  assert.deepEqual(covered.counterparty.mirror_alpha, { role: "program", affects: ["TST", "TSU"] });
+  const warnings = [];
+  const aux = buildAux(PART_B_LIST, covered, [], { groups: PART_B_GROUPS, warnings });
+  assert.deepEqual(aux.sources.reviews_test, { entity: "oira", name: "OIRA regulatory review", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["TST", "TSU", "TSV"], record: true, register: true, group_routed: true });
+  assert.deepEqual(aux.sources.reports_test, { entity: "govinfo_crpt", name: "Congressional committee reports", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["TST", "TSU"], record: true, register: true, group_routed: true });
+  assert.equal(aux.sources.feed_test.group_routed, undefined);
+  assert.equal(aux.sources.mirror_alpha.group_routed, undefined);
+  // register_groups: entities sorted; the mirror source's own affects (not the group's), covered only, in the mirror's order.
+  assert.deepEqual(aux.register_groups, {
+    prog_test_alpha: { name: "Test alpha policy", affects: ["TST", "TSU"], from: "mirror_alpha" },
+    prog_test_beta: { name: "Test beta policy", affects: ["TSV"], from: "mirror_beta" },
+  });
+  assert.deepEqual(Object.keys(aux), ["sources", "exclude", "register_groups"]);
+  assert.ok(!JSON.stringify(aux.register_groups).includes("never copied"), "no term is copied");
+  assert.equal(warnings.length, 2, "the uncovered and the unpolled mirror each warn once");
+  assert.ok(warnings.some((w) => w.includes("prog_test_gamma")) && warnings.some((w) => w.includes("prog_test_delta")));
+  // With no group (a news-monitor tree before Part B), aux-sources.json has no register_groups key at all.
+  assert.deepEqual(Object.keys(buildAux(PART_B_LIST, covered, [])), ["sources", "exclude"]);
+  // A label stands in for a missing name; a key that is not a group entity is skipped.
+  const w2 = [];
+  assert.deepEqual(buildRegisterGroups([{ entity: "prog_test_alpha", label: "[Alpha policy]", mirror: "mirror_alpha" }, { entity: "Bad-Key", mirror: "mirror_alpha" }],
+    PART_B_LIST, covered.tickers, w2), { prog_test_alpha: { name: "Alpha policy", affects: ["TST", "TSU"], from: "mirror_alpha" } });
+  assert.equal(w2.length, 1);
+  // Registers are filters over a third-party register, never a company channel.
+  const channels = buildChannels(PART_B_LIST);
+  for (const k of ["reviews_test", "reports_test"]) assert.ok(!(k in channels), k);
 });
