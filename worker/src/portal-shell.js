@@ -17,7 +17,7 @@ export const NAV = [
 ];
 const TABS = ["today", "companies", "search", "brief"];
 
-export const PORTAL_CSP = (nonce) => `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src 'self' data:; connect-src 'self'; form-action 'self'; manifest-src 'self'; base-uri 'none'; frame-ancestors 'none'`;
+export const PORTAL_CSP = (nonce) => `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src 'self' data:; connect-src 'self'; form-action 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'`;
 
 // Headers on every /p response (HTML or JSON); the CSP only when there is a nonce.
 export function portalHeaders(nonce, extra = {}) {
@@ -120,7 +120,63 @@ document.addEventListener("submit", function (e) {
   };
   x.onerror = function () { status.textContent = "Not saved: network error"; form.classList.remove("busy"); };
   x.send(JSON.stringify(body));
-});`;
+});
+// Lead alerts (web push, Part E). Inert unless the page holds the panel, which the
+// Brief view renders only while push is on and the viewer signed in through Access.
+(function () {
+  var panel = document.querySelector("[data-push-panel]");
+  if (!panel) return;
+  var status = panel.querySelector(".push-status");
+  var say = function (t) { status.textContent = t; };
+  var ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  var standalone = navigator.standalone === true || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+  if (ios && !standalone) panel.querySelector(".push-home").hidden = false;
+  if (!("serviceWorker" in navigator && "PushManager" in window && "Notification" in window)) { say("This browser cannot receive Lead alerts."); return; }
+  var keyBytes = function (s) {
+    var t = String(s || "").replace(/-/g, "+").replace(/_/g, "/");
+    while (t.length % 4) t += "=";
+    return Uint8Array.from(atob(t), function (c) { return c.charCodeAt(0); });
+  };
+  var post = function (path, body) {
+    return new Promise(function (resolve) {
+      var x = new XMLHttpRequest();
+      x.open("POST", path);
+      x.setRequestHeader("content-type", "application/json");
+      x.onload = function () { var j = {}; try { j = JSON.parse(x.responseText); } catch (_) {} resolve({ status: x.status, body: j }); };
+      x.onerror = function () { resolve({ status: 0, body: {} }); };
+      x.send(JSON.stringify(body));
+    });
+  };
+  var why = function (res) { return res.body.error || ("HTTP " + res.status); };
+  var actions = {
+    on: function () {
+      return Notification.requestPermission().then(function (p) {
+        if (p !== "granted") { say("Notifications are not allowed for Zenith on this device."); return null; }
+        return navigator.serviceWorker.register("/s/sw.js", { scope: "/p/" }).then(function () { return navigator.serviceWorker.ready; })
+          .then(function (reg) { return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(panel.dataset.key) }); })
+          .then(function (sub) { return post("/p/api/push/subscribe", sub.toJSON()); })
+          .then(function (res) { say(res.status === 200 || res.status === 201 ? "Lead alerts are on for this device." : "Not turned on: " + why(res)); });
+      });
+    },
+    test: function () {
+      return post("/p/api/push/test", {}).then(function (res) { say(res.status === 202 ? "A test will arrive within 5 minutes." : "No test queued: " + why(res)); });
+    },
+    off: function () {
+      return navigator.serviceWorker.getRegistration("/p/").then(function (reg) { return reg ? reg.pushManager.getSubscription() : null; }).then(function (sub) {
+        if (!sub) { say("Lead alerts are off for this device."); return null; }
+        var endpoint = sub.endpoint;
+        return sub.unsubscribe().then(function () { return post("/p/api/push/unsubscribe", { endpoint: endpoint }); })
+          .then(function () { say("Lead alerts are off for this device."); });
+      });
+    },
+  };
+  panel.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest ? e.target.closest("button[data-push]") : null;
+    if (!b || !actions[b.dataset.push]) return;
+    b.disabled = true;
+    Promise.resolve().then(actions[b.dataset.push]).catch(function () { say("That did not work on this device."); }).then(function () { b.disabled = false; });
+  });
+})();`;
 
 const navLink = (active) => ([key, label, href]) => html`<a href="${href}"${key === active ? html` aria-current="page"` : ""}>${label}</a>`;
 

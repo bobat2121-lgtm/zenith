@@ -144,7 +144,7 @@ export function roleFor(request, env) {
 //   wiring bug). via: "token" | "access" | "internal".
 export const AUDIT_ACTIONS = ["label", "source_pref", "left_out_grade", "expansion_approve", "expansion_reject", "expansion_reopen",
   "expansion_compiled", "requeue", "rescue", "recall_load", "admin_run", "grade_override",
-  "golden_load"];
+  "golden_load", "push_subscribe", "push_unsubscribe"];
 export const AUDIT_MAX_LIST = 500;
 export const AUDIT_MAX_BYTES = 8192;
 const rayOf = (request) => {

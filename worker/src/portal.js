@@ -23,6 +23,7 @@ import { searchView } from "./portal-search.js";
 import { companyView } from "./portal-company.js";
 import { competitorsPage, industryPage, rarePage } from "./views-page.js";
 import { briefView } from "./portal-brief.js";
+import { pushRoute } from "./push-routes.js";
 
 // One line per view; each later part replaces its own line (and adds one import).
 export const VIEWS = {
@@ -50,6 +51,10 @@ export const ROUTES = [
   { method: "GET", path: "/p/brief", view: "brief" },
   { method: "POST", path: "/p/api/feedback", api: "coverage" },
   { method: "POST", path: "/p/api/aux-feedback", api: "aux" },
+  { method: "GET", path: "/p/api/push/key", push: "key" },
+  { method: "POST", path: "/p/api/push/subscribe", push: "subscribe" },
+  { method: "POST", path: "/p/api/push/unsubscribe", push: "unsubscribe" },
+  { method: "POST", path: "/p/api/push/test", push: "test" },
   { method: "GET", path: "/p/login", open: "login" },
   { method: "POST", path: "/p/login", open: "login" },
   { method: "POST", path: "/p/logout", open: "logout" },
@@ -259,7 +264,7 @@ async function renderView(name, request, env, url, auth, deps, now) {
 // --- Router -------------------------------------------------------------------------
 // deps: { feedback(body, who), auxFeedback(body, who), tickers, muted, ctx, now?, fetchImpl? }
 export async function portal(request, env, url, deps = {}) {
-  if (url.pathname.startsWith("/s/")) return staticResponse(request, url);
+  if (url.pathname.startsWith("/s/")) return staticResponse(request, url, env);
   const now = typeof deps.now === "function" ? deps.now() : Date.now();
   let path = url.pathname.replace(/\/{2,}/g, "/");
   if (path.length > 2) path = path.replace(/\/+$/, "");
@@ -273,7 +278,7 @@ export async function portal(request, env, url, deps = {}) {
   const isGet = request.method === "GET" || request.method === "HEAD";
   const auth = await portalAuth(request, env, url, { now, ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}) });
   if (!auth.ok) {
-    if (!isGet) return forbiddenJson();
+    if (!isGet || hits.some((h) => h.r.push)) return forbiddenJson();
     if (auth.mode === "session") return redirect(LOGIN(), 303);
     return messagePage("Not signed in", auth.mode === "access" ? "This portal needs an Access sign-in." : "The portal is off.", 403);
   }
@@ -290,6 +295,7 @@ export async function portal(request, env, url, deps = {}) {
   if (r.redirect) return redirect(pathOf(r.redirect), 302);
   if (r.pair) return pair(request, env, url, auth, deps, now);
   if (r.api) return label(r.api, request, url, auth, deps);
+  if (r.push) return pushRoute(r.push, request, env, url, auth, { now });
   if (r.view === "companies" && url.searchParams.has("t")) {
     const t = String(url.searchParams.get("t") || "").trim().toUpperCase();
     if (!TICKER_RE.test(t) || !(deps.tickers || []).includes(t)) return notFound();

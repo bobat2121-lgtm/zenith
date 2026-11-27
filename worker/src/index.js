@@ -68,6 +68,8 @@ import { replayClaim, replaySubmit, replayRoute, adminReplay, goldenLoad } from 
 import { rareRoute } from "./rarity.js";
 // Phase 3 Part E: the stored weekday brief (migration 0022, brief_days).
 import { briefStoreTick } from "./brief-store.js";
+// Phase 3 Part E: web push for graded Leads (migration 0024), shipped off: the stage returns "off" with no D1 call.
+import { pushTick } from "./push.js";
 // Phase 3: the portal (portal.js): /p/* behind its own gate, /s/* public install files.
 import { portal } from "./portal.js";
 import { searchRoute } from "./search.js";
@@ -758,6 +760,8 @@ export default {
       try { console.log("expansion backfill", JSON.stringify(await expansionBackfill(env))); } catch (e) { console.error("expansion backfill failed", e?.stack || e); }
       // Phase 3 Part E: the 07:00 ET brief, stored once a weekday (brief-store.js); no D1 call outside Mon-Fri 07:00-09:59 ET.
       try { console.log("brief store", JSON.stringify(await briefStoreTick(env, COVERED, { now: event.scheduledTime }))); } catch (e) { console.error("brief store failed", e?.stack || e); }
+      // Phase 3 Part E: web push for graded Leads (push.js); off until PUSH_ENABLED and the VAPID secrets are set.
+      try { console.log("push", JSON.stringify(await pushTick(env, COVERED, { now: event.scheduledTime }))); } catch (e) { console.error("push failed", e?.stack || e); }
       // SEC party extraction into the expansion queue (Part B), last: it takes the
       // SEC lease after the excerpt pass has finished, and stops on 403/429.
       try { console.log("sec parties", JSON.stringify(await secParties(env))); } catch (e) { console.error("sec parties failed", e?.stack || e); }
