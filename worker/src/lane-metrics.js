@@ -538,7 +538,11 @@ export function report(rows, hits, shadowRows, opts = {}) {
     const days = b - a + 1, n = nmu.by_rubric[v] || 0;
     return { rubric_version: v, days, n, per_day: round(n / days), gated: days >= 5 };
   });
-  const P2 = nmu.total >= winDays && segments.every((s) => !s.gated || s.n / s.days >= 1) ? "pass" : "fail";
+  // No wide-net data (no hit read, as before the wide-net tables exist; the
+  // summary says "wide net: no data"): P1-P3 are not measurable, never a failure.
+  const widenetData = (hits || []).length > 0;
+  const P2 = !widenetData ? "not_measurable"
+    : nmu.total >= winDays && segments.every((s) => !s.gated || s.n / s.days >= 1) ? "pass" : "fail";
   const new_material_unique = { ...nmu, days: winDays, per_day_mean: round(nmu.total / winDays), segments, P2 };
 
   // Beside lines: Part A's Coverage-only count (wide-net Coverage rows graded
@@ -645,11 +649,11 @@ export function report(rows, hits, shadowRows, opts = {}) {
   const widenet_keys = [...new Set(winRows.filter((n) => n.lane === "widenet").map((n) => n.source_key))].sort();
   return {
     window: { from: new Date(from).toISOString(), to: new Date(to).toISOString(), days: winDays },
-    widenet_data: (hits || []).length > 0,
+    widenet_data: widenetData,
     lanes, L1, new_material_unique, wide_net_first: first, beside, head_to_head,
     bing_only_material, per_name, per_bing_key, stage_plan,
     cap_hit_days: [...capDays].sort(), rubric_versions, widenet_keys,
-    verdict: { P1, P2, P3: "manual", P4: head_to_head.P4 },
+    verdict: { P1, P2, P3: widenetData ? "manual" : "not_measurable", P4: head_to_head.P4 },
   };
 }
 

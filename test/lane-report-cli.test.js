@@ -121,7 +121,9 @@ test("main: no wide-net tables yet reads as `wide net: no data`; a Bing-host key
   try {
     let io = capture();
     assert.equal(await R.main(["--from", FROM, "--to", TO, "--bing-keys", f.keys, "--out", f.out], { run: f.run, ...io }), 0, io.lines.error.join("\n"));
-    assert.equal(JSON.parse(readFileSync(f.out, "utf8")).widenet_data, false);
+    const none = JSON.parse(readFileSync(f.out, "utf8"));
+    assert.equal(none.widenet_data, false);
+    assert.deepEqual(none.verdict, { P1: "not_measurable", P2: "not_measurable", P3: "not_measurable", P4: "not_measurable" }, "no wide-net data is never a failure");
     assert.match(io.lines.log[0], /wide net: no data/);
 
     f.news.prepare("INSERT INTO source_diagnostics (key, polled_at, ok, request_host) VALUES ('bing_other', ?, 1, 'www.bing.com')").run(T(0));

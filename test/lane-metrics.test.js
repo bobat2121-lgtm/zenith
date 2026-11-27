@@ -321,5 +321,6 @@ test("report: shadow rows count in the Bing lane with U40/U70 unknown; a shadow 
   assert.equal(r.per_bing_key.bing_shadow.verdict, "retire");
   assert.equal(r.per_bing_key.bing_acme.verdict, "keep:fill");
   assert.equal(r.widenet_data, false);
+  assert.equal(r.verdict.P2, "not_measurable", "no wide-net data: P2 is not measurable, not a failure");
   assert.ok(r.per_name["key:bing_shadow"], "a Bing row without tickers is listed under its key");
 });
