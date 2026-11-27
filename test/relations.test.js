@@ -440,10 +440,10 @@ test("R9: relations.js imports only its six modules, never names CANDIDATE_ or N
   assert.doesNotMatch(genText, /^\s*import\s/m, "the generated file imports nothing");
 });
 
-test("R9: relations.js is imported by no other Worker module yet (PR-CV1 ships no deploy)", () => {
+test("R9: relations.js is the only reader of relations.generated.js (spec I6)", () => {
   for (const f of readdirSync(SRC).filter((f) => f.endsWith(".js") && f !== "relations.js")) {
     const text = readFileSync(new URL(f, SRC), "utf8");
-    assert.doesNotMatch(text, /from\s+"\.\/relations(\.generated)?\.js"/, f);
+    assert.doesNotMatch(text, /from\s+"\.\/relations\.generated\.js"/, f);
   }
 });
 

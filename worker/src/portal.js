@@ -19,17 +19,20 @@ import { page, htmlResponse, messagePage, errorPage, newNonce, portalHeaders } f
 import { staticResponse } from "./portal-static.js";
 import { stub, companiesIndex } from "./portal-stub.js";
 import { todayView } from "./portal-today.js";
+import { companyView } from "./portal-company.js";
+import { competitorsPage, industryPage, rarePage } from "./views-page.js";
+import { briefView } from "./portal-brief.js";
 
 // One line per view; each later part replaces its own line (and adds one import).
 export const VIEWS = {
   today: todayView,
   companies: companiesIndex,
-  company: stub("company"),
-  competitors: stub("competitors"),
-  industry: stub("industry"),
-  rare: stub("rare"),
+  company: companyView,
+  competitors: competitorsPage,
+  industry: industryPage,
+  rare: rarePage,
   search: stub("search"),
-  brief: stub("brief"),
+  brief: briefView,
 };
 
 // Every path the portal serves: { method, path } plus how it is handled. A path
