@@ -147,7 +147,9 @@ test("the committed aux-sources.json agrees with covered.json and the spec's spo
   if (nmRoot) await import(pathToFileURL(join(nmRoot, "src", "priority.js")).href); // appends the register sources to SOURCES, as sync-covered.mjs reads them
   const fmcsa = ["fmcsa_inspections", "fmcsa_census"].some((k) => nmSources.some((s) => s.key === k)) ? 2
     : ["fmcsa_inspections", "fmcsa_census"].filter((k) => aux.sources[k]?.coverage_subject).length;
-  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 136 + fmcsa); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources; +4 drv_ defense budget sources (Phase 1a.2); +12 legistar_* fan-out, +fedreg_fcc_space (Phase 0 nm-sources); +7 fpds_* vendor-UEI keys (Phase 1 FPDS); +txdmv_av_authorizations (Phase 2 TxDMV register); +legistar_fanout (Phase 4 Legistar fan-out), +fmcsa_inspections, fmcsa_census (Phase 4 FMCSA registers; 138 once synced)
+  // Phase 4 Part B: each group-routed register key counts once news-monitor defines it (or the catalog already has it).
+  const partB = ["oira_reviews", "govinfo_committee_reports"].filter((k) => nmSources.some((s) => s.key === k) || aux.sources[k]?.coverage_subject).length;
+  assert.equal(Object.values(aux.sources).filter((e) => e.coverage_subject).length, 136 + fmcsa + partB); // +fedreg_bis_ai_compute, grrr_policy (GRRR program sources); +4 drv_ drone group program sources; +4 drv_ defense budget sources (Phase 1a.2); +12 legistar_* fan-out, +fedreg_fcc_space (Phase 0 nm-sources); +7 fpds_* vendor-UEI keys (Phase 1 FPDS); +txdmv_av_authorizations (Phase 2 TxDMV register); +legistar_fanout (Phase 4 Legistar fan-out), +fmcsa_inspections, fmcsa_census (Phase 4 FMCSA registers; 138 once synced); +oira_reviews, govinfo_committee_reports (Phase 4 OIRA and committee-report registers)
   assert.deepEqual([auxRoute("legistar_fresno").coverage_subject, auxRoute("legistar_fresno").affects], [true, ["AXON", "SERV", "EVLV", "XTRAF"]]);
   assert.deepEqual(auxRoute("fedreg_fcc_space").affects, ["PL", "SATL"]);
 });

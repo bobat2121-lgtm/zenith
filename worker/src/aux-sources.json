@@ -1603,6 +1603,28 @@
       "status": "public",
       "lane": "public_adjacent"
     },
+    "oira_reviews": {
+      "entity": "oira",
+      "name": "OIRA regulatory review",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO",
+        "PL",
+        "SATL",
+        "AUR",
+        "KDK",
+        "GRRR"
+      ],
+      "record": true,
+      "register": true,
+      "group_routed": true
+    },
     "omnilert": {
       "entity": "omnilert",
       "name": "Omnilert, LLC",
@@ -2582,5 +2604,41 @@
     "site_symbotic": "ops",
     "site_unusual": "ops",
     "site_xtractone": "ops"
+  },
+  "register_groups": {
+    "prog_us_ai_compute_policy": {
+      "name": "US AI compute policy",
+      "affects": [
+        "GRRR"
+      ],
+      "from": "fedreg_bis_ai_compute"
+    },
+    "prog_us_av_policy": {
+      "name": "US automated-vehicle policy",
+      "affects": [
+        "AUR",
+        "KDK"
+      ],
+      "from": "fedreg_av_trucking"
+    },
+    "prog_us_drone_policy": {
+      "name": "US drone policy",
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO"
+      ],
+      "from": "drv_fedreg_drone_rules"
+    },
+    "prog_us_space_policy": {
+      "name": "US space policy",
+      "affects": [
+        "PL",
+        "SATL"
+      ],
+      "from": "fedreg_fcc_space"
+    }
   }
 }
