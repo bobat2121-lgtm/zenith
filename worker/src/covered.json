@@ -1684,5 +1684,127 @@
     "zeroeyes": "zeroeyes.com",
     "zipline": "zipline.com",
     "zoox": "zoox.com"
+  },
+  "media_accounts": {
+    "ASST": [
+      "FTSE Russell",
+      "MSCI"
+    ],
+    "AXON": [
+      "70RDA226D00000001",
+      "DHS C-UAS IDIQ",
+      "DHS counter-UAS",
+      "DHS counter-drone"
+    ],
+    "DPRO": [
+      "Army Research Laboratory",
+      "Canadian Armed Forces",
+      "DEVCOM",
+      "Defence Drone Initiative",
+      "Drone Dominance",
+      "Low-Cost Tactical ISR UAS"
+    ],
+    "KDK": [
+      "NMESIS",
+      "ROGUE-Fires"
+    ],
+    "MRLN": [
+      "AFRICOM",
+      "Automated Crew and Workload",
+      "Autonomous Casualty Evacuation",
+      "C-130J autonomy",
+      "CASEVAC",
+      "KC-135 CCR",
+      "KC-135 Center Console Refresh",
+      "USSOCOM"
+    ],
+    "MSTR": [
+      "CAMT",
+      "FTSE Russell",
+      "MSCI",
+      "MSCI ACWI",
+      "MSCI USA Index",
+      "Nasdaq-100",
+      "Russell 1000",
+      "S&P DJI",
+      "S&P Dow Jones Indices",
+      "corporate alternative minimum tax"
+    ],
+    "ONDS": [
+      "HERO 120",
+      "HERO-120",
+      "LUS IDIQ",
+      "Lethal Unmanned Strike",
+      "Lethal Unmanned Systems",
+      "ULTRA Turbo",
+      "Uncrewed Long-endurance Tactical Reconnaissance Aircraft",
+      "Unmanned Long-endurance Tactical Reconnaissance Aircraft"
+    ],
+    "PDYN": [
+      "4th Infantry Division",
+      "ALRRM",
+      "Apex Intercept",
+      "Disruptive Applications",
+      "FUZE xTech",
+      "HANGTIME",
+      "Heavy Lift System",
+      "Ivy Mass",
+      "Project Convergence",
+      "Relentless Wolfpack",
+      "STRATFI",
+      "W911QY26PA045",
+      "Warner Robins"
+    ],
+    "PL": [
+      "EOCL",
+      "NRO",
+      "Project Suncatcher",
+      "Suncatcher"
+    ],
+    "PUSA": [
+      "Aerial Denial UAS",
+      "Drone Dominance",
+      "Group 1 Aerial Denial",
+      "aerial denial IDIQ"
+    ],
+    "RCAT": [
+      "Army SRR",
+      "Drone Dominance",
+      "PM UAS",
+      "Swarm Forge",
+      "platoon-level SRR"
+    ],
+    "SATL": [
+      "Office of Naval Research",
+      "Slingshot III"
+    ],
+    "SERV": [
+      "City of Gold Coast",
+      "Gold Coast delivery robot",
+      "Gold Coast delivery robots",
+      "Gold Coast footpath",
+      "Vancouver delivery robot",
+      "Vancouver delivery robots",
+      "Vancouver robot pilot"
+    ],
+    "SPAI": [
+      "Army MRR",
+      "Ground Threat Detection through Aerial Reconnaissance",
+      "Medium Range Reconnaissance",
+      "PM/WRA",
+      "Project Sandhills",
+      "Sandhills 2.0",
+      "Sandhills Project",
+      "State Department demining",
+      "Weapons Removal and Abatement"
+    ],
+    "SRFM": [
+      "DuBois",
+      "Essential Air Service",
+      "Lanai"
+    ],
+    "UMAC": [
+      "Drone Dominance"
+    ]
   }
 }
