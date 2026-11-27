@@ -275,6 +275,24 @@ test("an accepted hit with no target for this universe (null drain_key from Q-N4
   assert.equal(r.per_bing_key.bing_acme.F, 0);
 });
 
+test("beside: every rest-lane 70+ row, and the outlet keys' 70+ rows apart as phase 5 non-GDELT material (only when keys are given)", () => {
+  const outletRow = cov({ key: "outlet_a", seen: 20, score: 80, title: "Northland regulator opens a probe" });
+  const outletAux = aux({ key: "outlet_a", seen: 20, nm_rowid: outletRow.nm_rowid, affects: "TST", score: 72, url: outletRow.url, title: outletRow.title });
+  const rows = [
+    outletRow, outletAux,
+    cov({ key: "outlet_a", seen: 30, score: 65, title: "Northland regulator posts a notice" }),
+    cov({ key: "acme_ir", seen: 40, score: 90, title: "Acme reports a record quarter" }),
+  ];
+  let b = run(rows).beside;
+  assert.deepEqual([b.rest_lane_material, b.non_gdelt_material, b.outlet_keys], [2, null, 0], "a row with both copies counts once");
+  b = run(rows, [], [], { outletKeys: ["outlet_a"] }).beside;
+  assert.deepEqual([b.rest_lane_material, b.non_gdelt_material, b.outlet_keys], [2, 1, 1]);
+  assert.equal(run(rows, [], [], { outletKeys: "outlet_a,acme_ir" }).beside.non_gdelt_material, 2);
+  assert.throws(() => run(rows, [], [], { outletKeys: ["bing_acme"] }), /not a rest-lane key/);
+  assert.throws(() => run(rows, [], [], { outletKeys: ["widenet_x"] }), /not a rest-lane key/);
+  assert.throws(() => run(rows, [], [], { outletKeys: ["Bad Key"] }), /not a source key/);
+});
+
 test("Z-C15: cross-lane scope: a Bing aux row joins a tagged wide-net row; a scope-less Bing row needs 0.6 and its query token", () => {
   const b = aux({ seen: 10, affects: "UVW", title: "Acme wins a large Northland order" });
   const w = cov({ key: "widenet_x", seen: 12, ticker: "UVW", title: "[UVW] Acme wins large Northland order today" });

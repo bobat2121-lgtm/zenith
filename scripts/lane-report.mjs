@@ -6,6 +6,7 @@
 //
 //   node scripts/lane-report.mjs --from <ISO> --to <ISO> --bing-keys <path>
 //     [--pattern-check <path>] [--universe u1] [--pubtime-sample 0] [--out <path>]
+//     [--outlet-keys <key,key,...>]
 //
 // The key file, the pattern check and the output name sources and titles, so
 // all three must live outside this repository (it is public); the script
@@ -26,6 +27,7 @@ const DAY = 86_400_000;
 
 export const USAGE = `Usage: node scripts/lane-report.mjs --from <ISO> --to <ISO> --bing-keys <path>
        [--pattern-check <path>] [--universe u1] [--pubtime-sample 0] [--out <path>]
+       [--outlet-keys <key,key,...>]
 
   --from, --to       the window [from, to) in UTC (rows from from - 7 days are read for linking)
   --bing-keys        bing-keys.json from news-monitor's scripts/bing-export.mjs (outside this repo)
@@ -33,6 +35,8 @@ export const USAGE = `Usage: node scripts/lane-report.mjs --from <ISO> --to <ISO
   --universe         universe id (default u1)
   --pubtime-sample   N: read the stated publication time of N random L1 pages (default 0, no request)
   --out              output JSON (default ../plans/phase5-sidebyside/<to date>.json; outside this repo)
+  --outlet-keys      the phase 5 outlet source keys (rest lane), comma-separated; their 70+ rows are
+                     printed beside the verdict as phase 5 non-GDELT material (omitted: "not given")
 
 Read-only: every statement is a SELECT or EXPLAIN with a LIMIT.`;
 
@@ -209,6 +213,7 @@ export function summaryLines(r) {
     L("bing"), L("widenet"), L("rest"),
     `L1: n ${r.L1.n}, median ${r.L1.median_h} h, date_exact share ${r.L1.date_exact_share}, L5 ${r.L1.L5_median_h} h, ingested ${r.L1.L1_ingested_median_h} h, P1 ${r.L1.P1}`,
     `new_material_unique: ${r.new_material_unique.total} (${r.new_material_unique.per_day_mean} a day; coverage ${r.new_material_unique.coverage}, aux ${r.new_material_unique.aux}), wide_net_first ${r.wide_net_first.total}, P2 ${r.new_material_unique.P2}`,
+    `beside: rest-lane 70+ rows ${r.beside.rest_lane_material}; phase 5 non-GDELT 70+ rows ${r.beside.non_gdelt_material ?? "not given (--outlet-keys)"}; wide-net aux 70+ rows ${r.beside.widenet_aux_material}`,
     `L2: accepted n ${r.head_to_head.accepted.n}, median ${r.head_to_head.accepted.median_h} h; dup_collected n ${r.head_to_head.dup_collected.n}; P4 ${r.head_to_head.P4}`,
     `bing_only_material: ${r.bing_only_material.length}; pattern gaps: ${Object.values(r.per_bing_key).filter((k) => !k.pattern_covered).length}; cap days: ${r.cap_hit_days.length}`,
     `stage plan: ${sp.status}, keep ${sp.keep.length} (hourly ${sp.hourly}, ${sp.per_hour}/h), retire ${sp.retire.length}`,
@@ -226,7 +231,7 @@ export async function main(argv, { run = runWrangler, log = console.log, error =
       args: argv, strict: true, allowPositionals: false,
       options: {
         from: { type: "string" }, to: { type: "string" }, "bing-keys": { type: "string" }, "pattern-check": { type: "string" },
-        universe: { type: "string", default: "u1" }, "pubtime-sample": { type: "string", default: "0" }, out: { type: "string" }, help: { type: "boolean" },
+        universe: { type: "string", default: "u1" }, "pubtime-sample": { type: "string", default: "0" }, out: { type: "string" }, "outlet-keys": { type: "string" }, help: { type: "boolean" },
       },
     }));
     if (o.help) { log(USAGE); return 0; }
@@ -236,6 +241,8 @@ export async function main(argv, { run = runWrangler, log = console.log, error =
     const sample = Number(o["pubtime-sample"]);
     if (!Number.isInteger(sample) || sample < 0 || sample > 200) throw new UsageError("--pubtime-sample must be a whole number 0-200");
     if (!o["bing-keys"]) throw new UsageError("--bing-keys is required");
+    const outletKeys = o["outlet-keys"] == null ? null : o["outlet-keys"].split(",").map((k) => k.trim()).filter(Boolean);
+    if (outletKeys && (!outletKeys.length || !outletKeys.every((k) => KEY.test(k)))) throw new UsageError("--outlet-keys must be a comma list of source keys ([a-z0-9_]+)");
     const out = o.out ? resolve(o.out) : join(REPO, "..", "plans", "phase5-sidebyside", `${to.slice(0, 10)}.json`);
     for (const [name, p] of [["--bing-keys", o["bing-keys"]], ["--pattern-check", o["pattern-check"]], ["--out", out]]) {
       if (p && insideRepo(p)) throw new UsageError(`${name} is inside the repository; keep report inputs and output outside it`);
@@ -243,6 +250,7 @@ export async function main(argv, { run = runWrangler, log = console.log, error =
     if (!o.out && !existsSync(join(REPO, "..", "plans"))) throw new UsageError("no ../plans folder next to the repository: pass --out");
 
     const bing = M.parseBingKeys(JSON.parse(readFileSync(o["bing-keys"], "utf8")));
+    try { M.outletSet(outletKeys, bing); } catch (e) { throw new UsageError(`--outlet-keys: ${e.message}`); }
     const pattern = o["pattern-check"] ? M.parsePattern(JSON.parse(readFileSync(o["pattern-check"], "utf8"))) : null;
     const q = (target, sql, params) => run(target, bindSql(sql, params));
 
@@ -282,7 +290,7 @@ export async function main(argv, { run = runWrangler, log = console.log, error =
       hits = [];
     }
 
-    const r = M.report(rows, hits, shadow, { from, to, bing, seedByKey, pattern, samplePool: sample > 0 });
+    const r = M.report(rows, hits, shadow, { from, to, bing, seedByKey, pattern, samplePool: sample > 0, outletKeys });
     r.bing_polls_60m = polls;
     r.generated_at = now().toISOString();
     r.universe = o.universe;

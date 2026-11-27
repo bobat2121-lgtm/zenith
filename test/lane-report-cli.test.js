@@ -92,7 +92,7 @@ test("main: reads both databases through the checked runner, writes the report o
   const f = fixture();
   const io = capture();
   try {
-    const code = await R.main(["--from", FROM, "--to", TO, "--bing-keys", f.keys, "--out", f.out], { run: f.run, ...io, now: () => new Date(T(400)) });
+    const code = await R.main(["--from", FROM, "--to", TO, "--bing-keys", f.keys, "--out", f.out, "--outlet-keys", "acme_ir"], { run: f.run, ...io, now: () => new Date(T(400)) });
     assert.equal(code, 0, io.lines.error.join("\n"));
     for (const [, sql] of f.statements) assert.equal(R.guardSql(sql), sql);
     assert.deepEqual([...new Set(f.statements.map(([t]) => t))].sort(), ["news", "zenith"]);
@@ -107,9 +107,11 @@ test("main: reads both databases through the checked runner, writes the report o
     assert.equal(r.widenet_data, true);
     assert.equal(r.universe, "u1");
     assert.equal(r.L1.sample_pool, undefined);
+    assert.deepEqual([r.beside.rest_lane_material, r.beside.non_gdelt_material, r.beside.outlet_keys], [0, 0, 1]);
     const printed = io.lines.log.join("\n");
     assert.match(printed, /^bing: rows 2, post-seed 1/m);
     assert.match(printed, /^new_material_unique: 1 /m);
+    assert.match(printed, /^beside: rest-lane 70\+ rows 0; phase 5 non-GDELT 70\+ rows 0;/m);
     for (const word of ["Acme", "Northland", "bing_acme", "widenet_x", "example.com", "TST"]) assert.ok(!printed.includes(word), word);
   } finally {
     rmSync(f.dir, { recursive: true, force: true });
@@ -125,6 +127,11 @@ test("main: no wide-net tables yet reads as `wide net: no data`; a Bing-host key
     assert.equal(none.widenet_data, false);
     assert.deepEqual(none.verdict, { P1: "not_measurable", P2: "not_measurable", P3: "not_measurable", P4: "not_measurable" }, "no wide-net data is never a failure");
     assert.match(io.lines.log[0], /wide net: no data/);
+    assert.ok(io.lines.log.some((l) => /phase 5 non-GDELT 70\+ rows not given/.test(l)));
+
+    io = capture();
+    assert.equal(await R.main(["--from", FROM, "--to", TO, "--bing-keys", f.keys, "--out", f.out, "--outlet-keys", "bing_acme"], { run: () => { throw new Error("no statement may run"); }, ...io }), 2);
+    assert.match(io.lines.error[0], /^--outlet-keys: outlet key bing_acme is not a rest-lane key/);
 
     f.news.prepare("INSERT INTO source_diagnostics (key, polled_at, ok, request_host) VALUES ('bing_other', ?, 1, 'www.bing.com')").run(T(0));
     io = capture();
@@ -170,6 +177,8 @@ test("main: usage errors exit 2 (missing --bing-keys, bad times, unknown flag, b
     ["--from", TO, "--to", FROM, "--bing-keys", "x"],
     ["--from", FROM, "--to", TO, "--bing-keys", "x", "--universe", "U-1"],
     ["--from", FROM, "--to", TO, "--bing-keys", "x", "--pubtime-sample", "-1"],
+    ["--from", FROM, "--to", TO, "--bing-keys", "x", "--outlet-keys", "Bad Key"],
+    ["--from", FROM, "--to", TO, "--bing-keys", "x", "--outlet-keys", ","],
     ["--nope"],
   ]) {
     const io = capture();

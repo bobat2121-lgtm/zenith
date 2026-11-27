@@ -192,6 +192,20 @@ export function laneOf(sourceKey, { bing } = {}) {
   return isBing ? "bing" : isWide ? "widenet" : "rest";
 }
 
+// The outlet keys (phase 5 Part B's rest-lane outlets) as given by the
+// integrator; this file names none. null when none are given. A key that is
+// malformed, a Bing key or a wide-net key throws (it would not be rest lane).
+export function outletSet(keys, bing) {
+  if (keys == null) return null;
+  const list = Array.isArray(keys) ? keys : String(keys).split(",").map((k) => k.trim()).filter(Boolean);
+  const b = parseBingKeys(bing ?? []);
+  for (const k of list) {
+    if (!KEY.test(String(k))) throw new Error(`outlet key ${JSON.stringify(k)} is not a source key`);
+    if (laneOf(k, { bing: b }) !== "rest") throw new Error(`outlet key ${k} is not a rest-lane key`);
+  }
+  return list.length ? new Set(list.map(String)) : null;
+}
+
 // Tickers of one raw row or hit. Coverage: its ticker. Auxiliary: its affects.
 // A wide-net row: the leading [A/B] tag of its title, else its hit's tickers.
 // A hit: its target's tickers, else its entity's (ctx.entityTickers). A Bing
@@ -449,7 +463,8 @@ function observe(cluster) {
 //   hits       wide-net hits of Q-N4a and Q-N4r (both statuses)
 //   shadowRows Q-N5 rows of shadow Bing keys
 //   opts       { from, to, bing (the key file), seedByKey, pattern (the pattern
-//              check or null), entityTickers?, maxHourly?, maxPerHour?, samplePool? }
+//              check or null), entityTickers?, maxHourly?, maxPerHour?, samplePool?,
+//              outletKeys? (the phase 5 outlet keys, a list or comma list) }
 export function report(rows, hits, shadowRows, opts = {}) {
   const from = ms(opts.from), to = ms(opts.to);
   if (from == null || to == null || !(from < to)) throw new Error("report: from and to must be times with from < to");
@@ -551,13 +566,19 @@ export function report(rows, hits, shadowRows, opts = {}) {
   const new_material_unique = { ...nmu, days: winDays, per_day_mean: round(nmu.total / winDays), segments, P2 };
 
   // Beside lines: Part A's Coverage-only count (wide-net Coverage rows graded
-  // MATERIAL+ by day), Auxiliary MATERIAL+ wide-net rows, and the rest lane's.
-  const beside = { widenet_coverage_material_by_day: {}, widenet_aux_material: 0, rest_material: 0 };
-  for (const n of winRows) for (const g of n.grades) {
-    if (g.score == null || g.score < MATERIAL || IGNORED_BANDS.has(g.band)) continue;
-    if (n.lane === "widenet" && g.pipeline === "coverage") bump(beside.widenet_coverage_material_by_day, dayOf(n.t));
-    if (n.lane === "widenet" && g.pipeline === "aux") beside.widenet_aux_material++;
-    if (n.lane === "rest") beside.rest_material++;
+  // MATERIAL+ by day), Auxiliary MATERIAL+ wide-net rows, every rest-lane
+  // MATERIAL+ row, and I6's "phase 5 non-GDELT material": the MATERIAL+ rows
+  // of the outlet keys given in opts.outletKeys (null when none are given).
+  // Rows count once however many grades they carry.
+  const outlet = outletSet(opts.outletKeys, bing);
+  const beside = { widenet_coverage_material_by_day: {}, widenet_aux_material: 0, rest_lane_material: 0, non_gdelt_material: outlet ? 0 : null, outlet_keys: outlet ? outlet.size : 0 };
+  for (const n of winRows) {
+    const mat = n.grades.filter((g) => g.score != null && g.score >= MATERIAL && !IGNORED_BANDS.has(g.band));
+    if (!mat.length) continue;
+    if (n.lane === "widenet" && mat.some((g) => g.pipeline === "coverage")) bump(beside.widenet_coverage_material_by_day, dayOf(n.t));
+    if (n.lane === "widenet" && mat.some((g) => g.pipeline === "aux")) beside.widenet_aux_material++;
+    if (n.lane === "rest") beside.rest_lane_material++;
+    if (n.lane === "rest" && outlet?.has(n.source_key)) beside.non_gdelt_material++;
   }
 
   // L2 head to head: clusters with a Bing row and a wide-net accepted (or else
