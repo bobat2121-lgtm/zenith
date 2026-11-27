@@ -262,6 +262,19 @@ test("Z-C14: a dup_collected hit joins the Bing row it duplicates by URL; not Bi
   assert.equal(r.per_bing_key.bing_acme.post_seed, 1);
 });
 
+test("an accepted hit with no target for this universe (null drain_key from Q-N4a's LEFT JOIN) is no wide-net observation", () => {
+  const url = "https://example.com/u2/1";
+  const b = aux({ seen: 30, pub: 25, url, score: 80, title: "Acme lands a Westland order" });
+  const other = hit({ url, seen: 29, drain: null, tickers: null, class: null, title: "Acme lands a Westland order" });
+  let r = run([b], [other]);
+  assert.equal(r.bing_only_material.length, 1, "accepted for another universe only: still Bing-only here");
+  assert.equal(r.per_bing_key.bing_acme.F, 1);
+  assert.equal(r.head_to_head.accepted.n, 0);
+  r = run([b], [hit({ url, seen: 29, title: "Acme lands a Westland order" })]);
+  assert.equal(r.bing_only_material.length, 0, "the same hit with a target here is an observation");
+  assert.equal(r.per_bing_key.bing_acme.F, 0);
+});
+
 test("Z-C15: cross-lane scope: a Bing aux row joins a tagged wide-net row; a scope-less Bing row needs 0.6 and its query token", () => {
   const b = aux({ seen: 10, affects: "UVW", title: "Acme wins a large Northland order" });
   const w = cov({ key: "widenet_x", seen: 12, ticker: "UVW", title: "[UVW] Acme wins large Northland order today" });

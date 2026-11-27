@@ -242,6 +242,10 @@ class Sets {
   union(a, b) { const x = this.find(a), y = this.find(b); if (x !== y) this.p[Math.max(x, y)] = Math.min(x, y); }
 }
 
+// An accepted hit with no target for this universe (Q-N4a's LEFT JOIN gives a
+// null drain_key) was accepted for another analyst only: it never drains into
+// this universe, so it is no observation here and is dropped before linking.
+const forUniverse = (h) => h.status === "accepted" && h.drain_key != null && h.drain_key !== "";
 function obsOfHit(h) {
   if (h.status === "accepted") return "accepted";
   return h.reason === "dup_collected" ? "dup_collected" : "rejected";
@@ -253,7 +257,7 @@ function buildNodes(rows, hits, shadowRows, ctx) {
   const nodes = [];
   const byRowid = new Map();
   const accByCanon = new Map();
-  for (const h of hits || []) if (h.status === "accepted") {
+  for (const h of hits || []) if (forUniverse(h)) {
     const c = canonUrl(h.url);
     if (!accByCanon.has(c)) accByCanon.set(c, h);
   }
@@ -296,6 +300,7 @@ function buildNodes(rows, hits, shadowRows, ctx) {
   for (const r of shadowRows || []) rowNode({ ...r, nm_first_seen: r.first_seen }, "shadow");
   const seenHit = new Set();
   for (const h of hits || []) {
+    if (h.status === "accepted" && !forUniverse(h)) continue;
     const id = h.url_norm || canonUrl(h.url);
     if (seenHit.has(id)) continue;
     seenHit.add(id);
@@ -452,7 +457,7 @@ export function report(rows, hits, shadowRows, opts = {}) {
   const pattern = parsePattern(opts.pattern ?? null);
   const seedByKey = opts.seedByKey ?? new Map();
   const entityTickers = new Map(opts.entityTickers instanceof Map ? opts.entityTickers : Object.entries(opts.entityTickers || {}));
-  for (const h of hits || []) if (h.status === "accepted" && h.entity_key != null) {
+  for (const h of hits || []) if (forUniverse(h) && h.entity_key != null) {
     const list = parseTickers(h.tickers);
     if (!list.length) continue;
     const set = new Set(entityTickers.get(h.entity_key) || []);
