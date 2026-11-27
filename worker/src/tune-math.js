@@ -295,29 +295,32 @@ export function compareOffsets(cards, after, before = new Map(), { line = TUNE.L
   return res;
 }
 
-// Delivery settings (scope_kind "delivery"): each value is its default plus
-// its live steps in order, held inside its bounds; no decay. push_floor only
-// rises. placement is the no-deploy switch (on by default; a -1 switch turns
-// tuning's placement off, +1 back on).
+// Delivery settings (scope_kind "delivery"): value = clip(default + the sum
+// of its live steps, min, max); no decay, and order does not matter, so an
+// undo of any earlier action gives the same value as never having taken it.
+// push_floor only rises (a negative step on it is dropped). placement is the
+// no-deploy switch (on by default; a -1 switch turns tuning's placement off,
+// +1 back on).
 export const DELIVERY = Object.freeze({
   brief_floor: Object.freeze({ default: 70, min: 60, max: 80, step: 2, raiseOnly: false }),
   push_floor: Object.freeze({ default: 90, min: 90, max: 95, step: 1, raiseOnly: true }),
   placement: Object.freeze({ default: 1, min: 0, max: 1, step: 1, raiseOnly: false }),
 });
-export function deliveryValues(actions = []) {
-  const live = (actions || [])
-    .filter((a) => a?.undone_at == null && a?.scope_kind === "delivery" && Object.hasOwn(DELIVERY, a?.scope_key))
-    .sort((a, b) => (Number.isFinite(a.id) && Number.isFinite(b.id) ? a.id - b.id : ms(a.created_at) - ms(b.created_at)));
+// default + sum of live steps per key, before the clip. The action route's cap
+// check reads this (a step is accepted only when it changes the clipped value).
+export function deliverySums(actions = []) {
   const out = {};
-  for (const [k, d] of Object.entries(DELIVERY)) {
-    let v = d.default;
-    for (const a of live) {
-      if (a.scope_key !== k) continue;
-      const step = num(a.points) ?? 0;
-      if (d.raiseOnly && step < 0) continue;
-      v = clip(v + step, d.min, d.max);
-    }
-    out[k] = v;
+  for (const [k, d] of Object.entries(DELIVERY)) out[k] = d.default;
+  for (const a of actions || []) {
+    if (a?.undone_at != null || a?.scope_kind !== "delivery" || !Object.hasOwn(DELIVERY, a?.scope_key)) continue;
+    const step = num(a.points) ?? 0;
+    if (DELIVERY[a.scope_key].raiseOnly && step < 0) continue;
+    out[a.scope_key] += step;
   }
-  return { brief_floor: out.brief_floor, push_floor: out.push_floor, placement_on: out.placement === 1 };
+  return out;
+}
+export function deliveryValues(actions = []) {
+  const sums = deliverySums(actions);
+  const v = (k) => clip(sums[k], DELIVERY[k].min, DELIVERY[k].max);
+  return { brief_floor: v("brief_floor"), push_floor: v("push_floor"), placement_on: v("placement") === 1 };
 }

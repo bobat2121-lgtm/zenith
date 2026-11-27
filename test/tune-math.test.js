@@ -386,9 +386,32 @@ test("delivery values: defaults, bounds, push floor only rises, the placement sw
   assert.equal(M.deliveryValues(Array.from({ length: 8 }, (_, i) => d("push_floor", 1, { id: i }))).push_floor, 95);
   assert.equal(M.deliveryValues([d("placement", -1, { id: 1 })]).placement_on, false);
   assert.equal(M.deliveryValues([d("placement", 1, { id: 1 }), d("placement", -1, { id: 2 }), d("placement", 1, { id: 3 })]).placement_on, true);
-  assert.equal(M.deliveryValues([d("placement", 1, { id: 1 }), d("placement", 1, { id: 2 }), d("placement", -1, { id: 3 })]).placement_on, false);
+  // value = clip(default + sum of live steps): 1 + 1 + 1 - 1 = 2, clipped to 1 (on)
+  assert.equal(M.deliveryValues([d("placement", 1, { id: 1 }), d("placement", 1, { id: 2 }), d("placement", -1, { id: 3 })]).placement_on, true);
   assert.equal(M.deliveryValues([d("placement", -1, { id: 1, undone_at: daysAgo(0) })]).placement_on, true);
   assert.equal(M.deliveryValues([d("other_key", 5)]).brief_floor, 70);
+});
+
+test("delivery values: default + sum of live steps, clipped, whatever the order and whichever action is undone", () => {
+  const d = (scope_key, points, id, undone = false) => ({ id, kind: scope_key === "placement" ? "switch" : "step", scope_kind: "delivery", scope_key, points, undone_at: undone ? daysAgo(0) : null });
+  // off, on, off, then the first off is undone: live steps +1, -1 on the default 1 = 1 -> on
+  const sw = [d("placement", -1, 1, true), d("placement", 1, 2), d("placement", -1, 3)];
+  assert.equal(M.deliverySums(sw).placement, 1);
+  assert.equal(M.deliveryValues(sw).placement_on, true);
+  // brief floor: -2, then +2 six times, then -2, then the first -2 undone: 70 + 12 - 2 = 80
+  const bf = [d("brief_floor", -2, 1, true), ...Array.from({ length: 6 }, (_, i) => d("brief_floor", 2, 2 + i)), d("brief_floor", -2, 8)];
+  assert.equal(M.deliverySums(bf).brief_floor, 80);
+  assert.equal(M.deliveryValues(bf).brief_floor, 80);
+  // order never matters
+  const mixed = [d("brief_floor", 2, 1), d("brief_floor", -2, 2), d("brief_floor", 2, 3), d("push_floor", 1, 4), d("push_floor", -1, 5)];
+  assert.deepEqual(M.deliveryValues(mixed), M.deliveryValues([...mixed].reverse()));
+  // push floor: a negative step is dropped before the sum
+  assert.equal(M.deliverySums(mixed).push_floor, 91);
+  assert.deepEqual(M.deliverySums([]), { brief_floor: 70, push_floor: 90, placement: 1 });
+  // the unclipped sum can sit outside the bounds; the value never does
+  const over = Array.from({ length: 9 }, (_, i) => d("brief_floor", 2, i));
+  assert.equal(M.deliverySums(over).brief_floor, 88);
+  assert.equal(M.deliveryValues(over).brief_floor, 80);
 });
 
 test("T11: tune-math.js is pure: no imports, no env, no fetch, no clock", () => {
