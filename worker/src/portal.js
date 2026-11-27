@@ -19,6 +19,9 @@ import { page, htmlResponse, messagePage, errorPage, newNonce, portalHeaders } f
 import { staticResponse } from "./portal-static.js";
 import { stub, companiesIndex } from "./portal-stub.js";
 import { todayView } from "./portal-today.js";
+import { searchView } from "./portal-search.js";
+import { companyView } from "./portal-company.js";
+import { competitorsPage, industryPage, rarePage } from "./views-page.js";
 import { briefView } from "./portal-brief.js";
 import { pushRoute } from "./push-routes.js";
 
@@ -26,11 +29,11 @@ import { pushRoute } from "./push-routes.js";
 export const VIEWS = {
   today: todayView,
   companies: companiesIndex,
-  company: stub("company"),
-  competitors: stub("competitors"),
-  industry: stub("industry"),
-  rare: stub("rare"),
-  search: stub("search"),
+  company: companyView,
+  competitors: competitorsPage,
+  industry: industryPage,
+  rare: rarePage,
+  search: searchView,
   brief: briefView,
 };
 

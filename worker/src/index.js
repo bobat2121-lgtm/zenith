@@ -15,6 +15,7 @@
 //   app   : GET /v1/brief, GET /v1/calendar (the brief as data and the calendar; brief.js, calendar.js),
 //           GET /v1/news-ops (news-monitor alerts and the managed lane; source-signals.js),
 //           GET /v1/recall (the recall scoreboard, counts only; recall.js)
+//   app   : GET /v1/company?ticker= (one covered name's Company page as data; company.js)
 //   admin : POST /v1/admin/ingest, /v1/admin/enrich, /v1/admin/requeue, /v1/admin/aux-ingest (and grade without a claim),
 //           POST /v1/admin/bill-lines (one pass of the bill autonomy lines; bill-lines.js),
 //           POST /v1/admin/recall (loads the recall events; recall.js),
@@ -71,6 +72,9 @@ import { briefStoreTick } from "./brief-store.js";
 import { pushTick } from "./push.js";
 // Phase 3: the portal (portal.js): /p/* behind its own gate, /s/* public install files.
 import { portal } from "./portal.js";
+import { searchRoute } from "./search.js";
+// Phase 3 Part B: the Company page's data (company.js; reads news-monitor-db, SELECT only).
+import { companyRoute } from "./company.js";
 
 // Exported for the /v1 auth walk (test/v1-auth-walk.test.js); no behaviour change.
 export const ALLOW = {
@@ -85,6 +89,7 @@ export const ALLOW = {
   "GET /v1/brief": ["app", "admin"],
   "GET /v1/calendar": ["grader", "app", "admin"],
   "GET /v1/calibration": ["grader", "app", "admin"],
+  "GET /v1/company": ["app", "admin"],
   "POST /v1/admin/ingest": ["admin"],
   "POST /v1/admin/enrich": ["admin"],
   "POST /v1/admin/requeue": ["admin"],
@@ -130,6 +135,7 @@ export const ALLOW = {
   "POST /v1/admin/golden": ["admin"],
   // Phase 2: rare finds (register and original rows at or above a score floor; rarity.js).
   "GET /v1/rare": ["app", "admin"],
+  "GET /v1/search": ["admin"],
 };
 
 async function readJson(request) {
@@ -678,6 +684,7 @@ export default {
       case "GET /v1/brief": return briefRoute(env, COVERED, url);
       case "GET /v1/calendar": return calendarRoute(env, COVERED, url);
       case "GET /v1/calibration": return calibrationRoute(env);
+      case "GET /v1/company": return companyRoute(env, url);
       case "POST /v1/admin/ingest": return json(await auditRun(env, who, "ingest", await ingest(env)));
       case "POST /v1/admin/enrich": return json(await auditRun(env, who, "enrich", await enrich(env)));
       case "POST /v1/admin/requeue": return requeue(env, await readJson(request), who);
@@ -720,6 +727,7 @@ export default {
       case "POST /v1/admin/replay": return adminReplay(env, await readJson(request), who);
       case "POST /v1/admin/golden": return goldenLoad(env, await readJson(request), who);
       case "GET /v1/rare": return rareRoute(env, url, { muted: MUTED_SQL, universe: IN_UNIVERSE });
+      case "GET /v1/search": return searchRoute(env, url, { tickers: COVERED.tickers, muted: MUTED_SQL });
     }
     return json({ error: "not found" }, 404);
   },
