@@ -1069,6 +1069,22 @@
         "KDK"
       ]
     },
+    "oira_reviews": {
+      "role": "program",
+      "affects": [
+        "UMAC",
+        "RCAT",
+        "PUSA",
+        "ONDS",
+        "DPRO",
+        "PL",
+        "SATL",
+        "AUR",
+        "KDK",
+        "GRRR"
+      ],
+      "group_routed": true
+    },
     "legistar_fanout": {
       "role": "customer",
       "affects": [

@@ -312,3 +312,92 @@ test("FMCSA routing and dating, catalog-free (Z-C3): a register row dated by upl
   assert.equal(routeCounterparty(rival, cp, match).ticker, "TS2", "the tag decides when no company or account is named");
   assert.equal(routeCounterparty(rival.replace("[TS2]", "[TST]"), { ...cp, affects: ["TS2", "TST"] }, match).ticker, "TST");
 });
+
+// Phase 4 Part B (Z-B4): the two group-routed register keys (OIRA reviews,
+// committee reports) and aux-sources.json register_groups, synced from
+// news-monitor by scripts/sync-covered.mjs. As for FMCSA above, whether the
+// catalog cases run is decided by news-monitor's source list (NEWS_MONITOR_REPO,
+// else the checkout beside zenith). Key names and tickers only; group tickers
+// are read from the generated file and news-monitor's tree, never written
+// here; titles and URLs are synthetic.
+const { isGroupRouted, groupAffects } = await import("../worker/src/records.js");
+const PART_B_KEYS = ["oira_reviews", "govinfo_committee_reports"];
+const PART_B_ENTITY = { oira_reviews: ["oira", "OIRA regulatory review"], govinfo_committee_reports: ["govinfo_crpt", "Congressional committee reports"] };
+const NM_PART_B = PART_B_KEYS.filter((k) => NM_SOURCES.some((s) => s.key === k));
+const PART_B_SYNCED = PART_B_KEYS.filter((k) => Object.hasOwn(COVERED.counterparty, k));
+const WATCH_PATH = NM_ROOT ? join(NM_ROOT, "src", "register-gov-watch.js") : null;
+const NM_GROUPS = WATCH_PATH && existsSync(WATCH_PATH) ? (await import(pathToFileURL(WATCH_PATH).href)).GOV_GROUPS || [] : [];
+const partBSkip = (k) => (NM_PART_B.includes(k) || PART_B_SYNCED.includes(k) ? false
+  : `news-monitor defines no ${k} source yet and the bundled catalog has none (it comes with news-monitor's Part B register PR)`);
+
+test("the Part B register keys are synced whenever news-monitor defines them; group_routed is on both catalog entries or neither; register_groups exists exactly when a group-routed key is synced (Z-B4)", () => {
+  for (const k of NM_PART_B) assert.ok(PART_B_SYNCED.includes(k), `${k} is a news-monitor source but not in covered.json: regenerate against that tree`);
+  for (const [k, cp] of Object.entries(COVERED.counterparty)) {
+    assert.equal(cp.group_routed === true, isGroupRouted(k), `${k}: the counterparty and aux flags agree`);
+    if (cp.group_routed !== undefined) assert.equal(cp.group_routed, true, `${k}: the flag is only ever true`);
+  }
+  for (const k of Object.keys(AUX.sources)) if (isGroupRouted(k)) assert.equal(COVERED.counterparty[k]?.group_routed, true, `${k}: an aux group_routed entry is a group_routed counterparty`);
+  const routed = Object.keys(COVERED.counterparty).filter((k) => COVERED.counterparty[k].group_routed);
+  assert.equal(Object.hasOwn(AUX, "register_groups"), routed.length > 0, "register_groups is written with the group-routed keys");
+});
+
+test("register_groups: one entry per news-monitor topic group, each with its mirror channel's covered tickers in the mirror's order, every one inside the group-routed keys' affects (Z-B4)", { skip: !AUX.register_groups && "no group-routed key is synced yet" }, () => {
+  const groups = AUX.register_groups;
+  assert.deepEqual(Object.keys(groups), [...Object.keys(groups)].sort(), "entities sorted");
+  if (NM_GROUPS.length) assert.deepEqual(Object.keys(groups), NM_GROUPS.map((g) => g.entity).sort(), "the tree's groups, all of them");
+  const union = new Set(PART_B_SYNCED.flatMap((k) => COVERED.counterparty[k].affects));
+  for (const [entity, g] of Object.entries(groups)) {
+    assert.match(entity, /^[a-z][a-z0-9_]{2,63}$/, entity);
+    assert.deepEqual(Object.keys(g), ["name", "affects", "from"], entity);
+    assert.ok(g.affects.length > 0 && g.affects.every((t) => COVERED.tickers.includes(t) && union.has(t)), `${entity}: covered tickers of the registers`);
+    if (NM_SOURCES.length) {
+      const mirror = NM_SOURCES.find((s) => s.key === g.from);
+      assert.ok(mirror, `${entity}: its mirror ${g.from} is a news-monitor source`);
+      const list = Array.isArray(mirror.affects) ? mirror.affects : String(mirror.affects || "").split(",");
+      const want = [...new Set(list.map((t) => String(t).trim().toUpperCase()))].filter((t) => COVERED.tickers.includes(t));
+      assert.deepEqual(g.affects, want, `${entity}: the mirror's covered affects, in its order`);
+    }
+    assert.deepEqual(groupAffects(`https://register.example.gov/x#card-g=${entity}`)?.affects, g.affects, `${entity}: groupAffects reads it`);
+  }
+});
+
+for (const k of PART_B_KEYS) {
+  test(`${k} is a group-routed program counterparty and a register record entry, a coverage subject with its tickers (Z-B4)`, { skip: partBSkip(k) }, () => {
+    const cp = COVERED.counterparty[k];
+    assert.equal(cp.role, "program", k);
+    assert.equal(cp.group_routed, true, k);
+    assert.ok(cp.affects.length > 0 && cp.affects.every((t) => COVERED.tickers.includes(t)), k);
+    assert.ok(!Object.hasOwn(COVERED.sources, k) && !Object.hasOwn(COVERED.channels, k), k);
+    const [entity, name] = PART_B_ENTITY[k];
+    assert.deepEqual(AUX.sources[k], { entity, name, status: "program", lane: "strategic_noncompany",
+      coverage_subject: true, affects: cp.affects, record: true, register: true, group_routed: true }, `${k} in aux-sources.json`);
+    assert.ok(!Object.hasOwn(AUX.exclude, k), k);
+    assert.equal(isRecordSource(k), true, k);
+    assert.equal(isRegisterSource(k), true, k);
+    assert.equal(isGroupRouted(k), true, k);
+  });
+
+  test(`${k} cards on Coverage (Z-B2, bundled catalog): each group's card lands on the group's first ticker with the group's tickers as affects; an unknown group keeps the source's; held seed_fresh then register; none on Auxiliary; no Discord rows`, { skip: partBSkip(k) || (!AUX.register_groups && "no register_groups") }, async () => {
+    const env = newEnv();
+    const own = COVERED.counterparty[k].affects;
+    const groups = Object.entries(AUX.register_groups).filter(([, g]) => g.affects.some((t) => own.includes(t)));
+    const url = (n, entity) => `https://register.example.gov/card/${n}#test-${n}-g=${entity}`;
+    groups.forEach(([entity], n) => nm(env, { source_key: k, title: "[Test policy] Synthetic baseline card", published: SEEN, url: url(n, entity) }));
+    nm(env, { source_key: k, title: "[Test policy] Synthetic card, later poll", published: ago(1, LATER), first_seen: LATER, url: url(90, groups[0][0]) });
+    nm(env, { source_key: k, title: "[Test policy] Synthetic card, unknown group", published: ago(1, LATER), first_seen: LATER, url: url(91, "prog_test_unknown") });
+    const res = await ingest(env);
+    await ingestAux(env);
+    assert.equal(res.group_unknown, 1);
+    const cov = Object.fromEntries(env.DB.rows("SELECT url, ticker, role, affects, state, admit FROM items WHERE source_key = ?", k)
+      .map((x) => [x.url, [x.ticker, x.role, x.affects, x.state, x.admit]]));
+    groups.forEach(([entity, g], n) => {
+      const affects = g.affects.filter((t) => own.includes(t));
+      assert.deepEqual(cov[url(n, entity)], [affects[0], "program", affects.join(","), "pending", "seed_fresh"], entity);
+    });
+    const first = groups[0][1].affects.filter((t) => own.includes(t));
+    assert.deepEqual(cov[url(90, groups[0][0])], [first[0], "program", first.join(","), "pending", "register"]);
+    assert.deepEqual(cov[url(91, "prog_test_unknown")], [own[0], "program", own.join(","), "pending", "register"], "unknown group: the source's union");
+    assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = ?", k)[0].n, 0);
+    for (const t of ["incidents", "deliveries", "reports"]) assert.equal(env.DB.rows(`SELECT COUNT(*) AS n FROM ${t}`)[0].n, 0, t);
+  });
+}

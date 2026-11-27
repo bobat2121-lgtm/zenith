@@ -47,3 +47,25 @@ export const isRegisterSource = (key, aux = AUX) => {
   const k = String(key ?? "");
   return own(aux?.sources, k) && aux.sources[k]?.register === true;
 };
+
+// Phase 4 (Part B): a group-routed register source (aux-sources.json
+// group_routed: true, set by scripts/sync-covered.mjs for the OIRA review and
+// committee-report adapters). Each of its cards is about one topic group, a
+// shared program entity, not about a ticker. `aux` is for tests.
+export const isGroupRouted = (key, aux = AUX) => {
+  const k = String(key ?? "");
+  return own(aux?.sources, k) && aux.sources[k]?.group_routed === true;
+};
+
+// The aux-sources.json register_groups entry ({ entity, name, affects, from })
+// named by a card URL's trailing "g=<entity>" fragment (news-monitor puts it
+// after "#", "&" or "-": "#baseline-g=<entity>", "#p3-g=<entity>"), else null:
+// no fragment, or a group this catalog does not know. affects: the covered
+// tickers the group feeds, in its mirror channel's order. `aux` is for tests.
+const GROUP_FRAGMENT = /[#&-]g=([a-z][a-z0-9_]{2,63})$/;
+export const groupAffects = (url, aux = AUX) => {
+  const m = GROUP_FRAGMENT.exec(String(url ?? ""));
+  if (!m || !own(aux?.register_groups, m[1])) return null;
+  const g = aux.register_groups[m[1]];
+  return { entity: m[1], name: g?.name ?? null, affects: Array.isArray(g?.affects) ? [...g.affects] : [], from: g?.from ?? null };
+};
