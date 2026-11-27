@@ -13,6 +13,7 @@ const { ingest } = await import("../worker/src/ingest.js");
 const { ingestAux } = await import("../worker/src/auxiliary.js");
 const { releaseHeld } = await import("../worker/src/budget.js");
 const { isRecordSource } = await import("../worker/src/records.js");
+const { EXCERPT_CHARS } = await import("../worker/src/excerpt.js");
 const { default: COVERED } = await import("../worker/src/covered.json");
 
 const DAY = 86_400_000;
@@ -537,8 +538,18 @@ test("GAO rows on Coverage (Z3, bundled catalog): a new docket and its outcome l
   add(U(2002, "T"), 2002, "Test bid protest T-2002.1 filed 11/24/2026: protester \"Example Protester, LLC\"; Example Sub-Agency (decision due 03/03/2027)", ago(1, LATER), LATER);
   await ingest(env);
   await ingestAux(env);
-  const cov = Object.fromEntries(env.DB.rows("SELECT url, ticker, role, affects, skip_reason, excerpt_status FROM items WHERE source_key = ?", GAO_KEY)
-    .map((x) => [x.url, [x.ticker, x.role, x.affects, x.skip_reason, x.excerpt_status]]));
+  const rows = env.DB.rows("SELECT url, ticker, role, affects, skip_reason, excerpt_status, excerpt, excerpt_tries FROM items WHERE source_key = ?", GAO_KEY);
+  assert.equal(rows.length, 3);
+  // Part D live check 13: the stored excerpt is the docket body itself and no
+  // page fetch was tried (excerpt_tries 0), so zenith never requests the docket URL.
+  for (const x of rows) {
+    const n = /t-(\d+)\.1/.exec(x.url)[1];
+    const text = body(n).trim();
+    assert.equal(x.excerpt_tries, 0, `${x.url}: no page fetch`);
+    assert.ok(typeof x.excerpt === "string" && x.excerpt.length > 0 && x.excerpt.length <= EXCERPT_CHARS, `${x.url}: an excerpt within ${EXCERPT_CHARS} characters`);
+    assert.ok(x.excerpt === text || text.startsWith(x.excerpt), `${x.url}: the excerpt is the docket body, or its start`);
+  }
+  const cov = Object.fromEntries(rows.map((x) => [x.url, [x.ticker, x.role, x.affects, x.skip_reason, x.excerpt_status]]));
   assert.deepEqual(cov[U(2001, "T")], [t, "program", t, null, "feed"], other ? `another ticker's company (${other}) in the title does not move the row` : "new docket");
   assert.deepEqual(cov[U(2001, "outcome-T")], [t, "program", t, null, "feed"], "outcome change");
   assert.deepEqual(cov[U(2002, "T")], [affects[0], "program", affects.join(","), "tag_outside_affects", "feed"]);
