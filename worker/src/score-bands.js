@@ -107,6 +107,15 @@ const DOES = {
 };
 const DOES_DATA_PROBLEM = "wrong or broken item";
 
+// The fixed sentence under the slider (spec 5.2), one copy for /v1/scale, the
+// portal and the app. Its numbers are tune-math.js TUNE's AGREE_WITHIN, K,
+// MAX_STEP.card (rounded) and LINE; test/tune-math.test.js asserts they agree.
+// This module does not import tune-math.js (it imports only the rubric text).
+export const SLIDER_NOTE =
+  "Within 10 points of Claude's grade counts as agreement. Your first two grades on a source or topic never change tuning; " +
+  "from the third agreeing grade, each grade moves similar cards by at most about 5 points, " +
+  `and a card Claude scored ${NECESSARY_LINE}+ never leaves For You because of tuning until you confirm it.`;
+
 // The slider's segments, top first: each band from the rubric, with the
 // lowest band split by its sub-zones, clipped to the slider's 1-100.
 export function sliderZones(pipeline = "coverage") {

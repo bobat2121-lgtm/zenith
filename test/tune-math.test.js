@@ -10,7 +10,7 @@ import { hookJsonImports } from "./helpers/worker-env.js";
 
 hookJsonImports();
 const M = await import("../worker/src/tune-math.js");
-const { NECESSARY_LINE, LEAD_LINE } = await import("../worker/src/score-bands.js");
+const { NECESSARY_LINE, LEAD_LINE, SLIDER_NOTE } = await import("../worker/src/score-bands.js");
 const { LABEL_RANGE } = await import("../worker/src/auxiliary.js");
 const { isOfficialRecord, OFFICIAL_HOST_RE } = await import("../worker/src/records.js");
 const { TUNE } = M;
@@ -29,6 +29,18 @@ test("constants: the line and Lead edges come from the rubric; legacy ranges equ
   assert.deepEqual(M.LEGACY_RANGE, LABEL_RANGE);
   assert.equal(M.round1(TUNE.MAX_STEP.source + TUNE.MAX_STEP.topic), TUNE.MAX_STEP.card);
   assert.ok(Object.isFrozen(TUNE) && Object.isFrozen(TUNE.CAP));
+});
+
+test("the slider's fixed sentence states the tuning constants it describes", () => {
+  const ORDINAL = { 2: "two", 3: "third" };
+  assert.ok(SLIDER_NOTE.startsWith(`Within ${TUNE.AGREE_WITHIN} points of Claude's grade counts as agreement.`));
+  assert.ok(SLIDER_NOTE.includes(`Your first ${ORDINAL[TUNE.K - 1]} grades on a source or topic never change tuning`));
+  assert.ok(SLIDER_NOTE.includes(`from the ${ORDINAL[TUNE.K]} agreeing grade`));
+  assert.ok(SLIDER_NOTE.includes(`at most about ${Math.round(TUNE.MAX_STEP.card)} points`));
+  assert.ok(SLIDER_NOTE.includes(`a card Claude scored ${TUNE.LINE}+ never leaves For You because of tuning until you confirm it.`));
+  // a single grade never opens tuning, so "first two" holds
+  assert.equal(M.scopeOffset(ex(TUNE.K - 1), { kind: "source" }).points, 0);
+  assert.notEqual(M.scopeOffset(ex(TUNE.K), { kind: "source" }).points, 0);
 });
 
 test("T4: consistent extreme grades accumulate on a source, a topic and a card fed by both", () => {
