@@ -22,12 +22,13 @@
 // No fetch, and nothing from delivery.js or discord.js.
 import COVERED from "./covered.json";
 import { isSecItem, isHttpUrl, nowIso } from "./lib.js";
-import { isOfficialRecord } from "./records.js";
+import { isOfficialRecord, isRegisterSource } from "./records.js";
 
 // The grader's own "recent" window for duplicates (grader/GRADER.md).
 export const STORY_WINDOW_DAYS = 14;
 const DAY_MS = 86_400_000;
-// Register sources: never a title or URL key, whatever their catalog flags.
+// Register sources: never a title or URL key, whatever their catalog flags
+// (the URL key also skips every catalog register, records.js isRegisterSource).
 export const REGISTER_KEY = /^(lda_|txdmv)/;
 // Sources whose titles are templates: one title, many different records.
 export const TEMPLATED_KEY = /^(wargov_contracts|fpds_|legistar_)/;
@@ -111,7 +112,9 @@ export async function storyKeys(row, pipeline) {
   else if (piid) storyKey = `piid:${pre}${piid}`;
   else if (matter) storyKey = `lgs:${pre}${matter}`;
   else if (scope != null && scope !== "" && titleKeyable(row)) storyKey = `t:${await hex16(`${scope}|${normTitle(row.title)}`)}`;
-  const urlKey = !cov && isHttpUrl(url) && !REGISTER_KEY.test(String(row?.source_key ?? "")) ? `u:${await hex16(canonUrl(url))}` : null;
+  // A register's aux row gets no URL key either: REGISTER_KEY by key, or any catalog register (aux-sources.json register: true).
+  const key = String(row?.source_key ?? "");
+  const urlKey = !cov && isHttpUrl(url) && !REGISTER_KEY.test(key) && !isRegisterSource(key) ? `u:${await hex16(canonUrl(url))}` : null;
   return { story_key: storyKey, url_key: urlKey };
 }
 

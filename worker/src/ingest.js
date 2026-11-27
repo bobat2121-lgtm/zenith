@@ -18,7 +18,7 @@ import { nowIso, isHttpUrl, routeCounterparty, chunk, isArchiveCandidate, archiv
 import { feedText, pdfLinkIn, isDocumentTitle, EXCERPT_CHARS } from "./excerpt.js";
 import { textClass, visibleBudgets } from "./text-class.js";
 import { mutedSources } from "./tuning.js";
-import { isOfficialRecord, isFpdsSource, isRegisterSource } from "./records.js";
+import { isOfficialRecord, isFpdsSource, isRegisterSource, groupAffects } from "./records.js";
 import { budgetSettings, fastPathCounter } from "./budget.js";
 import { storyPlanner, storyDedupOn, hasFeedText, storyOfSql, storyOfArgs, swapStatement } from "./story.js";
 
@@ -205,8 +205,9 @@ export function routeRow(r) {
 // --- Phase 5: routing for tagged and media rows ------------------------------
 // One helper for every counterparty row, keyed on the catalog entry's flags
 // (sync-covered.mjs), never on a source key. A key carries at most one flag;
-// the order is tag narrowing (tag_affects), then the media gate (role
-// "media"); any other counterparty row is routeCounterparty, unchanged.
+// the order is group routing (group_routed, phase 4 Part B), then tag
+// narrowing (tag_affects), then the media gate (role "media"); any other
+// counterparty row is routeCounterparty, unchanged.
 export const TAG_OUTSIDE = "tag_outside_affects";
 const LEAD_GROUP = /^\s*\[([^\]]*)\]\s*/;
 const LEAD_TAG = /^\[([A-Z][A-Z0-9.]{0,7}(?:\/[A-Z][A-Z0-9.]{0,7})*)\]/;
@@ -257,7 +258,25 @@ export function routeCp(title, cp, match = MATCH, media = MEDIA_MATCH) {
   const tagged = tag ? tag.split("/").some((t) => (cp.affects || []).includes(t)) : false;
   return { ...g, role: "media", skip: tagged ? null : g.skip };
 }
-export function routeFor(r, cp, match = MATCH, media = MEDIA_MATCH) {
+// Phase 4 (Part B): a group_routed register's card names its topic group in
+// its URL's "g=<entity>" fragment (records.js groupAffects). It is routed among
+// that group's tickers that are in the source's affects: stored affects = the
+// group's tickers in its mirror channel's order; ticker = a company or key
+// account the title names, else the group's first ticker. null when the URL
+// names no group this catalog knows (or none of its tickers is routable): the
+// caller then routes the row as before, among all of the source's affects,
+// and ingest counts it (group_unknown). `aux` is for tests.
+export function groupRoute(r, cp, match = MATCH, aux) {
+  const group = groupAffects(r?.url, aux);
+  const affects = group ? group.affects.filter((t) => (cp?.affects || []).includes(t)) : [];
+  if (!affects.length) return null;
+  return routeCounterparty(r?.title, { ...cp, affects }, match);
+}
+export function routeFor(r, cp, match = MATCH, media = MEDIA_MATCH, aux) {
+  if (cp?.group_routed) {
+    const g = groupRoute(r, cp, match, aux);
+    if (g) return g;
+  }
   if (cp?.tag_affects) return tagRoute(r, cp, match);
   return routeCp(r?.title, cp, match, media);
 }
@@ -270,7 +289,7 @@ export async function ingest(env) {
     cursor = await initialCursor(news);
     await setMeta(db, "nm_cursor", cursor).run();
   }
-  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, held = 0, storyHeld = 0, storySwapped = 0;
+  let scanned = 0, inserted = 0, skipped = 0, parkedEarlier = 0, fromFeed = 0, held = 0, storyHeld = 0, storySwapped = 0, groupUnknown = 0;
   // A muted source's rows are stored skipped (source prefs, tuning.js).
   const muted = await mutedSources(db);
   const fastCap = budgetSettings(env).fast_cap;
@@ -285,6 +304,8 @@ export async function ingest(env) {
     const now = nowIso();
     const stmts = [];
     const routed = rows.map((r) => ({ r, route: routeRow(r) })).filter((x) => x.route?.ticker);
+    // Phase 4 Part B: group-routed rows whose URL names no known group (routed among all the source's affects).
+    groupUnknown += rows.filter((r) => COUNTERPARTY[r.source_key]?.group_routed && !groupRoute(r, COUNTERPARTY[r.source_key])).length;
     // Day-one archive rows (a seed or backfill of undated or old pages): parked,
     // not queued as fresh news. Earlier rows of the same poll are parked too.
     const park = archiveSeedGroups(routed.map((x) => x.r), await storedArchiveCounts(db, routed.map((x) => x.r), cursor));
@@ -355,5 +376,5 @@ export async function ingest(env) {
     if (win.n < BATCH) break;
   }
   return { cursor, scanned, inserted, skipped_on_arrival: skipped, archive_parked_after_insert: parkedEarlier, feed_excerpts: fromFeed, held,
-    story_held: storyHeld, story_swapped: storySwapped };
+    story_held: storyHeld, story_swapped: storySwapped, group_unknown: groupUnknown };
 }
