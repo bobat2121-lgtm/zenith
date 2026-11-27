@@ -374,7 +374,7 @@ const REGISTER_LIST = [
 ];
 
 test("register adapters (Z5): record, register and coverage_subject true, one program entity per register, counterparty program with affects; other adapters carry no register flag", () => {
-  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report"]);
+  assert.deepEqual(REGISTER_ADAPTERS, ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census"]);
   for (const a of REGISTER_ADAPTERS) assert.ok(RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
   const covered = buildCovered(REGISTER_LIST);
   assert.deepEqual(covered.counterparty.reg_lobby_new, { role: "program", affects: ["RCAT", "KDK"] }, "an uncovered ticker is dropped");
@@ -446,4 +446,43 @@ test("Z-W4 tag_affects: config.tagAffects === true is copied to the counterparty
     const { tag_affects, ...rest } = e;
     assert.deepEqual(a2[k], rest, k);
   }
+});
+
+// Phase 4 Part C (Z-C1): the FMCSA register adapters and the Legistar fan-out
+// adapter. Synthetic keys, hosts and names; only the adapter names are
+// news-monitor's.
+const PART_C_LIST = [
+  { key: "testco", lane: "covered", covered: true, coveredTicker: "RCAT", adapter: "rss", name: "Testco", endpoint: "https://testco.example.com/feed" },
+  { key: "otherco", lane: "covered", covered: true, coveredTicker: "KDK", adapter: "rss", name: "Otherco", endpoint: "https://otherco.example.com/feed" },
+  { key: "councils_fanout", lane: "strategic_noncompany", adapter: "legistar_fanout", name: "Testville councils (fan-out) — test matters",
+    endpoint: "https://api.example.org/v1/", role: "customer", affects: ["RCAT", "ZZZ"] },
+  { key: "carrier_inspections", lane: "strategic_noncompany", adapter: "fmcsa_inspections", name: "Carrier inspections — test",
+    endpoint: "https://data.example.org/resource/a.json", role: "program", affects: ["KDK", "RCAT"] },
+  { key: "carrier_census", lane: "strategic_noncompany", adapter: "fmcsa_census", name: "Carrier census — test",
+    endpoint: "https://data.example.org/resource/b.json", role: "program", affects: ["KDK"] },
+];
+
+test("Z-C1 Part C adapters: fmcsa_inspections and fmcsa_census are registers (records, filters, one fmcsa entity); legistar_fanout is a record filter and a coverage subject, not a register", () => {
+  for (const a of ["fmcsa_inspections", "fmcsa_census"]) {
+    assert.ok(REGISTER_ADAPTERS.includes(a) && RECORD_ADAPTERS.includes(a) && FILTER_ADAPTERS.includes(a), a);
+  }
+  assert.ok(RECORD_ADAPTERS.includes("legistar_fanout") && FILTER_ADAPTERS.includes("legistar_fanout"));
+  assert.ok(!REGISTER_ADAPTERS.includes("legistar_fanout"), "the fan-out is a record filter, not a register");
+  const covered = buildCovered(PART_C_LIST);
+  assert.deepEqual(covered.counterparty.councils_fanout, { role: "customer", affects: ["RCAT"] }, "an uncovered ticker is dropped");
+  assert.deepEqual(covered.counterparty.carrier_inspections, { role: "program", affects: ["KDK", "RCAT"] });
+  assert.deepEqual(covered.counterparty.carrier_census, { role: "program", affects: ["KDK"] });
+  assert.deepEqual(covered.records, []);
+  const { sources, exclude } = buildAux(PART_C_LIST, covered, []);
+  const fmcsa = { entity: "fmcsa", name: "FMCSA inspection and census records", status: "program", lane: "strategic_noncompany", coverage_subject: true, record: true, register: true };
+  assert.deepEqual(sources.carrier_inspections, { ...fmcsa, affects: ["KDK", "RCAT"] });
+  assert.deepEqual(sources.carrier_census, { ...fmcsa, affects: ["KDK"] });
+  assert.deepEqual(sources.councils_fanout, { entity: "councils_fanout", name: "Testville councils (fan-out)", status: "program", lane: "strategic_noncompany",
+    coverage_subject: true, affects: ["RCAT"], record: true });
+  for (const key of ["councils_fanout", "carrier_inspections", "carrier_census"]) {
+    assert.ok(!(key in exclude), `${key} is not excluded`);
+    assert.equal(isRecordSource(PART_C_LIST.find((s) => s.key === key)), true, `${key} is a record by adapter, whatever its host`);
+  }
+  const channels = buildChannels(PART_C_LIST);
+  assert.deepEqual(Object.keys(channels), ["otherco", "testco"], "filters never become a company channel");
 });

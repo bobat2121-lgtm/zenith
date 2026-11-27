@@ -1069,6 +1069,15 @@
         "KDK"
       ]
     },
+    "legistar_fanout": {
+      "role": "customer",
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ]
+    },
     "grrr_policy": {
       "role": "program",
       "affects": [

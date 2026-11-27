@@ -191,3 +191,124 @@ test("TxDMV cards route to the ticker they are for (Z8): by the company named, e
   // The company named wins over the tag: an untagged card naming AUR goes to AUR.
   for (const cp of orders) assert.equal(routeCounterparty(`TxDMV AV authorizations 11/24/2026: "${MATCH.AUR.terms[0]}" 20 -> 21`, cp, MATCH)?.ticker, "AUR");
 });
+
+// Phase 4 Part C (Z-C1..Z-C3): the Legistar fan-out key and the two FMCSA
+// register keys, synced from news-monitor by scripts/sync-covered.mjs. Key
+// names and tickers only; titles, matter numbers, places, dates and counts
+// below are synthetic (testville, TST, example), in the card formats of
+// news-monitor's legistar_fanout and fmcsa_* adapters.
+const { archiveSeedGroups, arrivalGate, ARCHIVE_SEED_MIN } = await import("../worker/src/lib.js");
+const { isDecisionRow } = await import("../worker/src/ingest.js");
+const { legistarMatter } = await import("../worker/src/story.js");
+const FANOUT = "legistar_fanout";
+const FANOUT_URL = "https://testville.legistar.com/LegislationDetail.aspx?ID=9020&GUID=TEST-9020";
+
+test("the Legistar fan-out key is a customer counterparty and a record coverage subject with the Legistar tickers, not a register (Z-C1)", () => {
+  const legacy = COVERED.counterparty.legistar_fresno;
+  assert.deepEqual(COVERED.counterparty[FANOUT], { role: "customer", affects: legacy.affects }, "the same tickers as the per-client keys");
+  assert.ok(!Object.hasOwn(COVERED.sources, FANOUT) && !Object.hasOwn(COVERED.channels, FANOUT));
+  const a = AUX.sources[FANOUT];
+  assert.deepEqual([a.status, a.lane, a.coverage_subject, a.record, a.register], ["program", "strategic_noncompany", true, true, undefined]);
+  assert.deepEqual(a.affects, legacy.affects);
+  assert.equal(isRecordSource(FANOUT), true);
+  assert.equal(isRegisterSource(FANOUT), false);
+});
+
+test("fan-out rows on Coverage (Z-C2): a matter is pending under its tag, its #vote- copy is admitted vote, a baseline card is neither a decision row nor hard-keyed; none is stored on Auxiliary", async () => {
+  const env = newEnv();
+  const matter = "[AXON] Testville City Council 26-9020: Testville test purchase of Axon camera units — Introduced";
+  const card = "[AXON] Testville City Council (Legistar) baseline as of 11/25/2026: 3 earlier matching matters in 180 days, newest 26-9001";
+  const cardUrl = "https://testville.legistar.com/Legislation.aspx?baseline=2026-11-25";
+  nm(env, { source_key: FANOUT, title: matter, published: ago(2), url: FANOUT_URL });
+  nm(env, { source_key: FANOUT, title: card, published: SEEN, url: cardUrl });
+  nm(env, { source_key: FANOUT, title: `${matter} — vote: Passed`, published: ago(1, LATER), first_seen: LATER, url: `${FANOUT_URL}#vote-1` });
+  await ingest(env);
+  await ingestAux(env);
+  const cov = Object.fromEntries(env.DB.rows("SELECT url, ticker, role, state, admit, skip_reason FROM items WHERE source_key = ?", FANOUT)
+    .map((x) => [x.url, [x.ticker, x.role, x.state, x.admit, x.skip_reason]]));
+  assert.deepEqual(cov[FANOUT_URL], ["AXON", "customer", "pending", "seed_fresh", null]);
+  assert.deepEqual(cov[cardUrl], ["AXON", "customer", "pending", "seed_fresh", null], "the baseline card is one graded row");
+  assert.deepEqual(cov[`${FANOUT_URL}#vote-1`], ["AXON", "customer", "pending", "vote", null], "a later poll's vote row is budgeted as a vote");
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = ?", FANOUT)[0].n, 0);
+  assert.equal(isDecisionRow({ source_key: FANOUT, url: `${FANOUT_URL}#vote-1` }), true);
+  assert.equal(isDecisionRow({ source_key: FANOUT, url: cardUrl }), false, "no fragment: not a decision row");
+  assert.equal(legistarMatter(cardUrl), null, "no LegislationDetail: no hard key");
+  assert.equal(legistarMatter(FANOUT_URL), "testville:9020#");
+});
+
+test("fan-out burst guard (Z-C2): four old rows and ten fresh ones in one poll park nothing; a fifth old row would park the group", () => {
+  const row = (published) => ({ source_key: FANOUT, first_seen: SEEN, published });
+  const fresh = Array.from({ length: 10 }, (_, i) => row(ago(i % 7)));
+  const old = (n) => Array.from({ length: n }, (_, i) => row(ago(40 + i)));
+  assert.equal(ARCHIVE_SEED_MIN - 1, 4, "news-monitor emits at most ARCHIVE_SEED_MIN - 1 old rows a fan-out poll");
+  assert.equal(archiveSeedGroups([...old(4), ...fresh]).size, 0);
+  assert.equal(archiveSeedGroups([...old(5), ...fresh]).size, 1);
+});
+
+// The two FMCSA keys come with news-monitor's FMCSA register PR. Whether the
+// catalog tests below run is decided by news-monitor's source list, not by the
+// bundled catalog they check: NEWS_MONITOR_REPO (main + the paired tip at
+// merge time), else the checkout beside zenith, as test/records.test.js finds
+// it. When that tree defines the FMCSA sources, a catalog without them fails.
+const FMCSA_KEYS = ["fmcsa_inspections", "fmcsa_census"];
+const FMCSA_SYNCED = FMCSA_KEYS.filter((k) => Object.hasOwn(COVERED.counterparty, k));
+const { existsSync } = await import("node:fs");
+const { join } = await import("node:path");
+const { fileURLToPath, pathToFileURL } = await import("node:url");
+const ZROOT = fileURLToPath(new URL("..", import.meta.url));
+const NM_ROOT = [process.env.NEWS_MONITOR_REPO, join(ZROOT, "..", "news-monitor-repo"), join(ZROOT, "..", "..", "news-monitor-repo")]
+  .find((p) => p && existsSync(join(p, "src", "sources.js")) && existsSync(join(p, "src", "priority.js")));
+// priority.js appends the register and other generated sources to SOURCES in place, as sync-covered.mjs reads them.
+const NM_SOURCES = NM_ROOT ? (await import(pathToFileURL(join(NM_ROOT, "src", "sources.js")).href)).SOURCES : [];
+if (NM_ROOT) await import(pathToFileURL(join(NM_ROOT, "src", "priority.js")).href);
+const NM_FMCSA = FMCSA_KEYS.filter((k) => NM_SOURCES.some((s) => s.key === k));
+const NOT_SYNCED = NM_FMCSA.length || FMCSA_SYNCED.length ? false
+  : "news-monitor defines no FMCSA register source yet and the bundled catalog has none (they come with news-monitor's FMCSA register PR)";
+
+test("the FMCSA keys are synced together or not at all, and are synced whenever news-monitor defines them (Z-C1)", () => {
+  assert.ok(NM_FMCSA.length === 0 || NM_FMCSA.length === FMCSA_KEYS.length, `news-monitor defines: ${NM_FMCSA.join(", ")}`);
+  assert.ok(FMCSA_SYNCED.length === 0 || FMCSA_SYNCED.length === FMCSA_KEYS.length, `synced: ${FMCSA_SYNCED.join(", ")}`);
+  for (const k of FMCSA_KEYS) assert.equal(Object.hasOwn(AUX.sources, k), FMCSA_SYNCED.length > 0, `${k} aux entry`);
+  for (const k of NM_FMCSA) assert.ok(FMCSA_SYNCED.includes(k), `${k} is a news-monitor source but not in covered.json: regenerate against that tree`);
+});
+
+test("the FMCSA keys are program counterparties and register record entries of one fmcsa entity, coverage subjects with their tickers (Z-C1)", { skip: NOT_SYNCED }, () => {
+  for (const k of FMCSA_KEYS) {
+    const cp = COVERED.counterparty[k];
+    assert.equal(cp.role, "program", k);
+    assert.ok(cp.affects.length > 0 && cp.affects.every((t) => COVERED.tickers.includes(t)), k);
+    assert.ok(!Object.hasOwn(COVERED.sources, k) && !Object.hasOwn(COVERED.channels, k), k);
+    assert.deepEqual(AUX.sources[k], { entity: "fmcsa", name: "FMCSA inspection and census records", status: "program", lane: "strategic_noncompany",
+      coverage_subject: true, affects: cp.affects, record: true, register: true }, `${k} in aux-sources.json`);
+    assert.equal(isRecordSource(k), true, k);
+    assert.equal(isRegisterSource(k), true, k);
+  }
+});
+
+test("FMCSA rows on Coverage (Z-C3): the seed card is held seed_fresh, a later row dated by its upload day is held register, never record_late or stale; none on Auxiliary", { skip: NOT_SYNCED }, async () => {
+  const env = newEnv();
+  const t = COVERED.counterparty.fmcsa_inspections.affects[0];
+  const base = "https://data.example.gov/resource/inspections.json";
+  nm(env, { source_key: "fmcsa_inspections", title: `[${t}] FMCSA roadside inspections baseline as of 11/25/2026: 3 in 2026; shippers named on its trucks include TESTCO FOODS`,
+    published: SEEN, url: `${base}?dot_number=0#baseline-test` });
+  const late = `[${t}] FMCSA roadside inspection ${ago(200, LATER).slice(0, 10)} (TX, TESTVILLE): new shipper "TESTCO PAPER"`;
+  nm(env, { source_key: "fmcsa_inspections", title: late, published: ago(1, LATER), first_seen: LATER, url: `${base}?inspection_id=1` });
+  await ingest(env);
+  await ingestAux(env);
+  const rows = env.DB.rows("SELECT ticker, state, admit, skip_reason FROM items WHERE source_key = 'fmcsa_inspections' ORDER BY nm_first_seen")
+    .map((x) => [x.ticker, x.state, x.admit, x.skip_reason]);
+  assert.deepEqual(rows, [[t, "pending", "seed_fresh", null], [t, "pending", "register", null]]);
+  assert.equal(env.DB.rows("SELECT COUNT(*) AS n FROM aux_items WHERE source_key = 'fmcsa_inspections'")[0].n, 0);
+});
+
+test("FMCSA routing and dating, catalog-free (Z-C3): a register row dated by upload day is admitted register; dated by an inspection 200 days back it would be stale; a rival-labelled card goes to its tag", () => {
+  const ctx = { pipeline: "coverage", record: true, register: true, seed: false, burst: false };
+  assert.deepEqual(arrivalGate({ published: ago(1, LATER), first_seen: LATER }, ctx), { reason: null, admit: "register" });
+  assert.deepEqual(arrivalGate({ published: ago(200, LATER), first_seen: LATER }, ctx), { reason: "stale_on_arrival", admit: null },
+    "why news-monitor dates an inspection row by its upload day");
+  const match = { TST: { terms: ["Testco"], accounts: [] }, TS2: { terms: ["Tsecond"], accounts: [] } };
+  const cp = { role: "program", affects: ["TST", "TS2"] };
+  const rival = "[TS2] (Example Freight, rival) FMCSA roadside inspection 2026-11-20 (TX, TESTVILLE): new shipper \"EXAMPLE FOODS\"";
+  assert.equal(routeCounterparty(rival, cp, match).ticker, "TS2", "the tag decides when no company or account is named");
+  assert.equal(routeCounterparty(rival.replace("[TS2]", "[TST]"), { ...cp, affects: ["TS2", "TST"] }, match).ticker, "TST");
+});

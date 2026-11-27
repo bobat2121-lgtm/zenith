@@ -1211,6 +1211,20 @@
       ],
       "record": true
     },
+    "legistar_fanout": {
+      "entity": "legistar_fanout",
+      "name": "City and county councils (Legistar fan-out)",
+      "status": "program",
+      "lane": "strategic_noncompany",
+      "coverage_subject": true,
+      "affects": [
+        "AXON",
+        "SERV",
+        "EVLV",
+        "XTRAF"
+      ],
+      "record": true
+    },
     "legistar_fresno": {
       "entity": "legistar_fresno",
       "name": "Fresno City Council",
