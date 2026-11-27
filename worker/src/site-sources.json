@@ -198,6 +198,11 @@
       "label": "dvids news",
       "expect": "feed"
     },
+    "probe_gao_docket": {
+      "ticker": null,
+      "label": "gao docket",
+      "expect": null
+    },
     "probe_gnw_bot_rss": {
       "ticker": "BOT",
       "label": "BOT gnw",
