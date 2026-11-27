@@ -38,6 +38,9 @@
 //   media gate (ingest.js routeCp), which reads covered.json media_accounts:
 //   per covered ticker, the terms of its program-kind key accounts
 //   (rubric/key-accounts.json).
+// Phase 4 Part D: a body-record register (BODY_RECORD_ADAPTERS) carries
+//   body_record: true on its auxiliary entry; zenith-core keeps its item body
+//   as the excerpt and never fetches the item URL (worker/src/ingest.js feedFields).
 //   Usage: node scripts/sync-covered.mjs [--check] <path-to-news-monitor-repo>
 //     --check   write nothing; exit 1 when a generated file on disk differs
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
@@ -155,7 +158,10 @@ export const SEC_ADAPTERS = ["edgar", "edgar_keyword"];
 // carrier identifiers, share one program entity.
 // Phase 4 (Part B): the OIRA review lists and the congressional committee
 // reports, each its own program entity, both group-routed (below).
-export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt"];
+// Phase 4 (Part D): the FTC early-termination register, matched on exact legal
+// names; its sources carry config.tagAffects (routed by tag, as above) and its
+// bodies are the record itself (body_record, below).
+export const REGISTER_ADAPTERS = ["lda_registrations", "lda_reports", "txdmv_av_report", "fmcsa_inspections", "fmcsa_census", "oira_review", "govinfo_crpt", "ftc_hsr_et"];
 export const REGISTERS = {
   lda_registrations: { entity: "lda", name: "LDA lobbying filings" },
   lda_reports: { entity: "lda", name: "LDA lobbying filings" },
@@ -164,7 +170,14 @@ export const REGISTERS = {
   fmcsa_census: { entity: "fmcsa", name: "FMCSA inspection and census records" },
   oira_review: { entity: "oira", name: "OIRA regulatory review" },
   govinfo_crpt: { entity: "govinfo_crpt", name: "Congressional committee reports" },
+  ftc_hsr_et: { entity: "ftc_hsr", name: "FTC HSR early terminations" },
 };
+// Body-record registers (phase 4 Part D): each item body is the published
+// record, every field as published, not a summary of a page. Their auxiliary
+// entries carry body_record: true (worker/src/records.js isBodyRecordSource),
+// so zenith-core keeps the body as the excerpt whatever its length and never
+// fetches the item URL (worker/src/ingest.js feedFields).
+export const BODY_RECORD_ADAPTERS = ["ftc_hsr_et"];
 // Group-routed registers (phase 4 Part B): each card is about one topic group,
 // a shared program entity named by its URL's trailing "g=<entity>" fragment,
 // never about one ticker. Their counterparty and auxiliary entries carry
@@ -319,6 +332,8 @@ export function buildAux(sourceList, covered, peers = [], { groups = [], warning
     if (isTagAffects(s) && counterparty[key]) sources[key].tag_affects = true;
     // group_routed (phase 4 Part B): a group-routed register, as on its counterparty entry.
     if (isGroupRouted(s) && counterparty[key]) sources[key].group_routed = true;
+    // body_record (phase 4 Part D): the item body is the record; never page-fetched.
+    if (BODY_RECORD_ADAPTERS.includes(s.adapter)) sources[key].body_record = true;
   }
   const sortedExclude = Object.fromEntries(Object.keys(exclude).sort().map((k) => [k, exclude[k]]));
   const registerGroups = buildRegisterGroups(groups, sourceList, covered?.tickers, warnings);
